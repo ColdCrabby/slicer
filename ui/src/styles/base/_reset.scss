@@ -99,6 +99,37 @@ nexus-slice-segment-bar .step-btn {
   touch-action: manipulation;
 }
 
+// On a touch device the whole shell is chrome, not a document. iPadOS starts a
+// selection from a long press, and with a mouse or trackpad from any drag that
+// wanders over a label — and the moment one starts, the selection takes the
+// pointer stream: a slider stops following the thumb, a resize handle lets go,
+// and the magnifier and callout bar land on top of the control being held. So
+// on a coarse pointer nothing is selectable by default, as in a native app, and
+// selection is handed back only where there is text worth taking: what the user
+// types, and code.
+//
+// Keyed to the `<html>` class rather than a media query so it lands before first
+// paint alongside the rest of the touch adaptations (see `_touch.scss`), and
+// deliberately not extended to a fine pointer, where drag-selecting a value or
+// an error message to copy it is expected and harmless.
+html.is-coarse-pointer body {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='button']):not(
+      [type='submit']
+    ):not([type='color']),
+  textarea,
+  [contenteditable]:not([contenteditable='false']),
+  pre,
+  code {
+    -webkit-touch-callout: default;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
+
 [hidden] {
   display: none !important;
 }

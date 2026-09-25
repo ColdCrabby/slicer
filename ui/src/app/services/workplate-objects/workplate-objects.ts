@@ -9,6 +9,7 @@ import {
   nativePathOf,
   type ModelFormat,
 } from '../model-source';
+import { NotificationService } from '../notifications';
 import { SceneCommand } from '../scene-command/scene-command';
 import { SceneEngine } from '../scene-engine';
 import { SlicerFile } from '../slicer-file';
@@ -55,6 +56,7 @@ export class WorkplateObjects {
   private readonly arrange = inject(Arrange);
   private readonly wasmPerfNotice = inject(WasmPerformanceNotice);
   private readonly modelSources = inject(ModelSourceRegistry);
+  private readonly notifications = inject(NotificationService);
 
   /** Live list of objects on the plate. */
   readonly objects = this.sceneEngine.objects;
@@ -135,6 +137,55 @@ export class WorkplateObjects {
     }
 
     return results;
+  }
+
+  /**
+   * Add files to the plate and tell the user how it went.
+   *
+   * The one flow behind every way of adding to an open plate — the toolbar
+   * button, the objects list, a drop onto the scene — so they all report the
+   * same way: a progress notice that resolves to what was added, plus one
+   * error per file that could not be.
+   */
+  async addFilesWithFeedback(files: readonly File[]): Promise<AddObjectResult[]> {
+    const notifId = this.notifications.task(
+      files.length === 1 ? 'Adding model…' : `Adding ${files.length} models…`,
+      files.map((f) => f.name).join(', '),
+    );
+    try {
+      const results = await this.addFiles(files);
+      const added = results.filter((r) => r.objectIds !== undefined);
+      const failed = results.filter((r) => r.error);
+
+      if (added.length === 0) {
+        this.notifications.resolveTask(
+          notifId,
+          'danger',
+          'Could not add model',
+          failed[0]?.error ?? 'Use an STL, OBJ or 3MF model.',
+        );
+        return results;
+      }
+
+      this.notifications.resolveTask(
+        notifId,
+        'success',
+        added.length === 1 ? 'Model added' : `${added.length} models added`,
+        added.map((r) => r.file.name).join(', '),
+      );
+      for (const failure of failed) {
+        this.notifications.error(`Could not add ${failure.file.name}`, failure.error);
+      }
+      return results;
+    } catch (error) {
+      this.notifications.resolveTask(
+        notifId,
+        'danger',
+        'Could not add model',
+        error instanceof Error ? error.message : undefined,
+      );
+      return [];
+    }
   }
 
   /**
@@ -220,10 +271,15 @@ export class WorkplateObjects {
     const { autoOrient, preferredOrientationDeg } = this.arrange.settings();
     for (const id of ids) {
       if (autoOrient) {
+        // Centres on the bed as well as orienting.
         this.sceneEngine.apply({
           op: 'AutoOrient',
           args: { id, options: { preferred_z_rotation_deg: preferredOrientationDeg } },
         });
+      } else {
+        // Keep the file's pose but not its position: a CAD export sits
+        // wherever its origin was drawn, which is often off the bed entirely.
+        this.sceneEngine.apply({ op: 'CenterOnBed', args: { id } });
       }
       this.sceneEngine.apply({ op: 'DropToFloor', args: { id } });
       this.placeClear(id);

@@ -362,7 +362,7 @@ mouse. So the shell asks three separate questions and answers them independently
 | May the layout keep its desktop shape? | `handheld()`       | `isHandheld()`      | phones                        |
 | Must chrome over the scene fold away?  | `compact()`        | `isCompact()`       | phones, tablets, ≤1024px      |
 | Is there a cursor to hover with?       | `coarse-pointer()` | `isCoarsePointer()` | phones, tablets, touchscreens |
-| How big must a target be?              | `--touch-*` tokens | `isFingertip()`     | the same, minus a live stylus |
+| How big must a target be?              | `--touch-*` tokens | `isCoarsePointer()` | the same                      |
 
 ```mermaid
 flowchart LR
@@ -398,18 +398,14 @@ flowchart LR
   so where two blocks set the same property at the same specificity the later
   one wins. Order them **compact → handheld → coarse-pointer**, and prefer
   setting a value in exactly one of them.
-- **A pen is coarse and precise at once, and those are separate answers.**
-  `pointer: coarse` is all the platform will say: iPadOS reports it whether the
-  glass is being touched by a fingertip or by a Pencil. The affordances that
-  exist because there is no hover or no modifier key — revealed row actions,
-  the multi-select toggle, the G-code step buttons — belong on screen for both,
-  so they stay on `coarse-pointer()`. **Target size is the narrower question**,
-  and a Pencil aims better than a mouse: `Viewport` watches `pointerType` and
-  marks `html.is-stylus` while a pen is in use, which reverts every `--touch-*`
-  token in [`_touch.scss`](src/styles/base/_touch.scss) to the shared component's
-  own cursor size. A component reads the token rather than the class, because
-  emulated encapsulation rewrites an `<html>` ancestor selector out of reach
-  while a custom property set on one still inherits.
+- **One scale per device, never per pointer.** `pointer: coarse` is all the
+  platform will say: iPadOS reports it whether the glass is being touched by a
+  fingertip or by a Pencil, and both get the same fingertip-sized
+  [`--touch-*` tokens](src/styles/base/_touch.scss). Do not resize on
+  `pointerType` — users swap pen and finger constantly, and every swap would
+  reflow the whole interface. A component reads the token rather than the
+  `<html>` class, because emulated encapsulation rewrites an `<html>` ancestor
+  selector out of reach while a custom property set on one still inherits.
 - **Sizing is two numbers, not one floor.** `--touch-target` (40px) is for an
   isolated control where a miss does nothing; `--touch-row` (36px) is for a form
   or list row whose neighbours are harmless to land on, of which the settings
@@ -585,6 +581,11 @@ The rules worth knowing before editing it:
   attached first. [`gizmo.spec.ts`](src/app/components/viewer/gizmo.spec.ts) pins
   it, and asserts the three.js behaviour so a future release changing it is
   noticed.
+- **Nothing is text-selectable on a coarse pointer** except what the user types
+  and code ([_reset.scss](src/styles/base/_reset.scss)). A selection started by
+  a long press — or by a mouse drag on an iPad — takes the pointer stream with
+  it, so sliders stop tracking and drag handles let go. Opt a surface back in
+  there rather than per component.
 - **Palm rejection sits above all of it** in
   [`scene/pointer-arbiter.ts`](src/app/components/viewer/scene/pointer-arbiter.ts),
   on the host in the capture phase, so a resting wrist never reaches these

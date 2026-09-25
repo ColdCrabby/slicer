@@ -95,6 +95,7 @@ run the same way.
 | Orbit or pan | Two-finger swipe — pick which in **Settings → General → Controls** |
 | Zoom | Pinch |
 | Context menu | Long-press |
+| Add to or remove from the selection | Long-press a model → **Add to selection** / **Remove from selection** |
 
 **Palm rejection** is on by default. Once you've used a stylus, a resting hand
 stops moving the camera. Turn it off in **Settings → General** if you don't use

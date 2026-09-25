@@ -16,12 +16,12 @@ import { Dialog } from '../../services/dialog';
 import { GcodePreview } from '../../services/gcode-preview';
 import { HistoryControlsPreference } from '../../services/history-controls-preference';
 import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
-import { NotificationService } from '../../services/notifications';
 import { SceneEngine } from '../../services/scene-engine';
 import { SceneHistory } from '../../services/scene-history/scene-history';
 import { Slicer } from '../../services/slicer';
 import { ViewerControl } from '../../services/viewer-control';
 import { Viewport } from '../../services/viewport';
+import { MODEL_FILE_ACCEPT } from '../../services/model-source';
 import { WorkplateObjects } from '../../services/workplate-objects';
 import {
   Icon,
@@ -57,7 +57,6 @@ export class ThreeDViewToolbar {
   private readonly gcodePreview = inject(GcodePreview);
   private readonly dialog = inject(Dialog);
   private readonly workplate = inject(WorkplateObjects);
-  private readonly notifications = inject(NotificationService);
   private readonly arrange = inject(Arrange);
   private readonly history = inject(SceneHistory);
   private readonly viewport = inject(Viewport);
@@ -65,6 +64,8 @@ export class ThreeDViewToolbar {
   protected readonly historyControls = inject(HistoryControlsPreference);
   protected readonly autoSlice = inject(AutoSlice);
   protected readonly keyboardShortcuts = inject(KeyboardShortcuts);
+
+  protected readonly modelFileAccept = MODEL_FILE_ACCEPT;
 
   private readonly addInput = viewChild<ElementRef<HTMLInputElement>>('addObjectInput');
 
@@ -96,20 +97,24 @@ export class ThreeDViewToolbar {
   /** Whether taps add to the selection instead of replacing it. */
   protected readonly multiSelect = this.viewerControl.additiveSelection;
 
+  /** Whether there is a batch to build at all — plate editing, two objects. */
+  private readonly canMultiSelect = computed(
+    () => this.editingPlate() && this.sceneEngine.objects().length > 1,
+  );
+
   /**
    * Whether to offer the multi-select toggle.
    *
    * A mouse already has ⌘/Ctrl-click, so the button would be redundant chrome
    * there; a finger and a pencil have no modifier at all, which is what used to
-   * make the objects list the only way to select a batch. Pointless with fewer
-   * than two objects on the plate, so it only appears once there is something
-   * to add to.
+   * make the objects list the only way to select a batch. The app keeps one
+   * pointer-size signal for touch and pen alike, so the toggle remains available
+   * on stylus devices without reintroducing a second size mode. And while the
+   * mode is on the toggle always stays, because a long-press menu can turn it on
+   * and it must never be on with no way to turn it off.
    */
   protected readonly showMultiSelect = computed(
-    () =>
-      this.editingPlate() &&
-      this.viewport.isCoarsePointer() &&
-      this.sceneEngine.objects().length > 1,
+    () => this.canMultiSelect() && (this.viewport.isCoarsePointer() || this.multiSelect()),
   );
 
   protected toggleMultiSelect(): void {
@@ -117,11 +122,11 @@ export class ThreeDViewToolbar {
   }
 
   constructor() {
-    // Never leave the mode on with no control to turn it off — dropping to one
-    // object, or switching to G-code preview, would otherwise strand an
-    // invisible setting that quietly changes what the next tap does.
+    // Dropping to one object, or switching to G-code preview, hides the toggle
+    // — so leave the mode too, rather than strand an invisible setting that
+    // quietly changes what the next tap does.
     effect(() => {
-      if (!this.showMultiSelect() && untracked(this.multiSelect)) {
+      if (!this.canMultiSelect() && untracked(this.multiSelect)) {
         this.multiSelect.set(false);
       }
     });
@@ -186,19 +191,7 @@ export class ThreeDViewToolbar {
 
     this.addingObjects.set(true);
     try {
-      const results = await this.workplate.addFiles(files);
-      const added = results.filter((r) => r.objectIds !== undefined);
-      const failed = results.filter((r) => r.error);
-
-      if (added.length > 0) {
-        this.notifications.success(
-          added.length === 1 ? 'Model added' : `${added.length} models added`,
-          added.map((r) => r.file.name).join(', '),
-        );
-      }
-      for (const failure of failed) {
-        this.notifications.error(`Could not add ${failure.file.name}`, failure.error);
-      }
+      await this.workplate.addFilesWithFeedback(files);
     } finally {
       this.addingObjects.set(false);
     }

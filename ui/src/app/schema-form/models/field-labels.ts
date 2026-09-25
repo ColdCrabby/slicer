@@ -95,6 +95,7 @@ export const FIELD_LABELS: Record<string, string> = {
   bridge_acceleration: 'Bridge Acceleration',
   support_acceleration: 'Support Acceleration',
   travel_acceleration: 'Travel Acceleration',
+  gentle_travel_to_outer_wall: 'Gentle Travel to Outer Wall',
   square_corner_velocity: 'Square Corner Velocity',
   max_velocity: 'Max Velocity',
   // Extrusion

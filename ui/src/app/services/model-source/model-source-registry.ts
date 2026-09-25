@@ -6,6 +6,28 @@ export const MODEL_EXTENSIONS = ['stl', 'obj', '3mf'] as const;
 
 export type ModelFormat = (typeof MODEL_EXTENSIONS)[number];
 
+/**
+ * The `accept` list for every model file picker.
+ *
+ * Extensions alone are not enough: iPadOS and some desktop pickers know no type
+ * for `.stl` or `.3mf` and grey the file out, so the MIME types — down to
+ * `application/octet-stream` — are what let the user pick it at all. Every
+ * picker shares this one list so opening a plate and adding to it can never
+ * offer different files.
+ */
+export const MODEL_FILE_ACCEPT = [
+  '.stl',
+  '.obj',
+  '.3mf',
+  'model/stl',
+  'model/obj',
+  'model/3mf',
+  'application/vnd.ms-pki.stl',
+  'application/sla',
+  'application/vnd.ms-package.3dmanufacturing-3dmodel+xml',
+  'application/octet-stream',
+].join(',');
+
 /** Detect a model format from a filename, defaulting to STL. */
 export function modelFormatOf(fileName: string): ModelFormat {
   const ext = fileName.toLowerCase().split('.').pop() ?? '';

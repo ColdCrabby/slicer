@@ -3,6 +3,7 @@ import { BrowserStorage } from '../../services/browser-storage';
 import { SceneEngine, type SceneObjectSnapshot } from '../../services/scene-engine';
 import { ViewerControl } from '../../services/viewer-control';
 import { Viewport } from '../../services/viewport';
+import { MODEL_FILE_ACCEPT } from '../../services/model-source';
 import { WorkplateObjects } from '../../services/workplate-objects';
 import { Icon, TooltipDirective } from '@coldcrabby/ui';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
@@ -57,6 +58,11 @@ export class ObjectsPanel {
   private readonly storage = inject(BrowserStorage);
   private readonly contextMenu = inject(ContextMenuService);
   private readonly sceneCommand = inject(SceneCommand);
+
+  protected readonly modelFileAccept = MODEL_FILE_ACCEPT;
+
+  /** True while picked models are being added. */
+  protected readonly adding = signal(false);
 
   /** Id awaiting delete confirmation, if any. */
   protected readonly pendingDelete = signal<bigint | null>(null);
@@ -130,6 +136,23 @@ export class ObjectsPanel {
     }
     return parts.length > 0 ? parts.join(' · ') : null;
   });
+
+  /** Add the picked models to the plate, alongside everything already on it. */
+  protected async onAddFiles(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    // Reset immediately so picking the same file twice still fires a change.
+    input.value = '';
+    if (files.length === 0) {
+      return;
+    }
+    this.adding.set(true);
+    try {
+      await this.workplate.addFilesWithFeedback(files);
+    } finally {
+      this.adding.set(false);
+    }
+  }
 
   protected select(row: ObjectRow, event: Event): void {
     // Angular types `(keydown.enter)` as a plain Event, so narrow rather than

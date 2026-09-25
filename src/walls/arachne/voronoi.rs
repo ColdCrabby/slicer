@@ -23,7 +23,7 @@
 //! same mesh must slice identically on native and wasm.
 
 use boostvoronoi::prelude::{Builder, BvError, Diagram};
-use clipper2::{simplify, Paths};
+use clipper2::{simplify, union, FillRule, Paths};
 
 /// Fixed-point scale: millimetres → integer Voronoi input units.
 ///
@@ -97,12 +97,13 @@ fn to_segments(paths: &Paths, scale: f64, offset: [f64; 2]) -> Vec<[i32; 4]> {
 /// # Contract
 ///
 /// The caller MUST pass Clipper2 output with canonical winding (CCW outer
-/// rings, CW holes) and no self-intersections — segments may only meet at
-/// shared endpoints, which `boost::polygon::voronoi` requires.  Reuse the same
-/// `union(…, EvenOdd)` normalisation the classic generator applies.
+/// rings, CW holes). Crossings are tolerated: the polygon is simplified
+/// ([`SIMPLIFY_EPS_MM`]) and then re-normalised here, as the last step before
+/// the segments are cut, because `boost::polygon::voronoi` requires segments
+/// that meet only at shared endpoints.
 ///
-/// The polygon is simplified ([`SIMPLIFY_EPS_MM`]) and translated to a local
-/// origin before scaling, both for numerical robustness.  The returned offset
+/// The polygon is translated to a local origin before scaling, for numerical
+/// robustness.  The returned offset
 /// (the pre-translation bounding-box minimum, mm) must be added back to vertex
 /// coordinates — after dividing by [`VORONOI_SCALE`] — to recover world
 /// millimetres; [`super::skeleton::build_skeleton`] does exactly that.
@@ -114,7 +115,20 @@ fn to_segments(paths: &Paths, scale: f64, offset: [f64; 2]) -> Vec<[i32; 4]> {
 /// contains it with [`std::panic::catch_unwind`] and falls back to the plain
 /// offset loops.
 pub fn build_segment_voronoi(paths: &Paths) -> Result<(Diagram, [f64; 2]), BvError> {
-    let cleaned = simplify(paths.clone(), SIMPLIFY_EPS_MM, false);
+    // Simplifying does not keep a polygon simple — dropping a vertex can swing
+    // an edge across a neighbour — and Clipper output can already carry a vertex
+    // touching another ring's edge. Crossing segments break the sweep's
+    // beach-line ordering, and then the diagram depends on the search
+    // structure's shape, which `boostvoronoi` draws at random: the same region
+    // came out differently on every slice. `Positive` rather than `EvenOdd`,
+    // because winding is known — a hole pushed past its outer ring by the
+    // simplify must stay empty, not become filled.
+    let cleaned = union(
+        simplify(paths.clone(), SIMPLIFY_EPS_MM, false),
+        Paths::new(vec![]),
+        FillRule::Positive,
+    )
+    .unwrap_or_default();
     let src = if cleaned.iter().next().is_some() {
         cleaned
     } else {
@@ -203,5 +217,43 @@ mod tests {
             band_vertices > 0,
             "expected medial-axis vertices within the wall band"
         );
+    }
+
+    #[test]
+    fn a_self_crossing_contour_builds_the_same_diagram_every_time() {
+        // A 17-vertex contour taken from a 3DBenchy layer, as it reached the
+        // Voronoi builder after simplification: the short vertical edge at
+        // x = 1.65 crosses the long diagonal that ends at (1.66, 0). Given
+        // crossing segments, the sweep's beach line stops being ordered, and
+        // which diagram comes out depends on the search structure's random
+        // shape — this contour produced four different ones.
+        let ring: Path = vec![
+            (1.65, 0.01),
+            (1.65, 0.09),
+            (1.71, 0.20),
+            (1.78, 0.24),
+            (1.97, 0.25),
+            (2.15, 0.42),
+            (2.25, 0.43),
+            (2.39, 0.34),
+            (1.39, 2.36),
+            (0.78, 3.87),
+            (0.72, 3.95),
+            (0.0, 3.94),
+            (0.25, 3.22),
+            (0.94, 1.52),
+            (1.30, 0.79),
+            (1.33, 0.66),
+            (1.66, 0.0),
+        ]
+        .into();
+        let paths = Paths::new(vec![ring]);
+
+        let shape = |d: &Diagram| (d.num_vertices(), d.num_edges());
+        let first = shape(&build_segment_voronoi(&paths).expect("voronoi build").0);
+        for _ in 0..20 {
+            let again = shape(&build_segment_voronoi(&paths).expect("voronoi build").0);
+            assert_eq!(again, first, "the same contour built a different diagram");
+        }
     }
 }

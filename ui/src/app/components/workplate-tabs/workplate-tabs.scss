@@ -187,9 +187,7 @@
 // size from a token rather than a number. That class is for the *global*
 // stylesheets only: inside a component, emulated encapsulation rewrites the
 // selector to `html.is-coarse-pointer[_ngcontent-x]`, and <html> carries no such
-// attribute, so the rule silently never matches. The token is how a component
-// still gets the stylus size, since `html.is-stylus` is out of reach for the
-// same reason but a custom property set on it inherits.
+// attribute, so the rule silently never matches.
 @include coarse-pointer {
   .wp-tab {
     height: var(--touch-target);

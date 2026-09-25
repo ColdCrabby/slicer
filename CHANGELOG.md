@@ -27,6 +27,14 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
+### Fixed
+
+- **The same model now slices to the same G-code.** Simplifying a region before
+  Arachne's medial fill could leave two of its edges crossing, and the Voronoi
+  diagram of crossing edges is undefined — so two runs of one file could print
+  different walls there. Regions are now made clean again after simplifying, and
+  the surface trim no longer depends on hash order. Classic was never affected.
+
 ### Added
 
 - **Inner walls have their own speed** — the hidden walls behind the surface no
@@ -37,6 +45,10 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   the skins are no longer priced like the top surface they share a name with.
   `Internal Solid Speed` defaults to 150% of the top surface, which lands on the
   same speed as sparse infill.
+- **Travel brakes gently onto the outer wall** — a hop that lands where a
+  visible wall starts now slows at the outer-wall acceleration instead of the
+  travel one, so the toolhead is not still ringing when the wall begins. On by
+  default; every other hop keeps full travel acceleration.
 
 ### Changed
 
@@ -55,10 +67,9 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   Maximum to 250, both still held below their own infill speed so there is
   something left to spend on the surface. Past roughly 20 mm³/s the limit is the
   hotend rather than the profile — set `Max Volumetric Speed` on the filament.
-- **Touch targets are sized for the pointer in your hand** — controls grow for a
-  fingertip and go straight back to their compact sizes the moment an Apple
-  Pencil or other stylus touches the glass, so a tablet stops spending screen on
-  a precision problem it does not have.
+- **Touch targets are sized for a fingertip on touch devices** — one size for
+  finger and Apple Pencil alike, so switching between them never shifts the
+  layout.
 - **Tablet chrome is calmer** — the blanket 44 pt floor is now two numbers: 40 px
   for an isolated control and 36 px for a settings row, which takes roughly a
   screen and a half of scrolling out of the settings panel on an iPad.
@@ -88,10 +99,29 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Fixed
 
+- **Curves no longer stutter or print as facets.** Spiral (vase) loops used to
+  reach the printer unsimplified, as thousands of 0.01 mm zig-zag moves that
+  made Klipper slow down at nearly every vertex. Every path now merges those
+  micro-segments first, and the default path tolerance drops from 0.05 mm to
+  0.0125 mm so large arcs stay round rather than faceted.
+
 - **Held steppers no longer die under a fingertip.** A touchscreen reads a long
   press as a request for a context menu about half a second in — right after the
   repeat started — which stopped `+` / `−` from running at all on a phone or
   tablet, and popped the system callout on top of the button being held.
+- **Auto-oriented parts sit on the bed.** A part turned onto an angled face
+  could float tens of millimetres above the plate, land off-centre, or be flagged
+  out of bounds when it fit. Placement now measures the part itself, not a box
+  around it.
+- **Rotate, scale and Pull to floor turn a part where it stands.** Models
+  exported from CAD often carry an origin far from the geometry, and turning
+  about it swung the part across the plate. Pull to floor also no longer sinks
+  the rest of the part into the bed when the picked face isn't the lowest.
+- **Pull to floor highlights the face you'll get.** On finely tessellated
+  curves the highlight could spread round half the model; it now stops where
+  the surface stops being flat.
+- **A model opened with auto-orient off lands on the bed**, centred, rather
+  than wherever its file's origin put it.
 
 ## [0.5.0] - 2026-09-16
 
