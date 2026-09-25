@@ -573,11 +573,12 @@ impl SceneState {
                 }
 
                 // ----------------------------------------------------------------
-                // Step 2: Project each object's own triangles onto the plate.
+                // Step 2: Hand the packer each object's own triangles.
                 //
-                // The outline, not the bounding box: an L-bracket's box is
-                // mostly air, and only a packer that sees the real shadow can
-                // tuck the next part into that air.
+                // Not the bounding box, and not even the outline: the packer
+                // wants the height each column of the part claims, so a part
+                // can pass over or under its neighbour where the two never
+                // want the same space.
                 // ----------------------------------------------------------------
                 let mut owners: Vec<ObjectId> = Vec::with_capacity(ids.len());
                 let mut footprints: Vec<crate::orient::pack::Footprint> =
@@ -598,6 +599,8 @@ impl SceneState {
                     &crate::orient::pack::PackOptions {
                         spacing_mm: options.spacing_mm,
                         rotation_step_deg: options.rotation_step_deg,
+                        vertical_nesting: options.vertical_nesting,
+                        overhang_threshold_deg: options.orient_options.overhang_threshold_deg,
                     },
                 );
 
@@ -605,7 +608,7 @@ impl SceneState {
                 // Step 3: Turn each object about the pivot its footprint was
                 // rasterised around, then move that pivot where the packer put
                 // it.  Rotating about the pivot is what makes the placed part
-                // land exactly on the outline that was tested for collisions.
+                // land exactly on the shape that was tested for collisions.
                 // ----------------------------------------------------------------
                 for item in &packed {
                     let obj_id = owners[item.index];

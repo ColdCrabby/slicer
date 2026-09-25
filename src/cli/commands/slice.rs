@@ -446,15 +446,25 @@ impl SliceCommand {
     fn arrange_options(
         &self,
         machine: &crate::config::MachineConfig,
+        params: &crate::settings::SlicingParams,
     ) -> crate::orient::ArrangeOptions {
         crate::orient::ArrangeOptions {
             spacing_mm: self.arrange_spacing,
             auto_orient: self.arrange_auto_orient,
             orient_options: crate::orient::AutoOrientOptions {
                 preferred_z_rotation_deg: machine.preferred_print_rotation_deg,
+                // The packer treats an underside steeper than this as holding
+                // itself up, and so as leaving the space below it free. Taking
+                // the figure from the process that will slice the plate is what
+                // keeps that promise true.
+                overhang_threshold_deg: params.support_threshold_angle,
                 ..Default::default()
             },
             rotation_step_deg: self.arrange_rotate_step,
+            // Parts may only share plate area at different heights when the
+            // whole plate rises together.
+            vertical_nesting: params.print_sequence
+                != crate::settings::params::PrintSequence::ByObject,
         }
     }
 
@@ -766,7 +776,7 @@ impl SliceCommand {
             logger.log_debug("applied drop-to-floor transform");
         }
         if self.arrange {
-            let options = self.arrange_options(&config.machine);
+            let options = self.arrange_options(&config.machine, &slice_params);
             let preferred_deg = options.orient_options.preferred_z_rotation_deg;
             scene.apply(SceneOp::ArrangeOnBed {
                 ids: object_ids.clone(),
@@ -1228,7 +1238,10 @@ mod tests {
         ]);
         assert!(cmd.arrange);
 
-        let options = cmd.arrange_options(&crate::config::MachineConfig::default());
+        let options = cmd.arrange_options(
+            &crate::config::MachineConfig::default(),
+            &crate::settings::SlicingParams::default(),
+        );
         assert_eq!(options.spacing_mm, 7.5);
         assert!(options.auto_orient);
     }
@@ -1238,7 +1251,10 @@ mod tests {
         // The library default is `true`; the CLI must not silently discard an
         // orientation the user picked with --rotate / --align-face.
         let cmd = parse(&["-i", "a.stl", "-i", "b.stl", "--arrange"]);
-        let options = cmd.arrange_options(&crate::config::MachineConfig::default());
+        let options = cmd.arrange_options(
+            &crate::config::MachineConfig::default(),
+            &crate::settings::SlicingParams::default(),
+        );
         assert!(!options.auto_orient);
         assert_eq!(options.spacing_mm, 2.0);
     }
@@ -1259,7 +1275,7 @@ mod tests {
             preferred_print_rotation_deg: 45.0,
             ..Default::default()
         };
-        let options = cmd.arrange_options(&machine);
+        let options = cmd.arrange_options(&machine, &crate::settings::SlicingParams::default());
         assert_eq!(options.orient_options.preferred_z_rotation_deg, 45.0);
     }
 

@@ -52,6 +52,14 @@
           (valueChange)="setSpacing($event)"
         />
       </div>
+      <p class="pp-hint">
+        @if (verticalNesting()) {
+          Measured between the parts themselves. Where one part overhangs, another can sit under it.
+        } @else {
+          Printing one part at a time, so each keeps its own space from the plate up — nothing tucks
+          under anything.
+        }
+      </p>
 
       <div class="pp-divider"></div>
 

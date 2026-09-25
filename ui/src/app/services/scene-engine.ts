@@ -165,6 +165,8 @@ export type SceneOp =
           auto_orient?: boolean;
           /** Rotation step the packer may turn an object by (default 90; 0 keeps every angle). */
           rotation_step_deg?: number;
+          /** May a part take plate area above or below another (default true)? */
+          vertical_nesting?: boolean;
           orient_options?: {
             allow_rotations?: boolean;
             preferred_z_rotation_deg?: number;
@@ -529,6 +531,7 @@ export class SceneEngine {
       spacing_mm?: number;
       auto_orient?: boolean;
       rotation_step_deg?: number;
+      vertical_nesting?: boolean;
       orient_options?: {
         allow_rotations?: boolean;
         preferred_z_rotation_deg?: number;

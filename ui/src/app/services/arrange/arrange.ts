@@ -3,6 +3,7 @@ import { BrowserStorage } from '../browser-storage';
 import { ActiveSelection } from '../profiles/active-selection';
 import { SceneCommand } from '../scene-command/scene-command';
 import { SceneEngine } from '../scene-engine';
+import { Slicer } from '../slicer';
 
 const SPACING_KEY = 'nexus.viewer.arrangeSpacingMm';
 const AUTO_ORIENT_KEY = 'nexus.viewer.arrangeAutoOrient';
@@ -27,6 +28,10 @@ export interface ArrangeSettings {
   autoOrient: boolean;
   /** Rotation step the packer may use, in degrees. `0` keeps every angle. */
   rotationStepDeg: number;
+  /** May a part take plate area above or below another part? */
+  verticalNesting: boolean;
+  /** Underside angle past which a part is taken to need support (degrees). */
+  overhangThresholdDeg: number;
   /** Extra Z-rotation applied after auto-orient, from the active printer. */
   preferredOrientationDeg: number;
 }
@@ -53,6 +58,7 @@ export class Arrange {
   private readonly sceneCommand = inject(SceneCommand);
   private readonly sceneEngine = inject(SceneEngine);
   private readonly activeSelection = inject(ActiveSelection);
+  private readonly slicer = inject(Slicer);
 
   /**
    * Gap left between objects (mm).
@@ -89,6 +95,27 @@ export class Arrange {
     () => this.activeSelection.printer()?.preferred_orientation_deg ?? 0,
   );
 
+  /**
+   * Whether parts may share plate area at different heights.
+   *
+   * True while the plate rises a layer at a time: the nozzle is always at the
+   * height of the tallest thing printed so far, so a part leaning at 45° may
+   * hang over its neighbour. Printing one part at a time drives the gantry
+   * past finished parts instead, and then every part needs its own column.
+   */
+  readonly verticalNesting = computed(() => this.slicer.settings().print_sequence !== 'by_object');
+
+  /**
+   * The support threshold the plate will actually be sliced with.
+   *
+   * The packer frees the space under an underside steep enough to print over
+   * thin air; taking the angle from the process that will slice the plate is
+   * what keeps that promise true.
+   */
+  readonly overhangThresholdDeg = computed(
+    () => this.slicer.settings().support_threshold_angle ?? 45,
+  );
+
   /** How many objects a "place all" would move. */
   readonly objectCount = computed(() => this.sceneEngine.objects().length);
 
@@ -97,6 +124,8 @@ export class Arrange {
     spacingMm: this.spacingMm(),
     autoOrient: this.autoOrient(),
     rotationStepDeg: this.turnToFit() ? TURN_STEP_DEG : 0,
+    verticalNesting: this.verticalNesting(),
+    overhangThresholdDeg: this.overhangThresholdDeg(),
     preferredOrientationDeg: this.preferredOrientationDeg(),
   }));
 
@@ -146,7 +175,11 @@ export class Arrange {
           spacing_mm: settings.spacingMm,
           auto_orient: settings.autoOrient,
           rotation_step_deg: settings.rotationStepDeg,
-          orient_options: { preferred_z_rotation_deg: settings.preferredOrientationDeg },
+          vertical_nesting: settings.verticalNesting,
+          orient_options: {
+            preferred_z_rotation_deg: settings.preferredOrientationDeg,
+            overhang_threshold_deg: settings.overhangThresholdDeg,
+          },
         },
       },
     });

@@ -52,11 +52,14 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Changed
 
-- **Place objects nests by shape, not by bounding box.** Parts are packed by the
-  outline they actually cast on the plate, so angled and hollow parts overlap
-  each other's empty corners instead of reserving them. A plate of parts posed
-  at 45° — what a CoreXY machine asks for — fits up to half again as many. The
-  gap you set is now measured between outlines, and parts may take a quarter
+- **Place objects nests by shape and by height, not by bounding box.** A plate
+  prints a layer at a time, so one part may take the space above or below
+  another wherever the two never want the same height in the same place — a part
+  leaning at 45° hangs over its neighbour, a small part tucks in under a flared
+  rim. Parts with flat overhangs still keep the column beneath them, because
+  support material would be there, and printing one part at a time gives every
+  part its own space from the plate up. The gap you set is measured between the
+  parts themselves, overhead as well as sideways, and parts may take a quarter
   turn to fit; `Turn to fit` on the placement card turns that off. A plate with
   room to spare comes out as one compact group in the middle instead of a long
   row, so the nozzle travels less between parts.

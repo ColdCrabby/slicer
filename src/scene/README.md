@@ -163,7 +163,7 @@ plate as hanging off it.
 | `DropToFloor`       | Translates so world AABB `min.z = 0`                       | `SetTransform` to previous       |
 | `PlaceFaceOnFloor`  | Turns picked face to `-Z` in place, then drops to floor    | `SetTransform` to previous       |
 | `AutoOrient`        | Rotates to minimise overhangs, then drops                  | `SetTransform` to previous       |
-| `ArrangeOnBed`      | Nests the listed objects by outline, then centers the group| `BatchSetTransform`              |
+| `ArrangeOnBed`      | Nests the listed objects by shape and height, then centers | `BatchSetTransform`              |
 | `BatchSetTransform` | Restores many transforms atomically                        | `BatchSetTransform` to previous  |
 
 **Placement reads the real outline.** `world_aabb()` transforms every
