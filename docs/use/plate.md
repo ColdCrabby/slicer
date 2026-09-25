@@ -5,7 +5,7 @@ many more as fit. Everything on it is sliced into one G-code file.
 
 ## Adding models
 
-Six ways, all equivalent:
+Seven ways, all equivalent:
 
 - Drag files onto the window
 - The **add model** button in the tool cluster
@@ -13,6 +13,7 @@ Six ways, all equivalent:
 - **Open Model to Slice** on the home screen
 - **Open with Cold Crabby**, from anywhere else on the device — see below
 - Reopening a recent plate, which brings all its models back
+- Picking one from the [library](./library), where every model you have used is kept
 
 Adding never clears what's already there. Only **Empty Workplate** does that.
 

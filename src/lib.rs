@@ -21,6 +21,9 @@ pub mod flow;
 pub mod gcode;
 #[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
 pub mod infill;
+/// The object library: every model ever put on a plate, once, with a
+/// thumbnail. Matching compiles everywhere; the filesystem store is native.
+pub mod library;
 pub mod logging;
 pub mod mesh;
 pub mod orient;

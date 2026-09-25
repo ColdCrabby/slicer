@@ -1,0 +1,18 @@
+<div class="card-picture">
+  @if (thumbnail(); as src) {
+    <img [src]="src" alt="" draggable="false" />
+  } @else if (rendering()) {
+    <span class="card-spinner" aria-hidden="true"></span>
+  } @else {
+    <nexus-icon name="cube" class="card-placeholder" />
+  }
+  @if (missing()) {
+    <span class="card-flag" aria-label="File missing">
+      <nexus-icon name="warning-triangle" />
+    </span>
+  }
+</div>
+<div class="card-text">
+  <span class="card-name" [title]="entry().name">{{ entry().name }}</span>
+  <span class="card-meta">{{ missing() ? 'File missing' : meta() }}</span>
+</div>

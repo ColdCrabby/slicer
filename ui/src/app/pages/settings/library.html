@@ -1,0 +1,74 @@
+<div class="settings-page">
+  <nexus-section-header heading="Library" description="Where the models you use are kept" />
+
+  <div class="settings-card">
+    @if (modes.length > 1) {
+      <div class="settings-field">
+        <span class="settings-field-label">
+          <span class="settings-field-title">Keep models</span>
+          <span class="settings-field-desc">{{ modeNote() }}</span>
+        </span>
+        <div class="segmented" role="group" aria-label="Keep models">
+          @for (option of modes; track option.value) {
+            <button
+              type="button"
+              class="segmented-btn"
+              [class.is-active]="mode() === option.value"
+              [attr.aria-pressed]="mode() === option.value"
+              (click)="setMode(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          }
+        </div>
+      </div>
+      @if (modelsDir(); as dir) {
+        <div class="settings-field">
+          <span class="settings-field-label">
+            <span class="settings-field-title">Library folder</span>
+            <span class="settings-field-desc folder-path" [title]="dir">{{ dir }}</span>
+          </span>
+        </div>
+      }
+    } @else {
+      <div class="settings-field">
+        <span class="settings-field-label">
+          <span class="settings-field-title">Keep models</span>
+          <span class="settings-field-desc">{{ fixedNote }}</span>
+        </span>
+      </div>
+    }
+  </div>
+
+  @if (capabilities.watchFolders) {
+    <h2 class="subhead">Folders</h2>
+    <div class="settings-card">
+      @for (folder of folders(); track folder) {
+        <div class="settings-field">
+          <span class="settings-field-label">
+            <span class="settings-field-title folder-path" [title]="folder">{{ folder }}</span>
+          </span>
+          <button
+            nexusIconButton
+            type="button"
+            [attr.aria-label]="'Stop watching ' + folder"
+            (click)="removeFolder(folder)"
+          >
+            <nexus-icon name="xmark" />
+          </button>
+        </div>
+      }
+      <div class="settings-field">
+        <span class="settings-field-label">
+          <span class="settings-field-desc">
+            Models in these folders — and folders inside them — appear in the library, linked where
+            they are. Point one at your downloads and new models show up on their own.
+          </span>
+        </span>
+        <button nexusButton size="sm" type="button" (click)="addFolder()">
+          <nexus-icon name="folder-plus" /> Add folder
+        </button>
+      </div>
+    </div>
+  }
+</div>

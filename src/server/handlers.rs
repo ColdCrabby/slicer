@@ -24,6 +24,8 @@ pub struct AppState {
     /// Broadcasts a plate whenever one is written, so a second person working
     /// on the same plate is *told* rather than silently overwritten.
     pub workplates_changed: tokio::sync::broadcast::Sender<WorkplateChange>,
+    /// The object library every upload is recorded into.
+    pub library: crate::library::LibraryStore,
 }
 
 /// One plate having been written, on its way to every other open session.
@@ -439,6 +441,23 @@ pub async fn upload_handler(
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
 
+    // Every model that reaches a plate reaches the library. Recorded in the
+    // background: hashing and measuring a large model is slow, and the user is
+    // waiting on the plate, not on the library.
+    {
+        let store = state.library.clone();
+        let path = file_path.clone();
+        let name = filename.clone();
+        tokio::task::spawn_blocking(move || {
+            let recorded = std::fs::read(&path)
+                .map_err(anyhow::Error::from)
+                .and_then(|bytes| store.import_bytes(&name, &bytes));
+            if let Err(e) = recorded {
+                eprintln!("library: could not record '{name}': {e}");
+            }
+        });
+    }
+
     // A model landing on a plate someone else has open is a change to that
     // plate, same as moving one. A brand-new plate has nobody to tell.
     if existing_request.is_some() {
@@ -635,4 +654,274 @@ pub async fn download_file_handler(
             format!("attachment; filename=\"{}\"", entry.original_filename),
         ))
         .body(content))
+}
+
+// ── Object library ────────────────────────────────────────────────────────────
+//
+// Every model uploaded to any plate lands in the library too (see
+// `upload_handler`), deduplicated by content and by shape. These routes read
+// it, keep its thumbnails, and put an entry back on a plate without the browser
+// uploading the bytes a second time.
+
+/// Largest model the library will take in one request — the upload limit.
+const MAX_LIBRARY_IMPORT: usize = 500 * 1024 * 1024;
+
+/// Query for `POST /api/library/import`.
+#[derive(serde::Deserialize, schemars::JsonSchema)]
+pub struct LibraryImportQuery {
+    /// The file's name, with its extension — which is how its format is known.
+    pub name: String,
+}
+
+/// Body for `PATCH /api/library/{id}`.
+#[derive(serde::Deserialize, schemars::JsonSchema)]
+pub struct LibraryRenameRequest {
+    pub name: String,
+}
+
+/// Body for `POST /api/library/{id}/place`.
+#[derive(serde::Deserialize, schemars::JsonSchema)]
+pub struct LibraryPlaceRequest {
+    /// The plate to add the model to. Omitted, a new plate is started.
+    #[serde(default)]
+    pub ruuid: Option<String>,
+}
+
+fn library_error(e: impl std::fmt::Display) -> actix_web::HttpResponse {
+    actix_web::HttpResponse::BadRequest().json(serde_json::json!({ "error": e.to_string() }))
+}
+
+/// Run blocking library work — hashing, measuring, file copies — off the
+/// async executor.
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
+) -> anyhow::Result<T> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|e| anyhow::anyhow!("library task failed: {e}"))?
+}
+
+/// Read a request body up to `limit` bytes.
+async fn read_body(mut payload: web::Payload, limit: usize) -> Result<Vec<u8>, actix_web::Error> {
+    use futures_util::StreamExt as _;
+    let mut body = Vec::new();
+    while let Some(chunk) = payload.next().await {
+        let chunk = chunk?;
+        if body.len() + chunk.len() > limit {
+            return Err(actix_web::error::ErrorPayloadTooLarge("body too large"));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
+/// `GET /api/library` — every entry, with missing files and thumbnails marked.
+pub async fn get_library_handler(state: web::Data<AppState>) -> actix_web::HttpResponse {
+    let store = state.library.clone();
+    match blocking(move || store.load()).await {
+        Ok(library) => actix_web::HttpResponse::Ok()
+            .insert_header((actix_web::http::header::CACHE_CONTROL, "no-store"))
+            .json(library),
+        Err(e) => actix_web::HttpResponse::InternalServerError()
+            .json(serde_json::json!({ "error": e.to_string() })),
+    }
+}
+
+/// `PUT /api/library/settings` — replace the storage mode and watched folders.
+pub async fn put_library_settings_handler(
+    body: web::Json<crate::library::LibrarySettings>,
+    state: web::Data<AppState>,
+) -> actix_web::HttpResponse {
+    let store = state.library.clone();
+    let settings = body.into_inner();
+    match blocking(move || store.save_settings(settings)).await {
+        Ok(library) => actix_web::HttpResponse::Ok().json(library),
+        Err(e) => library_error(e),
+    }
+}
+
+/// `POST /api/library/scan` — pick up files added to the library's folders.
+pub async fn scan_library_handler(state: web::Data<AppState>) -> actix_web::HttpResponse {
+    let store = state.library.clone();
+    match blocking(move || store.scan()).await {
+        Ok(report) => actix_web::HttpResponse::Ok().json(report),
+        Err(e) => library_error(e),
+    }
+}
+
+/// `POST /api/library/import?name=…` — add a model to the library without
+/// putting it on a plate. The body is the file's raw bytes.
+pub async fn import_library_handler(
+    query: web::Query<LibraryImportQuery>,
+    payload: web::Payload,
+    state: web::Data<AppState>,
+) -> Result<actix_web::HttpResponse, actix_web::Error> {
+    let bytes = read_body(payload, MAX_LIBRARY_IMPORT).await?;
+    let store = state.library.clone();
+    let name = query.into_inner().name;
+    Ok(
+        match blocking(move || store.import_bytes(&name, &bytes)).await {
+            Ok(outcome) => actix_web::HttpResponse::Ok().json(outcome),
+            Err(e) => library_error(e),
+        },
+    )
+}
+
+/// `PATCH /api/library/{id}` — rename an entry.
+pub async fn rename_library_handler(
+    path: web::Path<String>,
+    body: web::Json<LibraryRenameRequest>,
+    state: web::Data<AppState>,
+) -> actix_web::HttpResponse {
+    let store = state.library.clone();
+    let id = path.into_inner();
+    let name = body.into_inner().name;
+    match blocking(move || store.rename(&id, &name)).await {
+        Ok(true) => actix_web::HttpResponse::NoContent().finish(),
+        Ok(false) => actix_web::HttpResponse::NotFound().finish(),
+        Err(e) => library_error(e),
+    }
+}
+
+/// `DELETE /api/library/{id}` — forget an entry and delete the library's copy.
+pub async fn delete_library_handler(
+    path: web::Path<String>,
+    state: web::Data<AppState>,
+) -> actix_web::HttpResponse {
+    let store = state.library.clone();
+    let id = path.into_inner();
+    match blocking(move || store.remove(&id)).await {
+        Ok(true) => actix_web::HttpResponse::NoContent().finish(),
+        Ok(false) => actix_web::HttpResponse::NotFound().finish(),
+        Err(e) => library_error(e),
+    }
+}
+
+/// `GET /api/library/{id}/file` — the model's bytes, from its first readable
+/// location.
+pub async fn get_library_file_handler(
+    path: web::Path<String>,
+    state: web::Data<AppState>,
+) -> Result<actix_web::HttpResponse, actix_web::Error> {
+    let store = state.library.clone();
+    let id = path.into_inner();
+    let (entry, file) = blocking(move || store.resolve(&id))
+        .await
+        .map_err(actix_web::error::ErrorInternalServerError)?
+        .ok_or_else(|| actix_web::error::ErrorNotFound("No readable file for this entry"))?;
+    let content = tokio::fs::read(&file)
+        .await
+        .map_err(|_| actix_web::error::ErrorNotFound("File could not be read"))?;
+    Ok(actix_web::HttpResponse::Ok()
+        .content_type("application/octet-stream")
+        // The entry id is stable, but which of its files answers is not — a
+        // copy can be deleted and a reference take over.
+        .insert_header((actix_web::http::header::CACHE_CONTROL, "private, no-cache"))
+        .insert_header((
+            "Content-Disposition",
+            format!("attachment; filename=\"{}.{}\"", entry.name, entry.format),
+        ))
+        .body(content))
+}
+
+/// `GET /api/library/{id}/thumbnail` — the stored PNG.
+pub async fn get_library_thumbnail_handler(
+    path: web::Path<String>,
+    state: web::Data<AppState>,
+) -> actix_web::HttpResponse {
+    match state.library.thumbnail(&path.into_inner()) {
+        Some(png) => actix_web::HttpResponse::Ok()
+            .content_type("image/png")
+            // Re-rendered when the viewer's look changes, so revalidate.
+            .insert_header((actix_web::http::header::CACHE_CONTROL, "private, no-cache"))
+            .body(png),
+        None => actix_web::HttpResponse::NotFound().finish(),
+    }
+}
+
+/// `PUT /api/library/{id}/thumbnail` — store a PNG the browser rendered.
+pub async fn put_library_thumbnail_handler(
+    path: web::Path<String>,
+    payload: web::Payload,
+    state: web::Data<AppState>,
+) -> Result<actix_web::HttpResponse, actix_web::Error> {
+    let png = read_body(payload, 2 * 1024 * 1024).await?;
+    Ok(
+        match state.library.set_thumbnail(&path.into_inner(), &png) {
+            Ok(()) => actix_web::HttpResponse::NoContent().finish(),
+            Err(e) => library_error(e),
+        },
+    )
+}
+
+/// `POST /api/library/{id}/place` — put a library entry on a plate.
+///
+/// Answers exactly like an upload, so the client adds the object the way it
+/// adds any other: the model gets its own `file_uuid` in the work dir and the
+/// slice path never learns the library exists.
+pub async fn place_library_handler(
+    path: web::Path<String>,
+    body: web::Json<LibraryPlaceRequest>,
+    state: web::Data<AppState>,
+) -> Result<actix_web::HttpResponse, actix_web::Error> {
+    use uuid::Uuid;
+
+    let store = state.library.clone();
+    let id = path.into_inner();
+    let (entry, source) = blocking({
+        let id = id.clone();
+        move || store.resolve(&id)
+    })
+    .await
+    .map_err(actix_web::error::ErrorInternalServerError)?
+    .ok_or_else(|| actix_web::error::ErrorNotFound("No readable file for this entry"))?;
+
+    let existing = match body.into_inner().ruuid {
+        Some(text) => {
+            let uuid = Uuid::parse_str(&text)
+                .map_err(|_| actix_web::error::ErrorBadRequest("Invalid ruuid"))?;
+            state
+                .db
+                .get_request(uuid)
+                .await
+                .map_err(actix_web::error::ErrorInternalServerError)?
+                .map(|_| uuid)
+        }
+        None => None,
+    };
+
+    let file_uuid = Uuid::new_v4();
+    let target = state
+        .work_dir
+        .join(format!("{}.{}", file_uuid, entry.format));
+    let size = tokio::fs::copy(&source, &target)
+        .await
+        .map_err(actix_web::error::ErrorInternalServerError)?;
+
+    let request_uuid = match existing {
+        Some(uuid) => uuid,
+        None => {
+            let uuid = Uuid::new_v4();
+            state
+                .db
+                .create_request(uuid)
+                .await
+                .map_err(actix_web::error::ErrorInternalServerError)?;
+            uuid
+        }
+    };
+    let filename = format!("{}.{}", entry.name, entry.format);
+    state
+        .db
+        .add_upload_file(request_uuid, file_uuid, &filename, &target, size)
+        .await
+        .map_err(actix_web::error::ErrorInternalServerError)?;
+
+    let store = state.library.clone();
+    let _ = blocking(move || store.touch(&id)).await;
+
+    Ok(actix_web::HttpResponse::Ok().json(UploadResponse {
+        ruuid: request_uuid.to_string(),
+        ofids: vec![file_uuid.to_string()],
+    }))
 }

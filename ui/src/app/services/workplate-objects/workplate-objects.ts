@@ -1,6 +1,7 @@
 import { Injectable, computed, inject } from '@angular/core';
 import { resolveRuntimeMode } from '../../runtime/domain/runtime-mode.util';
 import { Arrange } from '../arrange';
+import { ObjectLibrary } from '../library';
 import { Logger } from '../logger';
 import {
   ModelSourceRegistry,
@@ -58,6 +59,7 @@ export class WorkplateObjects {
   private readonly wasmPerfNotice = inject(WasmPerformanceNotice);
   private readonly modelSources = inject(ModelSourceRegistry);
   private readonly notifications = inject(NotificationService);
+  private readonly library = inject(ObjectLibrary);
 
   constructor() {
     inject(SceneHistory).setReviver((object) => this.revive(object));
@@ -294,6 +296,8 @@ export class WorkplateObjects {
       filePath: nativePathOf(file),
     });
 
+    // Every model added to a plate joins the library, deduplicated there.
+    this.library.remember(file);
     return this.placeMesh(file.name, bytes, source.sourceId);
   }
 
