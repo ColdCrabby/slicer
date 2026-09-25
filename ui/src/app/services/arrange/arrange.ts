@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, Injector, computed, inject, signal } from '@angular/core';
 import { BrowserStorage } from '../browser-storage';
 import { ActiveSelection } from '../profiles/active-selection';
 import { SceneCommand } from '../scene-command/scene-command';
@@ -58,7 +58,17 @@ export class Arrange {
   private readonly sceneCommand = inject(SceneCommand);
   private readonly sceneEngine = inject(SceneEngine);
   private readonly activeSelection = inject(ActiveSelection);
-  private readonly slicer = inject(Slicer);
+  private readonly injector = inject(Injector);
+
+  /**
+   * Resolved on first use, not at construction: `Slicer` needs
+   * `WorkplateObjects`, which needs this service, so injecting it eagerly is a
+   * construction cycle and the app fails to start. It is only read inside the
+   * computeds below, long after all three exist.
+   */
+  private get slicer(): Slicer {
+    return this.injector.get(Slicer);
+  }
 
   /**
    * Gap left between objects (mm).

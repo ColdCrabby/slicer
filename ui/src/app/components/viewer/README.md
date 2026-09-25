@@ -208,8 +208,16 @@ raycaster, gizmo), the viewer applies a clear priority order:
    not on an underlying mesh.
 3. **pullToFloor mode** — selection raycaster is disabled; pointer is entirely
    dedicated to face picking.
-4. **Normal mode** — the selection raycaster runs; OrbitControls handles any
+4. **A claimed press** — a box selection (Shift/⌥-drag, or a pen in
+   multi-select), or a direct drag of a part in translate mode, is shut out of
+   OrbitControls at `pointerdown`. See [ui/README](../../../../README.md#touch-and-pen).
+5. **Normal mode** — the selection raycaster runs; OrbitControls handles any
    gesture that misses a selectable object.
+
+"Zoom to" — the `Z` key, a double-click, the context menus — is one camera move,
+`SceneCamera.frameBox`: it keeps the direction the camera is looking from and
+the projection it is in, unlike `fitToContent`, which swings back to the default
+angle. The viewer exposes it to the rest of the app as `ViewerControl.frameSink`.
 
 ### Viewport-cube auto-ortho
 
