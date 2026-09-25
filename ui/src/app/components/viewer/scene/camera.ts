@@ -184,6 +184,32 @@ export class SceneCamera {
     this.controls.update();
   }
 
+  /**
+   * Glide the camera onto `box` — "zoom to selection" — keeping the direction it
+   * is looking from and the projection it is in.
+   *
+   * Unlike {@link fitToContent} this never swings round to the default angle:
+   * the user was looking at the part from somewhere on purpose. Like a pan or a
+   * zoom, it releases a cube snap's freeze but leaves its flat projection on.
+   */
+  frameBox(box: Box3, padding = DEFAULT_FIT_PADDING): void {
+    if (box.isEmpty()) {
+      return;
+    }
+    const sphere = box.getBoundingSphere(new Sphere());
+    const radius = Math.max(sphere.radius, 1);
+    this.snapHoldPose = null;
+    const fovRad = (this.camera.fov * Math.PI) / 180;
+    const offset = this.camera.position.clone().sub(this.controls.target);
+    this.startAnimation({
+      toDir: offset.lengthSq() > 1e-6 ? offset.normalize() : DEFAULT_VIEW_DIR.clone(),
+      toFov: this.camera.fov,
+      toTarget: sphere.center,
+      toUp: this.camera.up.clone(),
+      toDistance: (radius * padding) / Math.sin(fovRad / 2),
+    });
+  }
+
   setView(view: ViewerView): void {
     // A manual toolbar view change takes over from any temporary cube ortho, and
     // becomes the preset a later snap will hand back to.

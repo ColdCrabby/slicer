@@ -26,6 +26,24 @@
   outline: none;
 }
 
+// The box-select rectangle is created by `SceneSelection` inside the host, so
+// it carries no `_ngcontent` attribute and needs `::ng-deep` to be reached.
+// Adding tints with the accent; taking away is drawn dashed in the danger tone,
+// so the two modes read differently before anything is let go.
+.viewer-host ::ng-deep .scene-box-select {
+  position: absolute;
+  pointer-events: none;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent-softer);
+
+  &[data-mode='subtract'] {
+    border-style: dashed;
+    border-color: var(--color-danger);
+    background: color-mix(in oklab, var(--color-danger) 8%, transparent);
+  }
+}
+
 :host {
   --thumbnail-shutter-peak-opacity: 0.18;
 }

@@ -25,10 +25,9 @@ import { PrintArea } from '../../services/print-area';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { SceneCommand } from '../../services/scene-command/scene-command';
 import { SceneEngine } from '../../services/scene-engine';
-import type { SceneObjectSnapshot, SceneOp, SupportPaintState } from '../../services/scene-engine';
+import type { SceneObjectSnapshot, SupportPaintState } from '../../services/scene-engine';
 import { ViewerControl } from '../../services/viewer-control';
-import { Viewport } from '../../services/viewport';
-import { WorkplateObjects } from '../../services/workplate-objects';
+import { objectMenuItems, WorkplateObjects } from '../../services/workplate-objects';
 import {
   pixelRatioCapFor,
   resolveAntialias,
@@ -202,7 +201,6 @@ export class Viewer {
   private readonly activeSelection = inject(ActiveSelection);
   private readonly slicer = inject(Slicer);
   private readonly appTheme = inject(AppTheme);
-  private readonly viewport = inject(Viewport);
   private readonly contextMenu = inject(ContextMenuService);
   private readonly workplate = inject(WorkplateObjects);
   private readonly arrange = inject(Arrange);
@@ -336,6 +334,7 @@ export class Viewer {
       this.scene?.dispose();
       this.scene = null;
       this.viewerControl.orbitSink = null;
+      this.viewerControl.frameSink = null;
       if (this.viewerControl.sliceThumbnailCaptureSink === this.captureSliceThumbnailSink) {
         this.viewerControl.sliceThumbnailCaptureSink = null;
       }
@@ -905,8 +904,10 @@ export class Viewer {
     if (!additive) {
       // Plain click replaces the selection, the way every other editor
       // behaves — clicking objects in turn should walk the selection, not
-      // accumulate one. Clicking the sole selected object deselects it.
-      this.selectedWasmIds = selected && this.selectedWasmIds.length === 1 ? [] : [id];
+      // accumulate one. Clicking a part that is already selected keeps it: it
+      // used to toggle off, so the click that starts a move — or the first
+      // half of a double-click — dropped the part it was aimed at.
+      this.selectedWasmIds = [id];
     } else if (selected) {
       this.selectedWasmIds = this.selectedWasmIds.filter((existing) => existing !== id);
     } else {
@@ -914,6 +915,19 @@ export class Viewer {
     }
     this.scene?.setSelectedIds(new Set(this.selectedWasmIds.map(String)));
     this.viewerControl.selectedObjectIds.set(this.selectedWasmIds);
+  }
+
+  /** Set the selection to exactly these ids — the box select's live result. */
+  private handleSelectExactly(stringIds: readonly string[]): void {
+    const ids = stringIds
+      .map(parseWasmId)
+      .filter((id): id is bigint => id !== null && this.wasmMeshes.has(id));
+    if (sameIds(ids, this.selectedWasmIds)) {
+      return;
+    }
+    this.selectedWasmIds = ids;
+    this.scene?.setSelectedIds(new Set(ids.map(String)));
+    this.viewerControl.selectedObjectIds.set(ids);
   }
 
   private handleClearSelection(): void {
@@ -999,61 +1013,17 @@ export class Viewer {
     // A press inside a multi-object selection acts on the whole batch; the
     // selection is what the user built, so the menu must not quietly ignore it.
     const targets = this.selectedWasmIds.includes(id) ? [...this.selectedWasmIds] : [id];
-    const many = targets.length > 1;
-    const suffix = many ? ` (${targets.length})` : '';
+    const items = objectMenuItems(targets, this.workplate, this.viewerControl);
+    const removeAt = items.findIndex((item) => item.danger);
     return [
-      {
-        label: `Duplicate${suffix}`,
-        icon: 'copy',
-        action: () => {
-          for (const target of targets) {
-            this.workplate.duplicate(target);
-          }
-        },
-      },
-      {
-        label: `Drop to floor${suffix}`,
-        icon: 'download',
-        action: () =>
-          this.applyToEach(targets, (target) => ({
-            op: 'DropToFloor' as const,
-            args: { id: target },
-          })),
-      },
-      {
-        label: 'Centre on bed',
-        icon: 'frame-alt',
-        // Centring each object independently would stack them all on the same
-        // spot, so a batch is arranged instead — the sane reading of "put these
-        // where they belong".
-        action: () =>
-          many
-            ? this.arrange.run(targets)
-            : this.applyToEach(targets, (target) => ({
-                op: 'CenterOnBed' as const,
-                args: { id: target },
-              })),
-      },
-      { label: '', separator: true },
+      ...items.slice(0, removeAt),
       {
         label: 'Select all',
         icon: 'select-window',
         action: () => this.selectAllObjects(),
       },
       { label: '', separator: true },
-      {
-        label: `Remove${suffix}`,
-        icon: 'bin',
-        danger: true,
-        action: () => {
-          for (const target of targets) {
-            this.workplate.remove(target);
-          }
-          this.viewerControl.selectedObjectIds.set(
-            this.selectedWasmIds.filter((existing) => !targets.includes(existing)),
-          );
-        },
-      },
+      ...items.slice(removeAt),
     ];
   }
 
@@ -1088,6 +1058,12 @@ export class Viewer {
       },
       { label: '', separator: true },
       {
+        label: 'Zoom to all',
+        icon: 'zoom-in',
+        disabled: !hasObjects,
+        action: () => this.scene?.frameObjects([]),
+      },
+      {
         label: 'Reset view',
         icon: 'home',
         action: () => this.viewerControl.reset(),
@@ -1100,14 +1076,6 @@ export class Viewer {
     this.selectedWasmIds = ids.filter((id) => this.wasmMeshes.has(id));
     this.scene?.setSelectedIds(new Set(this.selectedWasmIds.map(String)));
     this.viewerControl.selectedObjectIds.set(this.selectedWasmIds);
-  }
-
-  /** Dispatch one op per target and commit them as a single history entry. */
-  private applyToEach(targets: readonly bigint[], op: (id: bigint) => SceneOp): void {
-    for (const target of targets) {
-      this.sceneCommand.apply(op(target));
-    }
-    this.sceneCommand.flush();
   }
 
   /** Translate / rotate / scale a delta onto every currently-selected object. */
@@ -1294,6 +1262,7 @@ export class Viewer {
     };
     // Allow external gizmos (viewport-cube drag) to orbit the main camera.
     this.viewerControl.orbitSink = (azimuth, polar) => this.scene?.orbitBy(azimuth, polar);
+    this.viewerControl.frameSink = (ids) => this.scene?.frameObjects(ids.map(String));
     this.viewerControl.pointerPositionSource = () => this.scene?.getLastPointerClient() ?? null;
     this.viewerControl.sliceThumbnailCaptureSink = this.captureSliceThumbnailSink;
     // Bridge raycast hits / gizmo gestures from the scene into the WASM
@@ -1302,6 +1271,8 @@ export class Viewer {
     this.scene.selectionHandlers = {
       select: (id, additive) => this.handleSelect(id, additive),
       clearSelection: () => this.handleClearSelection(),
+      selectExactly: (ids) => this.handleSelectExactly(ids),
+      frame: (ids) => this.scene?.frameObjects(ids),
       contextMenu: (id, event) => this.handleSceneContextMenu(id, event),
     };
     this.scene.gizmoHandlers = {
@@ -1321,10 +1292,6 @@ export class Viewer {
       this.viewerControl.paintBrushRadius(),
     );
     this.scene.setAdditiveSelection(this.viewerControl.additiveSelection());
-    // Dragging a model straight across the bed is the touch answer to the
-    // gizmo's mouse-sized arrows, so it is offered exactly where those are hard
-    // to hit. A mouse keeps drag-to-orbit.
-    this.scene.setDirectDragEnabled(this.viewport.isCoarsePointer());
     this.scene.setView(this.viewerControl.view());
     // Keep the toolbar's projection button honest when the viewport cube (not
     // the toolbar) changes the projection.
@@ -1543,6 +1510,18 @@ export class Viewer {
       scene.contentRoot.add(mesh);
       this.wasmMeshes.set(obj.id, mesh);
       scene.registerSelectable(String(obj.id), mesh);
+    }
+
+    // Duplicating or adding a model selects the new object in the same breath
+    // as it is created, which can reach the selection mirror before its mesh
+    // exists here — so pick up any published id that has a mesh now.
+    const published = this.viewerControl.selectedObjectIds();
+    if (!sameIds(published, this.selectedWasmIds)) {
+      const adopted = published.filter((id) => this.wasmMeshes.has(id));
+      if (!sameIds(adopted, this.selectedWasmIds)) {
+        this.selectedWasmIds = adopted;
+        scene.setSelectedIds(new Set(adopted.map(String)));
+      }
     }
 
     scene.invalidate();
