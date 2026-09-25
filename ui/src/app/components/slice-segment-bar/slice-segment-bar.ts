@@ -3,6 +3,7 @@ import {
   Component,
   DestroyRef,
   ElementRef,
+  afterRenderEffect,
   computed,
   effect,
   inject,
@@ -125,6 +126,27 @@ export class SliceSegmentBar {
   }
 
   constructor() {
+    // A range input clamps its value whenever its max shrinks — and a re-slice
+    // drops the layer count to zero while the new file parses. When the count
+    // comes back, the bound value is often unchanged (still layer 66), so
+    // Angular never writes it again and the thumb sits at 0 while the fill,
+    // computed from the signal, shows 66. Re-assert both values after any
+    // render that changed a bound, so the thumb always sits where the value is.
+    afterRenderEffect(() => {
+      const bounds = [
+        [this.layerMaxIndex(), this.preview.layerMax()],
+        [this.layerSegmentCount(), this.segmentSliderValue()],
+      ] as const;
+      const host = this.hostEl.nativeElement as HTMLElement;
+      const inputs = host.querySelectorAll<HTMLInputElement>('nexus-slider input[type="range"]');
+      bounds.forEach(([max, value], i) => {
+        const input = inputs[i];
+        if (input && Number(input.value) !== value && value <= max) {
+          input.value = String(value);
+        }
+      });
+    });
+
     effect(() => {
       const hasData = this.preview.gcodeHandle() !== null || this.preview.loading();
       const inGcodeView = this.viewerControl.viewMode() === 'gcode';
