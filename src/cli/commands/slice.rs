@@ -94,6 +94,12 @@ pub struct SliceCommand {
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
+    /// Also save the placed plate as a 3MF — every model where the transform
+    /// and arrange flags put it — so it can be reopened here or in another
+    /// slicer.
+    #[arg(long, value_name = "FILE")]
+    pub export_3mf: Option<PathBuf>,
+
     /// Output format (json, human)
     #[arg(long, default_value = "human")]
     pub output_format: String,
@@ -799,6 +805,12 @@ impl SliceCommand {
             }
         }
 
+        if let Some(path) = &self.export_3mf {
+            std::fs::write(path, scene.export_3mf()?)
+                .map_err(|e| format!("Cannot write 3MF '{}': {}", path.display(), e))?;
+            logger.log_info(&format!("plate saved to {}", path.display()));
+        }
+
         // Bake each object's transform exactly once, at the slicer boundary
         // (SSOT contract in src/scene/README.md). The objects are kept apart —
         // `slice_plate` merges them itself unless the configuration needs
@@ -1165,6 +1177,13 @@ mod tests {
     fn test_long_input_flag_repeats_too() {
         let cmd = parse(&["--input", "a.stl", "--input", "b.stl"]);
         assert_eq!(cmd.input.len(), 2);
+    }
+
+    #[test]
+    fn test_export_3mf_flag_is_optional() {
+        assert!(parse(&["-i", "a.stl"]).export_3mf.is_none());
+        let cmd = parse(&["-i", "a.stl", "--export-3mf", "plate.3mf"]);
+        assert_eq!(cmd.export_3mf, Some(PathBuf::from("plate.3mf")));
     }
 
     #[test]

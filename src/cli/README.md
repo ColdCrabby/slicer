@@ -73,6 +73,9 @@ slicer-engine slice --input model.stl --config ./slicer.toml
 slicer-engine slice --input model.stl --center --drop-to-floor --verbose
 ```
 
+`--export-3mf plate.3mf` also saves the placed plate — after every transform
+and `--arrange` — as a 3MF that reopens with the same layout.
+
 Transform flags are plate-wide: `--translate`, `--rotate`, `--scale`,
 `--align-face`, `--center`, and `--drop-to-floor` apply to **every** `--input`
 model, since the CLI has no syntax for addressing a single object. Objects that

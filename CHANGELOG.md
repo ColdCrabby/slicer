@@ -37,6 +37,9 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **Export a plate as 3MF.** Right-click the plate's tab, or an empty spot on
+  the bed, and choose **Export as 3MF…** — every model is saved where it sits,
+  ready to reopen here or in another slicer. The CLI gains `--export-3mf`.
 - **Inner walls have their own speed** — the hidden walls behind the surface no
   longer inherit the visible one's pace. `Inner Wall Speed` defaults to 125% of
   the outer wall, stated as a percentage so slowing the outer wall for a better

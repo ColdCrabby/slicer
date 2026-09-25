@@ -294,6 +294,13 @@ about its siblings. Pinned by `multi_part_loading_validates_every_part`.
 | OBJ    | Wavefront  | [`io::read_obj`](io.rs) | Via `tobj`; vertex positions only, materials ignored  |
 | 3MF    | XML-in-ZIP | [`io::read_3mf`](io.rs) | Custom parse (`zip` + `quick-xml`); merges all `<build>` items, rebasing each object's local indices and baking item/component transforms |
 
+Going the other way, [`io::write_3mf`](io.rs) writes a plate: one `<object>` per
+distinct mesh — duplicates sharing an `Arc<Mesh>` share it — and one build item
+per scene object, carrying that object's transform rather than baking it in, so
+another slicer opens the same layout. The scene calls it through
+`SceneState::export_3mf`. It is the only writer; 3MF is the one format that can
+say where a model sits.
+
 `SUPPORTED_EXTENSIONS` lists the recognised file extensions for CLI / WS
 validation. The scene loader ([../scene/loader.rs](../scene/loader.rs))
 dispatches on `MeshFormat` rather than re-sniffing extensions.
@@ -361,8 +368,8 @@ After step 6 the original `Arc<Mesh>` is still alive and unchanged in
   It deliberately stops there: non-manifold edges are **reported but not
   split**, and self-intersections, T-junctions and shell separation are not
   touched at all. Those change the surface in ways that need their own design.
-- **No format conversion.** `read_stl` produces a `Mesh`; there is no
-  `write_stl`. Outputs are G-code, not meshes.
+- **No general format conversion.** The only mesh writer is `write_3mf`, for
+  exporting a plate; there is no `write_stl` or `write_obj`.
 - **No _retained_ connectivity graph.** The slicer doesn't need one, and
   keeping it would cost memory we don't have on wasm32. Repair builds one and
   drops it again within a single call.
@@ -372,7 +379,7 @@ After step 6 the original `Arc<Mesh>` is still alive and unchanged in
 ## See also
 
 - [types.rs](types.rs) — `Mesh`, `Face`, `Vertex`, `AABB`
-- [io.rs](io.rs) — STL / OBJ / 3MF loaders, `SUPPORTED_EXTENSIONS`
+- [io.rs](io.rs) — STL / OBJ / 3MF loaders, the 3MF writer, `SUPPORTED_EXTENSIONS`
 - [analysis.rs](analysis.rs) — AABB, volume, surface area, coplanar face groups
 - [repair.rs](repair.rs) — validation, diagnostics, and the auto-repair pass
 - [../../tests/mesh_repair.rs](../../tests/mesh_repair.rs) — the known-bad

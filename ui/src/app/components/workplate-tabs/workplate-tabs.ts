@@ -18,6 +18,7 @@ import {
 import { Router } from '@angular/router';
 import { OpenWorkplateTab, OpenWorkplates } from '../../services/open-workplates';
 import { Slicer } from '../../services/slicer';
+import { SceneEngine } from '../../services/scene-engine';
 import { WorkplateSession } from '../../services/workplate-session';
 import { WorkplateNames } from '../../services/workplate-names';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
@@ -63,6 +64,7 @@ import { TabSearchEntry, WorkplateTabSearch } from './workplate-tab-search';
 export class WorkplateTabs implements WorkplateTabStrip {
   private readonly router = inject(Router);
   private readonly slicer = inject(Slicer);
+  private readonly sceneEngine = inject(SceneEngine);
   private readonly names = inject(WorkplateNames);
   private readonly openWorkplates = inject(OpenWorkplates);
   private readonly session = inject(WorkplateSession);
@@ -516,6 +518,14 @@ export class WorkplateTabs implements WorkplateTabStrip {
   onContextMenu(event: MouseEvent, uuid: string): void {
     const items: ContextMenuItem[] = [
       { label: 'Rename…', icon: 'edit-pencil', action: () => this.startEditing(uuid) },
+      // Only the plate on screen is loaded into the scene, so only its tab can
+      // export; the item stays visible elsewhere so the action is discoverable.
+      {
+        label: 'Export as 3MF…',
+        icon: 'download',
+        disabled: uuid !== this.activeUuid() || this.sceneEngine.objects().length === 0,
+        action: () => void this.slicer.exportPlate3mf(),
+      },
       { separator: true, label: '' },
       { label: 'Close Tab', icon: 'xmark', action: () => void this.closeTab(uuid) },
       {
