@@ -8,10 +8,10 @@
   width: var(--nav-rail-width);
   flex: none;
   // No fill and no rule: the rail sits on the window's background beside the
-  // work surface, and the surface's own edge is what separates them. No top
-  // padding, so the first item lines up with the surface's top edge; the sides
-  // hold the items clear of both the window and the surface.
-  padding: 0 var(--spacing-sm);
+  // work surface, and the surface's own edge is what separates them. The top
+  // clears the brand mark hanging down from the titlebar (theme/_shell.scss);
+  // the sides hold the items clear of both the window and the surface.
+  padding: calc(var(--brand-mark-overhang) + var(--spacing-md)) var(--spacing-sm) 0;
   background: transparent;
 }
 

@@ -159,8 +159,9 @@ Two rules follow from it:
   `ui/src/styles/theme/_shell.scss`. Never draw a rule between the chrome and
   the page again — the surface's own edge is that line.
 - **Titlebar tabs float; they do not hang.** Workplate tabs are small pills
-  (`--radius-md`) centred in the bar; the active one takes the surface's tone
-  and border rather than an accent fill, so it reads as a piece of the page.
+  (`--radius-md`) centred in the bar, with no border at all; the active one is
+  marked by a faint tint (`--color-surface-alt`) and full-strength text, never
+  an outline or accent fill.
 - **Islands / cards:** rounded solid surface, `--radius-lg`, `overflow: hidden`,
   separated from the app canvas (`--color-bg-primary`) by surface tone. Add a
   border only when the card needs contrast (floating over the 3D scene) rather

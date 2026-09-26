@@ -20,11 +20,35 @@
   // rail keeps its items clear of the surface's edge by padding instead, and
   // "Settings" still needs its full width under the icon.
   --nav-rail-width: 64px;
+
+  // The crab: the mascot, big and pinned in the corner rather than squeezed
+  // into the titlebar's height. It is deliberately larger than the rail — it
+  // hangs below the bar and peeks over the work surface's corner — and the
+  // rail and the wordmark pad themselves clear of it.
+  --brand-mark-size: 84px;
+  // From the top of the bar (below any notch), not the window.
+  --brand-mark-top: -6px;
+  --brand-mark-left: 9px;
+  --brand-mark-overhang: max(
+    0px,
+    calc(var(--brand-mark-top) + var(--brand-mark-size) - var(--titlebar-height))
+  );
+}
+
+// macOS desktop: the traffic lights occupy the top-left corner, so the mark
+// drops beneath them and comes down a size to keep the rail from sinking.
+:root:has(.nexus-titlebar.is-mac.is-desktop) {
+  --brand-mark-size: 68px;
+  --brand-mark-top: 28px;
 }
 
 // A phone has no width to spend on air around its one surface.
 @include handheld {
   :root {
     --shell-gutter: 6px;
+    // The rail is a bottom tab bar here; the mark sits inside the titlebar.
+    --brand-mark-size: 28px;
+    --brand-mark-left: 0px;
+    --brand-mark-overhang: 0px;
   }
 }
