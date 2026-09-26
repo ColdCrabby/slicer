@@ -9,6 +9,7 @@
       [value]="query()"
       (input)="query.set($any($event.target).value)"
       (keydown.escape)="escapeSearch($event, search)"
+      (keydown.arrowdown)="$event.preventDefault(); focusFirstCard(grid)"
     />
     @if (query()) {
       <button
@@ -36,7 +37,13 @@
   <ng-content />
 </div>
 
-<div class="browser-grid" role="listbox" aria-label="Models">
+<div
+  #grid
+  class="browser-grid"
+  role="listbox"
+  aria-label="Models"
+  (keydown)="onGridKey($event, grid)"
+>
   @for (entry of shown(); track entry.id) {
     <nexus-library-card
       [entry]="entry"

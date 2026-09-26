@@ -81,13 +81,33 @@ $edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
   user-select: none;
   -webkit-user-select: none;
   touch-action: manipulation;
-  transition:
-    color var(--duration-fast) var(--ease-standard),
-    background-color var(--duration-fast) var(--ease-standard);
+  transition: color var(--duration-fast) var(--ease-standard);
+
+  // The hover highlight is strongest at the nub's outer edge and fades out
+  // towards the panel, so the nub lights up without a seam where it meets the
+  // panel. A gradient cannot transition, so it sits on its own layer and fades
+  // in by opacity.
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(to left, var(--color-surface-hover), transparent);
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease-standard);
+    pointer-events: none;
+  }
+
+  > nexus-icon {
+    position: relative;
+  }
 
   &:hover {
     color: var(--color-text-primary);
-    background: var(--color-surface-hover);
+
+    &::before {
+      opacity: 1;
+    }
   }
 
   &:focus-visible {

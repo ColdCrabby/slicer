@@ -21,9 +21,11 @@ const STEP = 16;
  * not measure or move the panels itself, so it works the same in a grid, a
  * flex row, or anywhere else a width is a variable.
  *
- * Place it straight after the panel it sizes, and position it over the gap
- * (see `panel-resizer.scss`): it takes no room of its own. With `storageKey`
- * the width is remembered across sessions.
+ * Place it next to the panel it sizes — straight after it (`sizes="before"`,
+ * the default) or straight before it (`sizes="after"`, for a panel anchored to
+ * the right) — and position it over the gap (see `panel-resizer.scss`): it
+ * takes no room of its own. With `storageKey` the width is remembered across
+ * sessions.
  */
 @Component({
   selector: 'nexus-panel-resizer',
@@ -40,6 +42,7 @@ const STEP = 16;
     '[attr.aria-valuemax]': 'max()',
     tabindex: '0',
     '[class.is-dragging]': 'dragging()',
+    '[class.sizes-after]': "sizes() === 'after'",
     '(pointerdown)': 'onPointerDown($event)',
     '(keydown)': 'onKeyDown($event)',
   },
@@ -53,6 +56,8 @@ export class PanelResizer {
   /** Where to remember the width; omitted, it lasts only as long as the page. */
   readonly storageKey = input<string>();
   readonly label = input('Resize panel');
+  /** Which neighbour is sized: the panel before the handle, or the one after. */
+  readonly sizes = input<'before' | 'after'>('before');
 
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly storage = inject(BrowserStorage);
@@ -75,9 +80,12 @@ export class PanelResizer {
     return this.host.nativeElement.parentElement;
   }
 
-  /** The panel being sized: the one the handle follows. */
+  /** The panel being sized: the neighbour named by `sizes`. */
   private get panel(): HTMLElement | null {
-    return this.host.nativeElement.previousElementSibling as HTMLElement | null;
+    const el = this.host.nativeElement;
+    return (
+      this.sizes() === 'after' ? el.nextElementSibling : el.previousElementSibling
+    ) as HTMLElement | null;
   }
 
   protected onPointerDown(event: PointerEvent): void {
@@ -90,8 +98,12 @@ export class PanelResizer {
     el.setPointerCapture(event.pointerId);
     this.dragging.set(true);
 
-    const left = panel.getBoundingClientRect().left;
-    const move = (e: PointerEvent) => this.apply(e.clientX - left);
+    // Measured from the panel's far edge, which stays put while the near one
+    // follows the pointer.
+    const rect = panel.getBoundingClientRect();
+    const after = this.sizes() === 'after';
+    const move = (e: PointerEvent) =>
+      this.apply(after ? rect.right - e.clientX : e.clientX - rect.left);
     const up = () => {
       this.dragging.set(false);
       this.persist();
@@ -108,10 +120,12 @@ export class PanelResizer {
 
   /** Arrow keys move it too — a pointer drag is not the only way to aim. */
   protected onKeyDown(event: KeyboardEvent): void {
-    const delta = event.key === 'ArrowLeft' ? -STEP : event.key === 'ArrowRight' ? STEP : 0;
-    if (delta === 0) {
+    const toward = event.key === 'ArrowLeft' ? -STEP : event.key === 'ArrowRight' ? STEP : 0;
+    if (toward === 0) {
       return;
     }
+    // Arrows move the handle; a panel after it grows as the handle goes left.
+    const delta = this.sizes() === 'after' ? -toward : toward;
     event.preventDefault();
     this.apply((this.panel?.getBoundingClientRect().width ?? this.min()) + delta);
     this.persist();

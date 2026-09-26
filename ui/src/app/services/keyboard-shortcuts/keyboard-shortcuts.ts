@@ -1,9 +1,11 @@
 import { Injectable, Injector, inject } from '@angular/core';
+import { Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { fromEvent } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
 import { matchKeybindingPress, parseKeybinding } from 'tinykeys';
 import { Arrange } from '../arrange';
+import { LibraryFlyout } from '../library/library-flyout';
 import type { GcodePreview } from '../gcode-preview';
 import { SceneEngine } from '../scene-engine';
 import { SceneHistory } from '../scene-history/scene-history';
@@ -55,6 +57,8 @@ export class KeyboardShortcuts {
   private readonly injector = inject(Injector);
   private readonly workplate = inject(WorkplateObjects);
   private readonly sceneCommand = inject(SceneCommand);
+  private readonly libraryFlyout = inject(LibraryFlyout);
+  private readonly router = inject(Router);
 
   /**
    * True when running on macOS desktop/laptop (not iPadOS). Consumers use
@@ -151,6 +155,26 @@ export class KeyboardShortcuts {
         this.slicer.status() !== 'slicing' &&
         this.slicer.status() !== 'uploading',
       handleAction: () => void this.slicer.slice(),
+    },
+    {
+      // First of the Escapes: the library is laid over everything else on the
+      // plate, so it is what the first press puts away. From its own search
+      // field too — that field empties itself on Escape first, and only an
+      // empty one lets the key through to here.
+      actionId: 'library-close',
+      shortcut: 'Escape',
+      displayDescription: 'Close the library',
+      canMatch: () =>
+        this.libraryFlyout.open() &&
+        (!this.isTextInputFocused() || this.focusIsIn('.library-flyout')),
+      handleAction: () => this.libraryFlyout.close(),
+    },
+    {
+      actionId: 'library-deselect',
+      shortcut: 'Escape',
+      displayDescription: 'Library: clear the selected model',
+      canMatch: () => !this.isTextInputFocused() && !!this.libraryPageRef?.hasSelection(),
+      handleAction: () => this.libraryPageRef!.deselect(),
     },
     {
       // Before `deselect-all`, which shares the key: the first press should peel
@@ -303,6 +327,61 @@ export class KeyboardShortcuts {
       handleAction: () => toolPanelTarget()?.focus(),
     },
     {
+      actionId: 'toggle-library',
+      shortcut: 'l',
+      displayDescription: 'Open or close the library',
+      canMatch: () => !this.isTextInputFocused() && !this.router.url.startsWith('/library'),
+      // Over the plate when there is one, as the rail does; the page otherwise.
+      handleAction: () =>
+        sceneHost() !== null
+          ? this.libraryFlyout.toggle()
+          : void this.router.navigate(['/library']),
+    },
+    {
+      actionId: 'toggle-print-settings',
+      shortcut: '$mod+Backslash',
+      displayDescription: 'Dock or hide the print settings',
+      canMatch: () => this.printSettingsRef !== null,
+      handleAction: () => this.printSettingsRef!.toggle(),
+    },
+    {
+      // Before the settings search: with the library open over the plate, both
+      // are mounted, and the library is the one on top.
+      actionId: 'focus-library-search',
+      shortcut: '$mod+f',
+      displayDescription: 'Search the library',
+      canMatch: () => this.librarySearchRef !== null,
+      handleAction: () => this.librarySearchRef!.focusSearch(),
+    },
+    {
+      actionId: 'library-add-models',
+      shortcut: '$mod+o',
+      displayDescription: 'Library: add models from files',
+      canMatch: () => this.libraryPageRef !== null,
+      handleAction: () => this.libraryPageRef!.addModels(),
+    },
+    {
+      actionId: 'library-rename',
+      shortcut: 'F2',
+      displayDescription: 'Library: rename the selected model',
+      canMatch: () => !this.isTextInputFocused() && !!this.libraryPageRef?.hasSelection(),
+      handleAction: () => this.libraryPageRef!.rename(),
+    },
+    {
+      actionId: 'library-remove',
+      shortcut: 'Delete',
+      displayDescription: 'Library: remove the selected model (press twice)',
+      canMatch: () => !this.isTextInputFocused() && !!this.libraryPageRef?.hasSelection(),
+      handleAction: () => this.libraryPageRef!.remove(),
+    },
+    {
+      actionId: 'library-remove-alt',
+      shortcut: 'Backspace',
+      displayDescription: 'Library: remove the selected model (alternate)',
+      canMatch: () => !this.isTextInputFocused() && !!this.libraryPageRef?.hasSelection(),
+      handleAction: () => this.libraryPageRef!.remove(),
+    },
+    {
       actionId: 'focus-settings-search',
       shortcut: '$mod+f',
       displayDescription: 'Focus settings search',
@@ -331,6 +410,15 @@ export class KeyboardShortcuts {
 
   /** The titlebar's workplate tab strip, which every tab shortcut drives. */
   tabStripRef: WorkplateTabStrip | null = null;
+
+  /** Whichever library grid is on screen — the page's, or the flyout's. */
+  librarySearchRef: { focusSearch(): void } | null = null;
+
+  /** The full library page, while it is the page on screen. */
+  libraryPageRef: LibraryPageShortcuts | null = null;
+
+  /** The slice view's print settings panel. */
+  printSettingsRef: { toggle(): void } | null = null;
 
   constructor() {
     fromEvent<KeyboardEvent>(document, 'keydown')
@@ -604,6 +692,10 @@ export class KeyboardShortcuts {
    * settings page started a slice behind it, and without the second the G-code
    * arrows stole the caret from the settings search.
    */
+  private focusIsIn(selector: string): boolean {
+    return document.activeElement?.closest(selector) != null;
+  }
+
   private onPlate(): boolean {
     return sceneHost() !== null && !this.isTextInputFocused();
   }
@@ -743,6 +835,15 @@ const NON_TYPING_INPUT_TYPES = new Set([
 ]);
 
 /** What the tab shortcuts drive — implemented by the titlebar's `WorkplateTabs`. */
+/** What the library page lets the keyboard do; see {@link KeyboardShortcuts.libraryPageRef}. */
+export interface LibraryPageShortcuts {
+  hasSelection(): boolean;
+  deselect(): void;
+  rename(): void;
+  remove(): void;
+  addModels(): void;
+}
+
 export interface WorkplateTabStrip {
   toggleSearch(): void;
   closeActive(): Promise<void>;

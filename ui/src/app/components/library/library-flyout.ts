@@ -37,7 +37,7 @@ const REPEAT_MS = 600;
     </header>
 
     @if (library.entries().length > 0) {
-      <p class="flyout-hint">Pick a model to add it to the plate.</p>
+      <p class="flyout-hint">Pick a model to add it to this workplate.</p>
       <nexus-library-browser variant="flyout" (pick)="add($event)" (activate)="add($event)" />
     } @else if (library.loaded()) {
       <p class="flyout-hint">

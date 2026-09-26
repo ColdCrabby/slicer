@@ -4,6 +4,13 @@
   gap: var(--spacing-lg);
 }
 
+// Edge to edge across the panel: the model is the subject, not an inset in it.
+nexus-library-preview,
+.inspector-missing {
+  margin-inline: calc(-1 * var(--library-side-pad, var(--spacing-lg)));
+  border-radius: 0;
+}
+
 nexus-library-preview {
   background: var(--color-surface);
 }
@@ -12,6 +19,7 @@ nexus-library-preview {
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
+  padding-top: var(--spacing-md);
 }
 
 // Reads as a title until touched. One ring on focus — the field's own, drawn
@@ -73,6 +81,7 @@ nexus-library-preview {
 
   > button {
     flex: 1 1 auto;
+    --icon-size: 14px;
   }
 }
 
@@ -142,11 +151,8 @@ nexus-library-preview {
   color: var(--color-text-tertiary);
 }
 
-.inspector-remove {
-  align-self: flex-start;
-
-  &.is-confirming {
-    color: var(--color-danger);
-    background: var(--color-danger-light);
-  }
+// Armed: red, so the second press is plainly the destructive one.
+.inspector-remove.is-confirming {
+  color: var(--color-danger);
+  background: var(--color-danger-light);
 }

@@ -18,8 +18,8 @@ $default-inset: 40px;
 // - The canvas starts at the panel's inner edge — tucked a gap under it — and
 //   fades in over twice the gap, so the plate runs out softly behind the panel
 //   instead of stopping on a hard line where the panel's top corner clears it.
-// - The floating chrome (toolbar, cards, rail) starts a gap clear of the panel,
-//   where nothing of it is hidden.
+// - The floating chrome (toolbar, cards, rail) starts clear of the panel and
+//   of the controls on its edge, where nothing of it is hidden or covered.
 .shell-content {
   flex: 1;
   overflow: auto;
@@ -35,7 +35,9 @@ $default-inset: 40px;
 
 :host:has(> nexus-sidebar:not(.is-collapsed)) {
   --scene-canvas-inset: var(--sidebar-w, 280px);
-  --scene-chrome-inset: calc(var(--sidebar-w, 280px) + var(--panel-gap));
+  // Past the panel, and past the lane its dock nub and resize grip stand in on
+  // its right edge (24px, the nub's width), so neither sits over a control.
+  --scene-chrome-inset: calc(var(--sidebar-w, 280px) + var(--panel-gap) + 24px);
 
   // The routed page — the canvas and what is drawn on it. Router-inserted, so
   // it carries none of this component's attributes.
@@ -64,10 +66,47 @@ $default-inset: 40px;
 
 // The library flyout. A column of its own, like the text panel, so the plate
 // stays whole beside it — the point is to see where a model will land.
+// The library, over the scene's left edge and the print settings on it — it
+// is opened from the rail, so it comes out of that side. Inset the panel gap
+// like the print settings, above them, and turning in on the same hinge.
+.library-sheet {
+  position: absolute;
+  top: var(--panel-gap);
+  left: var(--panel-gap);
+  bottom: var(--panel-gap);
+  z-index: 30;
+  width: var(--library-w, clamp(280px, 26vw, 380px));
+  transform-origin: 0 50%;
+}
+
+// Over docked print settings it is never the narrower of the two: a library
+// that stops short of the panel under it shows a sliver of that panel down its
+// edge. Dragged narrower than that, it simply holds the panel's width.
+:host:has(> nexus-sidebar:not(.is-collapsed)) .library-sheet {
+  width: max(var(--library-w, clamp(280px, 26vw, 380px)), var(--sidebar-w, 280px));
+}
+
+// While the library covers the print settings, their edge controls — the dock
+// nub and the resize grip — would stand beside the library's own grip.
+:host:has(> .library-sheet) nexus-sidebar ::ng-deep :is(.sidebar-pin, .resize-handle) {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.library-turn-in {
+  @include panel-turn-in(library-turn);
+}
+
+.library-turn-out {
+  @include panel-turn-out(library-turn);
+}
+
+@include panel-turn-keyframes(end, library-turn);
+
 .library-flyout {
-  flex: none;
-  width: clamp(280px, 26vw, 380px);
-  margin-left: var(--panel-gap);
+  height: 100%;
+  border-radius: var(--panel-radius-nested);
 }
 
 .shell-actions-layer {
@@ -303,13 +342,13 @@ $default-inset: 40px;
 
   // No room for a column: the flyout covers the lower part of the scene,
   // leaving the plate visible above it.
-  .library-flyout {
-    position: absolute;
+  .library-sheet {
     inset: auto 0 0;
-    z-index: 20;
     width: auto;
     height: 60%;
-    margin-left: 0;
+  }
+
+  .library-flyout {
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     box-shadow: var(--shadow-lg);
   }

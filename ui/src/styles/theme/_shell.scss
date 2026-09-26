@@ -38,7 +38,9 @@
   // darker panel, so the eye always knows where the work is.
   --panel-bg: var(--color-bg-secondary);
   --panel-bg-primary: var(--color-bg-primary);
-  --panel-border: var(--color-border);
+  // Softer than the shared hairline: a panel is told apart by its tone and the
+  // gap around it, and the edge only has to confirm it.
+  --panel-border: color-mix(in oklab, var(--color-border) 60%, transparent);
   // A raised panel sits over another one — a flyout, a drawer, the slice
   // sidebar over the scene — and says so with a shadow instead of a gap.
   --panel-shadow-raised: var(--shadow-lg);

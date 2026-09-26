@@ -14,6 +14,7 @@ import {
 } from '@angular/core';
 import { Icon } from '@coldcrabby/ui';
 import { Panel } from '../../ui/panel/panel';
+import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
 import { Viewport } from '../../services/viewport';
 
 const STORAGE_WIDTH_KEY = 'nexus.sidebar.width';
@@ -44,6 +45,11 @@ const HOVER_LEAVE_GRACE_PX = 32;
 // the target; the hover delay and the held-button check are what keep a pass
 // across the edge from opening it.
 const EDGE_ARM_PX = 56;
+/**
+ * The scene's own controls, which the edge band never opens the drawer from:
+ * everything floating on the plate, and any control at all.
+ */
+const SCENE_CHROME = '.shell-actions-layer > *, button, a, input, select, [role="button"]';
 
 @Component({
   selector: 'nexus-sidebar',
@@ -56,6 +62,7 @@ const EDGE_ARM_PX = 56;
     '[class.is-expanded]': 'isExpanded()',
     '[class.is-edge-armed]': 'edgeArmed()',
     '[class.is-dragging]': 'isDragging()',
+    '[class.panels-unsettled]': '!settled()',
   },
 })
 export class Sidebar {
@@ -83,6 +90,8 @@ export class Sidebar {
   /** An ephemeral hover preview (pointer-capable devices only); closes on leave. */
   protected readonly hoverPreview = signal(false);
   protected readonly isDragging = signal(false);
+  /** Past first render; see `.panels-unsettled` in styles/components/_panels.scss. */
+  protected readonly settled = signal(false);
 
   /** Whether the content has been scrolled far enough to offer a "scroll to top". */
   protected readonly showScrollTop = signal(false);
@@ -116,10 +125,22 @@ export class Sidebar {
   constructor() {
     afterNextRender(() => {
       this.applyCssWidth(this.readWidth());
+      // A beat after the stored width and docked state are in, so neither is
+      // animated into place on the way in.
+      setTimeout(() => this.settled.set(true), 60);
     });
 
     this.armEdgeHover();
     this.armOutsideDismiss();
+
+    const shortcuts = inject(KeyboardShortcuts);
+    const ref = { toggle: () => this.toggle() };
+    shortcuts.printSettingsRef = ref;
+    this.destroyRef.onDestroy(() => {
+      if (shortcuts.printSettingsRef === ref) {
+        shortcuts.printSettingsRef = null;
+      }
+    });
 
     this.destroyRef.onDestroy(() => {
       this.clearHoverTimers();
@@ -140,6 +161,25 @@ export class Sidebar {
     }
   }
 
+  /**
+   * The keyboard's toggle: dock or hide where there is room to dock, and open
+   * or close the drawer on a phone, where there is not.
+   */
+  toggle(): void {
+    if (this.viewport.isHandheld()) {
+      if (this.isExpanded()) {
+        this.dismissOverlay();
+      } else {
+        this.expand();
+      }
+      return;
+    }
+    const next = !this.collapsed();
+    this.dockedPreference.set(next);
+    this.dismissOverlay();
+    this.saveCollapsed(next);
+  }
+
   /** Track scroll depth so the floating "scroll to top" affordance can appear. */
   protected onContentScroll(event: Event): void {
     const top = (event.target as HTMLElement).scrollTop;
@@ -158,13 +198,7 @@ export class Sidebar {
    */
   protected onCollapseToggle(event: MouseEvent): void {
     event.stopPropagation();
-    const next = !this.collapsed();
-    this.dockedPreference.set(next);
-    this.clearHoverTimers();
-    this.stopPointerWatch();
-    this.overlayOpen.set(false);
-    this.hoverPreview.set(false);
-    this.saveCollapsed(next);
+    this.toggle();
   }
 
   /**
@@ -203,7 +237,15 @@ export class Sidebar {
           event.clientX <= rect.left + EDGE_ARM_PX &&
           event.clientY >= rect.top &&
           event.clientY <= rect.bottom;
-        if (!atEdge) {
+        // Only over the plate itself. The toolbar, the objects list and the
+        // tool cards float inside the same band, and a pointer on its way to
+        // one of their buttons is not asking for the settings — opening the
+        // drawer then puts it over the very button being reached for.
+        const overChrome =
+          event.target instanceof Element &&
+          event.target.closest(SCENE_CHROME) !== null &&
+          event.target.closest('.sidebar-reveal-hint') === null;
+        if (!atEdge || overChrome) {
           this.clearOpenTimer();
           return;
         }

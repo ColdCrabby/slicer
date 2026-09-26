@@ -87,3 +87,43 @@ $panel-turn-drop: 6px;
     filter: none;
   }
 }
+
+/// The same turn as keyframes, for a panel that is mounted and unmounted rather
+/// than toggled — `animate.enter` / `animate.leave`. Emit the keyframes once at
+/// the stylesheet's root, then apply `panel-turn-in` / `panel-turn-out` to the
+/// enter and leave classes. The perspective is in the transform itself, so no
+/// parent has to set one (a `perspective` on a parent would also make it the
+/// containing block for any fixed-position descendant).
+@mixin panel-turn-keyframes($hinge, $name) {
+  @keyframes #{$name}-in {
+    from {
+      transform: perspective(1000px) -panel-turn-away($hinge);
+      opacity: 0;
+      filter: blur(2px);
+    }
+  }
+
+  @keyframes #{$name}-out {
+    to {
+      transform: perspective(1000px) -panel-turn-away($hinge);
+      opacity: 0;
+      filter: blur(2px);
+    }
+  }
+}
+
+@mixin panel-turn-in($name) {
+  animation: #{$name}-in $panel-turn-enter $panel-turn-ease-enter both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation-duration: 1ms;
+  }
+}
+
+@mixin panel-turn-out($name) {
+  animation: #{$name}-out $panel-turn-leave $panel-turn-ease-leave forwards;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation-duration: 1ms;
+  }
+}

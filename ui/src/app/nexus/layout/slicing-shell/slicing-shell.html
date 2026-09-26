@@ -28,13 +28,23 @@
   </div>
 </main>
 
-<!-- A panel beside the plate rather than over it: models are picked while
-     looking at where they will go. On the right because the left edge belongs
-     to the print settings, which float over it. Loaded on first open — most
-     plates never ask. -->
+<!-- The library opens from the rail, so it comes out of the rail's side: over
+     the plate's left edge, and over the print settings while it is open. It is
+     never docked — it is opened to put a model down and closed again.
+     Resizable from its right edge, and loaded on first open, since most plates
+     never ask. -->
 @if (libraryFlyout.open()) {
   @defer (on immediate) {
-    <nexus-library-flyout class="library-flyout" nexusPanel />
+    <div class="library-sheet" animate.enter="library-turn-in" animate.leave="library-turn-out">
+      <nexus-library-flyout class="library-flyout" nexusPanel />
+      <nexus-panel-resizer
+        property="--library-w"
+        storageKey="library.flyoutWidth"
+        label="Resize the library"
+        [min]="260"
+        [max]="560"
+      />
+    </div>
   }
 }
 

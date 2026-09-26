@@ -1,10 +1,12 @@
 import {
   Component,
   ElementRef,
+  afterNextRender,
   afterRenderEffect,
   computed,
   effect,
   inject,
+  signal,
   untracked,
   viewChild,
 } from '@angular/core';
@@ -29,12 +31,14 @@ import { SceneEngine } from '../../../services/scene-engine';
 import { ViewerControl } from '../../../services/viewer-control';
 import { Sidebar } from '../../sidebar/sidebar';
 import { Panel } from '../../../ui/panel/panel';
+import { PanelResizer } from '../../../ui/panel/panel-resizer';
 import { SliceControl } from '../../slice-control/slice-control';
 
 @Component({
   selector: 'nexus-slicing-shell',
   imports: [
     Panel,
+    PanelResizer,
     Sidebar,
     SliceControl,
     SliceSegmentBar,
@@ -53,6 +57,9 @@ import { SliceControl } from '../../slice-control/slice-control';
   ],
   templateUrl: './slicing-shell.html',
   styleUrl: './slicing-shell.scss',
+  host: {
+    '[class.panels-unsettled]': '!settled()',
+  },
 })
 export class NexusSlicingShell {
   private readonly toolbarRef = viewChild(ThreeDViewToolbar, { read: ElementRef<HTMLElement> });
@@ -62,6 +69,12 @@ export class NexusSlicingShell {
   private readonly viewerControl = inject(ViewerControl);
   private readonly preview = inject(GcodePreview);
   protected readonly libraryFlyout = inject(LibraryFlyoutState);
+  /**
+   * Past first render. Until then the scene's padding does not animate, so a
+   * docked sidebar and its stored width are simply there on arrival rather
+   * than eased into — see `.panels-unsettled` in styles/components/_panels.scss.
+   */
+  protected readonly settled = signal(false);
 
   /**
    * The G-code text column is only docked once there is a file to read. Without
@@ -73,6 +86,8 @@ export class NexusSlicingShell {
   );
 
   constructor() {
+    afterNextRender(() => setTimeout(() => this.settled.set(true), 60));
+
     // Apply the active printer's bed to the print area and the scene engine.
     // Lives here (not in a root service) so opening Settings never boots the
     // slicer runtime — this shell is only ever constructed inside the slice

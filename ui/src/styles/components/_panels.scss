@@ -68,3 +68,13 @@
     background: var(--color-text-primary);
   }
 }
+
+// Panels arrive in their final state. A component that animates its panels
+// (a panel turning in, a scene padding for a docked panel) marks its host
+// `is-settled` a moment after first render; until then nothing transitions,
+// so restoring a stored width or a docked state on the way in is not played
+// back as an animation. The standard "no transitions on load" gate.
+.panels-unsettled,
+.panels-unsettled * {
+  transition: none !important;
+}

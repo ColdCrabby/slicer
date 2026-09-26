@@ -24,6 +24,13 @@
   }
 }
 
+// Before the panel it sizes: stand in the gap on that panel's left instead.
+:host(.sizes-after) {
+  left: auto;
+  right: calc(100% + var(--panel-gap) / 2);
+  translate: 50% 0;
+}
+
 // Panels stack on a phone; there is no width to drag.
 @include handheld {
   :host {

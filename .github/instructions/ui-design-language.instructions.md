@@ -169,6 +169,12 @@ Two rules follow from it:
   the panel. `raised` (a shadow) is for flyouts that need lifting off busy
   content; the slice settings go without. A panel inset inside another takes
   `--panel-radius-nested` (8px), so its corners follow the outer curve.
+- **Flyouts come out of the side they are opened from.** The library opens
+  from the rail, so it floats over the scene's left edge — over the print
+  settings — inset `--panel-gap` and turning in on the same hinge
+  (`styles/_panel-turn.scss`, which also keeps the mirrored hinge for a
+  right-hand panel). Only the print settings dock. In the rail, the page on screen is filled; a flyout open beside it is
+  outlined with a dot — never two filled items at once.
 - **A draggable panel edge is three dots in the gap** — `nexus-panel-resizer`,
   or the `.panel-grip` class where the drag logic already exists. Never an
   invisible strip or an accent hairline.

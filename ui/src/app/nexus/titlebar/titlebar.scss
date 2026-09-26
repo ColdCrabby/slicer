@@ -59,6 +59,17 @@
   align-items: center;
   flex: none;
   --icon-size: 18px;
+  // The way home, from anywhere: the crab and the name are one link.
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  -webkit-user-drag: none;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 4px;
+    border-radius: var(--radius-sm);
+  }
 }
 
 // The mascot, taken out of the bar's flow and pinned in the corner, big enough

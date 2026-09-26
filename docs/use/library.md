@@ -8,8 +8,10 @@ already have instead of hunting for the files again.
 
 What **Library** in the side rail opens depends on where you are:
 
-- **With a plate open**, it opens beside the plate. Pick a model and it goes
-  straight onto the plate. The button at the top opens the full library.
+- **With a plate open**, it slides out over the left side of the plate, on top
+  of the print settings. Pick a model and it goes straight onto that workplate.
+  Drag the dots on its right edge to make it wider, and use the button at the
+  top to open the full library.
 - **Anywhere else**, it opens the full library page.
 
 On the full page:
@@ -17,11 +19,12 @@ On the full page:
 - **Click** a model to see it up close. Its picture turns into a live view you
   can drag to turn, alongside its size, when you first added it, when you last
   used it and where its file is.
-- **Add to plate** puts it on the plate you have open. **Put on a new plate**
-  starts a new one with it. Double-clicking a model, or pressing `Enter` on it,
-  does the same as **Add to plate**.
+- **Add to workplate** asks which of your open workplates to put it on.
+  **New workplate** starts a new one with it. Double-clicking a model, or
+  pressing `Enter` on it, adds it to the workplate you last had open.
 - **Right-click** a model (or press and hold on a touchscreen) for the same
-  actions, plus rename, show the file in Finder or Explorer, and remove.
+  actions, plus rename, show the file in Finder or Explorer, and remove. The
+  bin beside the close button removes the selected model; press it twice.
 - **Search** by name. The sort button next to the search box orders models by
   recently used, recently added, most used or name.
 - Click the name above the details to rename it. The file keeps its own name.
@@ -74,6 +77,6 @@ matches; a scaled or rotated one does not.
 :::
 
 ::: details Advanced — removing a model
-**Remove from library** deletes the library's copy and its picture. A linked
+Removing a model (the bin, pressed twice) deletes the library's copy and its picture. A linked
 file in one of your folders is never deleted — the library only forgets it.
 :::

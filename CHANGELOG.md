@@ -117,6 +117,13 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   left edge: rest the pointer there and the panel turns in. Docked, the plate
   moves over with it instead of being squeezed, and a three-dot grip resizes it
   — the same grip as between Settings columns.
+- **The library, reworked.** Opened over a plate it slides out from the rail,
+  resizable and closed with `Esc`; the full page is panels like the rest. Cards
+  show the model edge to edge, **Add to workplate** asks which one, **New
+  workplate** starts one, and removing is the bin beside the close button.
+- **More of the app from the keyboard.** `L` opens the library, `⌘/Ctrl + \`
+  docks or hides the print settings, arrow keys walk the model grid, and the
+  library page takes `⌘/Ctrl + O`, `F2` and `Delete`.
 - **Settings are steadier.** Preference help opens as the usual tooltip, counts
   are small badges, *Saving… / Saved* and **Restore defaults** no longer shift
   the line, and a jump to a setting marks it with a soft background.
