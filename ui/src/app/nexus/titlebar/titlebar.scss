@@ -8,11 +8,9 @@
   // Center the logo icon over the nav-rail column below it (24px logo box).
   padding: 0 var(--spacing-xs);
   padding-left: calc((var(--nav-rail-width) - 24px) / 2);
-  background: var(--color-bg-secondary);
-  // An inset shadow rather than a border: it paints *under* the children, so
-  // the active workplate tab — which reaches the bar's bottom edge — covers the
-  // rule and opens straight into the page. A border would cut across it.
-  box-shadow: inset 0 -1px 0 var(--color-border);
+  // No fill and no rule: the bar sits on the window's own background, and the
+  // work surface's rounded top edge below is the only line between them.
+  background: transparent;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -57,8 +55,8 @@
   --icon-size: 18px;
 }
 
-// Open workplate tabs, sitting next to the brand. Full height, so the tabs can
-// stand on the bar's bottom edge; hidden when no workplate is open.
+// Open workplate tabs, sitting next to the brand; hidden when no workplate is
+// open.
 .tb-workplate {
   min-width: 0;
   margin-left: var(--spacing-md);

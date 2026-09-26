@@ -150,6 +150,17 @@ Two rules follow from it:
 
 ## Layout & Component Patterns
 
+- **The app is chrome around one floating work surface.** The titlebar and nav
+  rail have **no fill and no border** — they sit on the window background
+  (`--color-bg-secondary`). The routed page is a single rounded surface
+  (`--color-bg-primary`, `--radius-shell`, one `--color-border` hairline) held
+  off the right and bottom window edges by `--shell-gutter`, and clipped so the
+  scene and settings drawer round with it. Tokens live in
+  `ui/src/styles/theme/_shell.scss`. Never draw a rule between the chrome and
+  the page again — the surface's own edge is that line.
+- **Titlebar tabs float; they do not hang.** Workplate tabs are small pills
+  (`--radius-md`) centred in the bar; the active one takes the surface's tone
+  and border rather than an accent fill, so it reads as a piece of the page.
 - **Islands / cards:** rounded solid surface, `--radius-lg`, `overflow: hidden`,
   separated from the app canvas (`--color-bg-primary`) by surface tone. Add a
   border only when the card needs contrast (floating over the 3D scene) rather
