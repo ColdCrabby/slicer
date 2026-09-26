@@ -1,3 +1,7 @@
+---
+description: "Configure Cold Crabby's command line and server with slicer.toml: layered defaults for a whole team, reading and writing values, and validating before you print."
+---
+
 # Configuration
 
 The interface saves settings into profiles. The CLI and the server read a

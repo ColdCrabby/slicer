@@ -1,3 +1,7 @@
+---
+description: "Fixes for common Cold Crabby problems: models outside the build area, files that won't open, failed or slow slices, preview issues and printers that won't connect."
+---
+
 # Troubleshooting
 
 ## The model

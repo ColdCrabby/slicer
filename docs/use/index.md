@@ -1,3 +1,7 @@
+---
+description: "From a 3D model to G-code with Cold Crabby: open it in your browser, drop in an STL, OBJ or 3MF, pick a printer, slice and download. No install, no account."
+---
+
 # Getting started
 
 Cold Crabby turns a 3D model into **G-code** — the file your printer actually

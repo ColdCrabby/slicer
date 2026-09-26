@@ -1,0 +1,57 @@
+<!--
+  home.html — what the home page says to anything that does not run the app:
+  crawlers that read the HTML without executing it, link previews, and a
+  browser with JavaScript turned off. apply.mjs places it inside <nexus-root>,
+  which Angular empties as it starts, so anyone whose browser runs the app gets
+  the app instead and never sees this. It stays hidden until then too; only
+  the <noscript> rule apply.mjs adds reveals it.
+
+  Keep it true of the browser build at this address. Anything only the desktop
+  app or a self-hosted server can do must say so where it is mentioned.
+-->
+<main class="site-intro">
+  <div class="site-intro__body">
+    <h1>Cold Crabby: a free 3D printer slicer that runs in your browser</h1>
+    <p>
+      Drop in an STL, OBJ or 3MF file, pick your printer, and download print-ready G-code. The
+      whole slicer runs inside the page, compiled to WebAssembly, so there is nothing to install,
+      no account to make, and your model never leaves your device. It works the same on a laptop,
+      a desktop computer or an iPad.
+    </p>
+    <p>
+      <strong>Cold Crabby is an application and needs JavaScript to run.</strong> Turn JavaScript
+      on and reload the page, or read the <a href="/docs/use/">getting started guide</a> first.
+    </p>
+
+    <h2>What it does</h2>
+    <ul>
+      <li>Build plates with several models, arranged for you automatically</li>
+      <li>Variable-width walls (Arachne) or classic fixed-width perimeters</li>
+      <li>Rectilinear, grid, honeycomb, gyroid and TPMS-D infill</li>
+      <li>Supports, including ones you paint on by hand, plus brims, rafts and ironing</li>
+      <li>Spiral vase mode, and printing parts one at a time</li>
+      <li>G-code for Marlin and Klipper, with your own start and end scripts</li>
+      <li>A preview of the real toolpaths, coloured by role, speed, flow or temperature</li>
+    </ul>
+
+    <h2>The same slicer everywhere you print</h2>
+    <p>
+      The engine in this page is the one in the desktop app for macOS, Windows and Linux, the iPad
+      app and a self-hosted server, so a model sliced in one gives the same G-code in the next. The
+      desktop app and a server can also send the file to a Klipper printer through Moonraker and
+      start the print, which a browser tab cannot do.
+    </p>
+
+    <h2>Read more</h2>
+    <ul>
+      <li><a href="/docs/">Cold Crabby documentation</a></li>
+      <li><a href="/docs/use/">Getting started: from a 3D model to G-code</a></li>
+      <li><a href="/docs/use/settings">Print settings: layer height, walls, infill and supports</a></li>
+      <li><a href="/docs/use/interface">Slicing on a tablet or iPad, with touch and pen</a></li>
+      <li><a href="/docs/use/printing">Sending G-code to a Klipper printer</a></li>
+      <li><a href="/docs/teams/self-host">Self-hosting the slicer for a team or print farm</a></li>
+      <li><a href="/docs/teams/automation">Slicing from the command line</a></li>
+      <li><a href="https://github.com/ColdCrabby/slicer">Source code on GitHub</a></li>
+    </ul>
+  </div>
+</main>

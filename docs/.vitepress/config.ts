@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vitepress";
+import { defineConfig, type HeadConfig } from "vitepress";
 import { withMermaid } from "vitepress-plugin-mermaid";
+import { siteName, siteUrl, socialCard } from "../../scripts/seo/site.mjs";
 
 // README discovery: auto-generates thin wrapper pages from repo READMEs.
 // Sidebar is defined manually below.
@@ -130,7 +131,7 @@ function writeWrapper(source: string) {
   const includePath = path
     .relative(path.dirname(wrapperPath), path.join(repoRoot, source))
     .replace(/\\/g, "/");
-  const githubUrl = `https://github.com/max-scopp/slicer-engine/blob/main/${source}`;
+  const githubUrl = `https://github.com/ColdCrabby/slicer/blob/main/${source}`;
   const contents = `---
 editLink: false
 ---
@@ -159,6 +160,30 @@ for (const source of discovered.keys()) {
 // (`pnpm --filter slicer-ui vendor:ui` to refresh it by hand).
 const uiStyles = path.join(repoRoot, "ui/vendor/coldcrabby-ui/src/styles");
 
+// The official site's public origin — set by the production deploy alone, so a
+// preview never publishes canonical URLs or a sitemap. See scripts/seo/.
+const origin = siteUrl();
+const docsUrl = origin && `${origin}/docs/`;
+
+/** Canonical URL and link-preview tags for one page of the official site. */
+function searchHead(relativePath: string, title: string, description: string): HeadConfig[] {
+  // The same mapping VitePress's own sitemap uses, under `cleanUrls`.
+  const url = docsUrl + relativePath.replace(/(^|\/)index\.md$/, "$1").replace(/\.md$/, "");
+  return [
+    ["link", { rel: "canonical", href: url }],
+    ["meta", { property: "og:type", content: "website" }],
+    ["meta", { property: "og:site_name", content: siteName }],
+    ["meta", { property: "og:title", content: title }],
+    ["meta", { property: "og:description", content: description }],
+    ["meta", { property: "og:url", content: url }],
+    ["meta", { property: "og:image", content: `${origin}${socialCard.path}` }],
+    ["meta", { property: "og:image:width", content: String(socialCard.width) }],
+    ["meta", { property: "og:image:height", content: String(socialCard.height) }],
+    ["meta", { property: "og:image:alt", content: socialCard.alt }],
+    ["meta", { name: "twitter:card", content: "summary_large_image" }],
+  ];
+}
+
 // https://vitepress.dev/reference/site-config
 export default withMermaid(
   defineConfig({
@@ -168,6 +193,14 @@ export default withMermaid(
     lastUpdated: true,
     cleanUrls: true,
     base: "/docs/",
+
+    // Page paths resolve against the hostname, so it carries the `/docs/` base.
+    // scripts/seo/apply.mjs folds this into the site-wide sitemap.xml.
+    sitemap: docsUrl ? { hostname: docsUrl } : undefined,
+    transformHead: ({ pageData, title, description }) =>
+      docsUrl && !pageData.isNotFound
+        ? searchHead(pageData.relativePath, title, description)
+        : [],
 
     // Same typeface pairing the app loads in `ui/src/index.html` — Plus
     // Jakarta Sans over IBM Plex Mono, both variable so the theme's non-step
@@ -336,7 +369,7 @@ export default withMermaid(
       socialLinks: [
         {
           icon: "github",
-          link: "https://github.com/max-scopp/slicer-engine",
+          link: "https://github.com/ColdCrabby/slicer",
         },
       ],
 

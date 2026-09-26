@@ -1,3 +1,7 @@
+---
+description: "The Cold Crabby name, mascot and logo files, its colours, design language and voice — and how you may use them when writing about the project."
+---
+
 # Brand
 
 Cold Crabby is a crab hugging an ice cube. That's most of what you need to know.
@@ -45,6 +49,10 @@ regenerate.
 `splash-logo.webp` asset, and a tiny base64 stand-in embedded directly in
 `ui/src/index.html` that shows before any request completes. Never hand-edit
 that blob — change the artwork and regenerate.
+
+**So is the link-preview card** — the picture a shared link to the site unfurls
+into. `scripts/seo/social-card.png` is rendered from `social-card.html` beside
+it, which says how; edit the HTML, never the PNG.
 
 ## Colour
 

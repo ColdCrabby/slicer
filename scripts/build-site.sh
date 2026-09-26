@@ -5,8 +5,9 @@
 #
 # One build, two destinations: the GitHub Pages deploy of main and the
 # per-pull-request preview both call this, so a preview is exactly what main
-# would publish — only the host differs. Host-specific touches (a 404 page for
-# SPA fallback, .nojekyll) are the caller's job.
+# would publish — only the host differs, and the search-engine layer below,
+# which only production asks for. Host-specific touches (a 404 page for SPA
+# fallback, .nojekyll) are the caller's job.
 #
 # Usage:
 #   scripts/build-site.sh            # into _site/
@@ -16,6 +17,10 @@
 # wasm-bindgen-cli, the WASI SDK on PATH, pnpm dependencies installed).
 # SLICER_GIT_SHA may be set to pin the SHA baked into the bundle; version.json
 # carries the same value so a stale tab can detect a newer deploy.
+# SLICER_SITE_URL, the site's public origin, is set by the production deploy
+# alone: it adds canonical URLs, social cards, structured data, robots.txt,
+# sitemap.xml and llms.txt (scripts/seo/). Leave it unset anywhere else, or that
+# build will claim to be the official site.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
@@ -53,5 +58,11 @@ cp -R docs/.vitepress/dist/. "${out}/docs/"
 # baked into the WASM bundle; a stale tab re-fetches this file and prompts a
 # reload when they differ.
 printf '{"sha":"%s","version":"%s"}\n' "${sha}" "${ref}" > "${out}/version.json"
+
+# The docs build above read SLICER_SITE_URL for its own canonical URLs and
+# sitemap; this does the same for the app at the root.
+if [[ -n "${SLICER_SITE_URL:-}" ]]; then
+  node scripts/seo/apply.mjs "${out}"
+fi
 
 echo "Site built into ${out}/"
