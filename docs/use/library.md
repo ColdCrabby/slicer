@@ -31,7 +31,8 @@ On the full page:
 ## Adding models
 
 Models join the library by themselves when they reach a plate — however they got
-there. To add some without opening a plate, use **Add models** or drop files on
+there. Each time a model goes on a plate counts as a use, whether you picked it
+from the library or opened the file again. To add some without opening a plate, use **Add models** or drop files on
 the library page.
 
 The library never keeps the same model twice. Dropping in a file it already has,

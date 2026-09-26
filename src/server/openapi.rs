@@ -328,16 +328,6 @@ const ROUTES: &[Route] = &[
         ],
     },
     Route {
-        path: "/api/library/{id}/touch",
-        method: "post",
-        summary: "Count a use of a library model",
-        description: "For a client that put the model on a plate by uploading it \
-                      itself. `place` counts its own uses.",
-        params: &[("id", "path", "Entry id")],
-        request: None,
-        responses: &[("204", "Counted", None), ("404", "No such entry", None)],
-    },
-    Route {
         path: "/api/library/{id}/place",
         method: "post",
         summary: "Put a library model on a plate",

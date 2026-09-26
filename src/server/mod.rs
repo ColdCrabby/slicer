@@ -262,10 +262,6 @@ async fn run_server(
                         "/library/{id}/place",
                         web::post().to(handlers::place_library_handler),
                     )
-                    .route(
-                        "/library/{id}/touch",
-                        web::post().to(handlers::touch_library_handler),
-                    )
                     .route("/openapi.json", web::get().to(handlers::openapi_handler))
                     .route("/docs", web::get().to(handlers::api_docs_handler))
                     .route(

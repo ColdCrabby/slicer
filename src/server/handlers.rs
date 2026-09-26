@@ -441,9 +441,9 @@ pub async fn upload_handler(
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
 
-    // Every model that reaches a plate reaches the library. Recorded in the
-    // background: hashing and measuring a large model is slow, and the user is
-    // waiting on the plate, not on the library.
+    // Every model that reaches a plate reaches the library, and counts as a
+    // use of it. Recorded in the background: hashing and measuring a large
+    // model is slow, and the user is waiting on the plate, not on the library.
     {
         let store = state.library.clone();
         let path = file_path.clone();
@@ -451,7 +451,8 @@ pub async fn upload_handler(
         tokio::task::spawn_blocking(move || {
             let recorded = std::fs::read(&path)
                 .map_err(anyhow::Error::from)
-                .and_then(|bytes| store.import_bytes(&name, &bytes));
+                .and_then(|bytes| store.import_bytes(&name, &bytes))
+                .and_then(|outcome| store.touch(&outcome.entry_id));
             if let Err(e) = recorded {
                 eprintln!("library: could not record '{name}': {e}");
             }
@@ -777,23 +778,6 @@ pub async fn rename_library_handler(
     let id = path.into_inner();
     let name = body.into_inner().name;
     match blocking(move || store.rename(&id, &name)).await {
-        Ok(true) => actix_web::HttpResponse::NoContent().finish(),
-        Ok(false) => actix_web::HttpResponse::NotFound().finish(),
-        Err(e) => library_error(e),
-    }
-}
-
-/// `POST /api/library/{id}/touch` — count a use of an entry.
-///
-/// For a client that put the model on a plate itself, by downloading it and
-/// uploading it like any other file. `place` counts its own uses.
-pub async fn touch_library_handler(
-    path: web::Path<String>,
-    state: web::Data<AppState>,
-) -> actix_web::HttpResponse {
-    let store = state.library.clone();
-    let id = path.into_inner();
-    match blocking(move || store.touch(&id)).await {
         Ok(true) => actix_web::HttpResponse::NoContent().finish(),
         Ok(false) => actix_web::HttpResponse::NotFound().finish(),
         Err(e) => library_error(e),

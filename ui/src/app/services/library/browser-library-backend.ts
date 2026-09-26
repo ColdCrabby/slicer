@@ -68,7 +68,11 @@ export class BrowserLibraryBackend extends LibraryBackend {
 
   async remember(file: File): Promise<ImportOutcome | null> {
     const [result] = await this.importFiles([file]);
-    return 'error' in result ? null : result;
+    if ('error' in result) {
+      return null;
+    }
+    await this.#touch(result.entry_id);
+    return result;
   }
 
   async importFiles(files: readonly File[]): Promise<ImportResult[]> {
@@ -109,7 +113,7 @@ export class BrowserLibraryBackend extends LibraryBackend {
     return bytes ? new File([bytes], `${entry.name}.${entry.format}`) : null;
   }
 
-  async touch(id: string): Promise<void> {
+  async #touch(id: string): Promise<void> {
     await this.#update((library) => ({
       ...library,
       entries: library.entries?.map((e) =>

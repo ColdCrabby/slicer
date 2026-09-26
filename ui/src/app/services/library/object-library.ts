@@ -206,15 +206,6 @@ export class ObjectLibrary {
     return this.#backend.open(entry);
   }
 
-  /** Count a use — called when an entry is put on a plate. */
-  async touch(entry: LibraryEntry): Promise<void> {
-    await this.#backend.touch(entry.id).catch(() => undefined);
-    this.#patch(entry.id, {
-      use_count: (entry.use_count ?? 0) + 1,
-      last_used_at: new Date().toISOString(),
-    });
-  }
-
   /** Where the library keeps its copies, when that is a folder on disk. */
   modelsDir(): Promise<string | null> {
     return this.#backend.modelsDir().catch(() => null);

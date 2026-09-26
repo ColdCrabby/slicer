@@ -55,8 +55,10 @@ export abstract class LibraryBackend {
   abstract scan(): Promise<ScanReport | null>;
 
   /**
-   * Record a model that just reached a plate. Resolves `null` where the engine
-   * records it on its own — the cloud server records every upload.
+   * Record a model that just reached a plate, and count it as a use — however
+   * it got there, from the library or from a file opened the old way. Resolves
+   * `null` where the engine does both on its own: the cloud server records
+   * every upload.
    */
   abstract remember(file: File): Promise<ImportOutcome | null>;
 
@@ -69,7 +71,6 @@ export abstract class LibraryBackend {
    */
   abstract open(entry: LibraryEntry): Promise<File | null>;
 
-  abstract touch(id: string): Promise<void>;
   abstract rename(id: string, name: string): Promise<void>;
   abstract remove(id: string): Promise<void>;
 
@@ -134,7 +135,11 @@ export class NativeLibraryBackend extends LibraryBackend {
 
   async remember(file: File): Promise<ImportOutcome | null> {
     const [result] = await this.importFiles([file]);
-    return 'error' in result ? null : result;
+    if ('error' in result) {
+      return null;
+    }
+    await this.#invoke('library_touch', { id: result.entry_id });
+    return result;
   }
 
   async importFiles(files: readonly File[]): Promise<ImportResult[]> {
@@ -172,10 +177,6 @@ export class NativeLibraryBackend extends LibraryBackend {
     const { readFile } = await import('@tauri-apps/plugin-fs');
     const bytes = await readFile(resolved.path);
     return withPath(new File([bytes as BlobPart], fileNameOf(entry)), resolved.path);
-  }
-
-  async touch(id: string): Promise<void> {
-    await this.#invoke('library_touch', { id });
   }
 
   async rename(id: string, name: string): Promise<void> {
@@ -255,7 +256,7 @@ export class RemoteLibraryBackend extends LibraryBackend {
     return this.#json('/scan', { method: 'POST' });
   }
 
-  /** The server records every upload itself. */
+  /** The server records every upload itself, and counts it as a use. */
   async remember(): Promise<ImportOutcome | null> {
     return null;
   }
@@ -281,15 +282,6 @@ export class RemoteLibraryBackend extends LibraryBackend {
   async open(entry: LibraryEntry): Promise<File | null> {
     const response = await fetch(`${this.#base}/${entry.id}/file`);
     return response.ok ? new File([await response.blob()], fileNameOf(entry)) : null;
-  }
-
-  /**
-   * The plate flows put the model on a plate by uploading it like any other
-   * file, so the use is counted separately. Re-recording that upload is a
-   * match, not a second use.
-   */
-  async touch(id: string): Promise<void> {
-    await this.#send(`/${id}/touch`, { method: 'POST' });
   }
 
   async rename(id: string, name: string): Promise<void> {

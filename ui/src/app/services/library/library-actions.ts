@@ -77,7 +77,6 @@ export class LibraryActions {
         );
         return;
       }
-      await this.#library.touch(entry);
       await use(file);
     } catch (error) {
       this.#notifications.error(
