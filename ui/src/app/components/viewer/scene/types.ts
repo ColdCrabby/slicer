@@ -2,10 +2,20 @@ import type { GizmoDelta } from '../gizmo';
 import type { PaintBrushMode } from '../../../services/viewer-control';
 
 export interface SceneSelectionHandlers {
-  /** A bare click on a selectable object — `additive` for ctrl/⌘/shift. */
+  /** A bare click on a selectable object — `additive` for ⌘ (Ctrl off Apple) / shift. */
   select(id: string, additive: boolean): void;
   /** Click landed on empty space (deselect). */
   clearSelection(): void;
+  /**
+   * Replace the selection outright — a box selection, called live while the
+   * box is dragged and once more when it is let go.
+   */
+  selectExactly?(ids: readonly string[]): void;
+  /**
+   * Bring these objects into view (a double-click), or the whole plate when
+   * `ids` is empty.
+   */
+  frame?(ids: readonly string[]): void;
   /**
    * A context menu was asked for over the scene — a right-click, or the touch
    * and pen long-press that stands in for one. `id` is the object under the

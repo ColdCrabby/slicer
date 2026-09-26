@@ -58,12 +58,14 @@ export class Arrange {
   private readonly sceneCommand = inject(SceneCommand);
   private readonly sceneEngine = inject(SceneEngine);
   private readonly activeSelection = inject(ActiveSelection);
-  /**
-   * Resolved on first read, not at construction: `Slicer` injects
-   * `WorkplateObjects`, which injects this, so a field `inject(Slicer)` is a
-   * dependency cycle the moment either is constructed first.
-   */
   private readonly injector = inject(Injector);
+
+  /**
+   * Resolved on first use, not at construction: `Slicer` needs
+   * `WorkplateObjects`, which needs this service, so injecting it eagerly is a
+   * construction cycle and the app fails to start. It is only read inside the
+   * computeds below, long after all three exist.
+   */
   private get slicer(): Slicer {
     return this.injector.get(Slicer);
   }

@@ -18,6 +18,7 @@ import { FileExport } from './file-export';
 import { onIdle } from './idle';
 import { ObjectLibrary } from './library';
 import { ModelSourceRegistry, nativePathOf } from './model-source';
+import { Feedback } from './feedback';
 import { NotificationService } from './notifications';
 import { ActiveSelection } from './profiles/active-selection';
 import { ProfilePersistence } from './profiles/profile-persistence';
@@ -81,6 +82,7 @@ export class Slicer {
   private readonly wsConnection = inject(SlicerConnection);
   private readonly slicerFile = inject(SlicerFile);
   private readonly notifications = inject(NotificationService);
+  private readonly feedback = inject(Feedback);
   private readonly sceneEngine = inject(SceneEngine);
   private readonly sceneCommand = inject(SceneCommand);
   private readonly workplateObjects = inject(WorkplateObjects);
@@ -1078,6 +1080,7 @@ export class Slicer {
       // decision, and it is only knowable here — so every slice, however it was
       // started, updates it.
       this.autoSlice.recordSliceDuration(this.totalElapsedMs());
+      this.feedback.recordSlice();
       this.outputLog.update((log) => [
         ...log,
         `Slice complete — ${result.layerCount} layers generated.`,

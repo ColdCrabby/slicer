@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clearOffsetX, overlapsXY, type WorldBox } from './placement';
+import { centreXY, clearOffsetX, overlapsXY, unionAabb, type WorldBox } from './placement';
 
 /** Axis-aligned box from XY extents (Z is irrelevant to footprint packing). */
 function box(x0: number, y0: number, x1: number, y1: number): WorldBox {
@@ -94,5 +94,19 @@ describe('clearOffsetX', () => {
   it('ignores neighbours that do not share the target Y band', () => {
     const dx = clearOffsetX(box(0, 0, 10, 10), [box(0, 500, 100, 600)], SPACING);
     expect(dx).toBe(0);
+  });
+});
+
+describe('unionAabb', () => {
+  it('encloses every box, so a group is measured as one', () => {
+    const union = unionAabb([
+      { world_aabb: box(0, 0, 10, 10) },
+      { world_aabb: box(30, -5, 40, 5) },
+    ]);
+    expect(union).toEqual([
+      [0, -5, 0],
+      [40, 10, 10],
+    ]);
+    expect(centreXY(union)).toEqual([20, 2.5]);
   });
 });

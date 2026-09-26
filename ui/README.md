@@ -529,8 +529,10 @@ A tablet keeps the desktop *layout* — it has the width — but not the desktop
 ```mermaid
 flowchart TB
     down["pointerdown"] --> hit{"raycast hit?"}
-    hit -->|object| grab{"selected object,<br/>translate mode,<br/>touch or pen?"}
-    hit -->|empty| press2["press: null"]
+    hit -->|object| grab{"translate mode, and<br/>mouse — or touch/pen<br/>on a selected object?"}
+    hit -->|empty| box{"Shift/⌥ mouse, or pen<br/>in multi-select?"}
+    box -->|yes| boxclaim["press: box<br/>camera shut out"]
+    box -->|no| press2["press: null"]
     grab -->|yes| claim["press: hitId<br/>camera shut out"]
     grab -->|no| press["press: hitId<br/>camera keeps it"]
     claim --> drift{"drift &gt; slop?"}
@@ -554,15 +556,30 @@ The rules worth knowing before editing it:
   dragged off to cancel. That includes pull-to-floor, where the press only
   *paints* the candidate face and the lift commits it.
 - **Additive selection is a mode, not a modifier** — there is no ⌘ to hold. It is
-  offered from the tool cluster on touch-primary devices only.
+  offered from the tool cluster on touch-primary devices only. Where there *is* a
+  keyboard, the toggle modifier is ⌘ on Apple platforms and Ctrl elsewhere
+  (`isToggleClick`), because ⌃-click on a Mac or an iPad trackpad is the
+  secondary click (`isSecondaryClick`) and opens the menu. The scene and the
+  objects list ask the same two functions.
+- **A modifier-click that misses keeps the selection.** Only a plain click on
+  empty bed clears it — a slip while ⌘-building a batch must not wipe it.
+- **Box selection claims the press like a drag does**: Shift-drag adds and
+  ⌥/Alt-drag subtracts with a mouse, and a pen draws the box from empty bed while
+  multi-select is on — fingers keep orbiting, so the pencil selects and the hand
+  navigates. It selects live, through `selectExactly`, and hit-tests projected
+  bounds first, a strided vertex sample second, and a ray through the box centre
+  last.
 - **The long press is the right-click**, since iOS never fires `contextmenu` for
   one. **Right-click itself is driven off the button's press and release, not the
   `contextmenu` event** — Windows raises that after the button comes up and macOS
   the moment it goes down, so only the button's travel separates a right *click*
   from the right *drag* that pans the camera.
-- **Direct drag is deliberately narrow**: touch or pen, translate mode, and an
-  object that is *already* selected. Requiring a prior tap means a stray swipe can
-  never shove a model across the plate.
+- **Direct drag is per pointer.** Only in translate mode. A **mouse** grabs any
+  part, selecting it as the drag starts — the slicer convention, and one gesture
+  instead of two — while empty bed still orbits and a held modifier leaves the
+  press alone. **Touch and pen** need an object that is *already* selected: a
+  finger crossing the plate to orbit lands on models constantly, and requiring a
+  prior tap means a stray swipe can never shove one across the plate.
 - **The camera is shut out at `pointerdown`, and only for a press the drag will
   claim.** OrbitControls listens on the same canvas without capture, and the DOM
   runs capture-flagged listeners first whatever the registration order, so a
@@ -599,6 +616,7 @@ The rules worth knowing before editing it:
 | Multi-select   | Tool-cluster toggle            | There is no ⌘/Ctrl to hold                                                 |
 | Long press     | Object / plate context menu    | Puts duplicate, drop, centre, remove where the model is                   |
 | Selected model | Drags across the bed           | Three axis arrows inside one contact patch is a coin toss                 |
+| Pen eraser end | Erases support paint           | Turning the pen over is what the hand already knows from drawing apps     |
 | Gizmo          | Scaled up (`setSize` 1.4)      | Scaling the helper scales its pickable geometry with it                   |
 | Object list    | Starts folded, 44px rows       | It sits on the plate it describes, and cannot be hovered out of the way   |
 

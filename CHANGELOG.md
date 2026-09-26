@@ -55,6 +55,16 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   shortcuts no longer steal them, and single-key plate shortcuts only work while
   the plate is on screen.
 - **Dragging the empty plate no longer opens the file picker.**
+- **Selecting behaves the way the platform does.** `⌃`-click on a Mac opens the
+  menu instead of adding to the selection, `⌘`-click adds there and `Ctrl`-click
+  elsewhere, and a modifier-click that misses no longer throws the selection
+  away. Clicking a selected part keeps it selected.
+- **Duplicates and new models arrive selected**, and a duplicated group lands
+  beside itself instead of on top of its neighbours. **Centre on bed** moves a
+  selection as one piece instead of stacking it.
+- **The objects list's menu matches the model's** and acts on the whole
+  selection; `Shift`-click selects a range.
+- **`Esc` and a tool's own key put the tool down**, back to Select & move.
 - **A printer whose connection type isn't supported says "Not supported"** rather
   than "Offline", and a switched-off printer is grey rather than red.
 
@@ -71,6 +81,17 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   Settings, and a Help menu. The desktop window also reopens at the size and
   place you left it.
 - **Keyboard: `⌘/Ctrl + D` duplicates, `⌘/Ctrl + Enter` slices.**
+- **Drag a model to move it.** With a mouse, Select & move now picks a part up
+  and moves it in one gesture; empty bed still orbits. Touch keeps tap-then-drag.
+- **Box selection.** `Shift`-drag adds everything the box touches, `⌥/Alt`-drag
+  takes it away; with Multi-select on, the pencil draws the box while fingers
+  keep orbiting.
+- **Nudge with the arrow keys** — 1 mm, `Shift` for 10, `⌥/Alt` for 0.1, in the
+  direction you're looking.
+- **Zoom to a part** with `Z`, a double-click, or **Zoom to** in the context
+  menu — without swinging the camera round.
+- **A 90° quarter turn per axis** on the Rotate card.
+- **A pen's eraser end erases support paint**, whatever the brush is set to.
 - **A quiet note while slicing for a generic printer**, with a link to add yours.
 
 - **Inner walls have their own speed** — the hidden walls behind the surface no

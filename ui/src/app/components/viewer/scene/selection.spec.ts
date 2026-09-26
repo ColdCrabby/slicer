@@ -44,6 +44,7 @@ describe('SceneSelection', () => {
   let handlers: {
     select: Mock<(id: string, additive: boolean) => void>;
     clearSelection: Mock<() => void>;
+    selectExactly: Mock<(ids: readonly string[]) => void>;
     contextMenu: Mock<(id: string | null, event: MouseEvent) => void>;
   };
 
@@ -115,6 +116,7 @@ describe('SceneSelection', () => {
     handlers = {
       select: vi.fn(),
       clearSelection: vi.fn(),
+      selectExactly: vi.fn(),
       contextMenu: vi.fn(),
     };
     selection.selectionHandlers = handlers as unknown as SceneSelectionHandlers;
@@ -172,6 +174,23 @@ describe('SceneSelection', () => {
     it('adds to the selection when a modifier is held', () => {
       tap('mouse', 0, { shiftKey: true });
       expect(handlers.select).toHaveBeenCalledWith('7', true);
+    });
+
+    // A ⌘/Shift-click that misses is a slip while building a selection, not a
+    // request to throw it away.
+    it('keeps the selection when a modifier-click misses', () => {
+      selection.setSelectedIds(new Set(['7']));
+      dispatch('pointerdown', { clientX: 4, clientY: 4, shiftKey: true });
+      dispatch('pointerup', { clientX: 4, clientY: 4, shiftKey: true });
+      expect(handlers.clearSelection).toHaveBeenCalledTimes(0);
+    });
+
+    it('keeps the selection when a tap misses in multi-select mode', () => {
+      selection.setAdditiveSelection(true);
+      selection.setSelectedIds(new Set(['7']));
+      dispatch('pointerdown', { pointerType: 'touch', clientX: 4, clientY: 4 });
+      dispatch('pointerup', { pointerType: 'touch', clientX: 4, clientY: 4 });
+      expect(handlers.clearSelection).toHaveBeenCalledTimes(0);
     });
 
     // A press the camera was let into must have its lift let through too.
@@ -277,7 +296,6 @@ describe('SceneSelection', () => {
         paintRadiusChange: vi.fn(),
       };
       selection.gizmoHandlers = gizmoHandlers;
-      selection.setDirectDragEnabled(true);
       selection.setObjectMode('translate');
       selection.setSelectedIds(new Set(['7']));
 
@@ -308,7 +326,6 @@ describe('SceneSelection', () => {
         paintRadiusChange: vi.fn(),
       };
       selection.gizmoHandlers = gizmoHandlers;
-      selection.setDirectDragEnabled(true);
       selection.setObjectMode('translate');
 
       dispatch('pointerdown', { pointerType: 'touch' });
@@ -322,7 +339,10 @@ describe('SceneSelection', () => {
       expect(cameraListener).toHaveBeenCalled();
     });
 
-    it('never takes a mouse drag away from the camera', () => {
+    // A mouse drags parts the way every slicer does: press one and move it,
+    // selected or not. The press selects it on the way, so moving a part is
+    // one gesture rather than a click and then a drag.
+    it('lets a mouse grab any part and move it', () => {
       const gizmoHandlers = {
         delta: vi.fn(),
         end: vi.fn(),
@@ -332,8 +352,31 @@ describe('SceneSelection', () => {
         paintRadiusChange: vi.fn(),
       };
       selection.gizmoHandlers = gizmoHandlers;
-      selection.setDirectDragEnabled(true);
       selection.setObjectMode('translate');
+      handlers.select.mockImplementation((id) => selection.setSelectedIds(new Set([id])));
+
+      dispatch('pointerdown', { pointerType: 'mouse' });
+      dispatch('pointermove', { pointerType: 'mouse', clientX: CENTRE + 40, clientY: CENTRE });
+      dispatch('pointermove', { pointerType: 'mouse', clientX: CENTRE + 60, clientY: CENTRE });
+      dispatch('pointerup', { pointerType: 'mouse', clientX: CENTRE + 60, clientY: CENTRE });
+
+      expect(handlers.select).toHaveBeenCalledWith('7', false);
+      expect(gizmoHandlers.delta).toHaveBeenCalled();
+      expect(gizmoHandlers.end).toHaveBeenCalled();
+      expect(cameraListener).toHaveBeenCalledTimes(0);
+    });
+
+    it('leaves a mouse drag to the camera outside Select & move', () => {
+      const gizmoHandlers = {
+        delta: vi.fn(),
+        end: vi.fn(),
+        facePicked: vi.fn(),
+        paintDab: vi.fn(),
+        paintEnd: vi.fn(),
+        paintRadiusChange: vi.fn(),
+      };
+      selection.gizmoHandlers = gizmoHandlers;
+      selection.setObjectMode('rotate');
       selection.setSelectedIds(new Set(['7']));
 
       dispatch('pointerdown', { pointerType: 'mouse' });
@@ -357,7 +400,6 @@ describe('SceneSelection', () => {
         paintEnd: vi.fn(),
         paintRadiusChange: vi.fn(),
       };
-      selection.setDirectDragEnabled(true);
       selection.setObjectMode('translate');
       selection.setSelectedIds(new Set(['7']));
 
@@ -376,7 +418,6 @@ describe('SceneSelection', () => {
         paintRadiusChange: vi.fn(),
       };
       selection.gizmoHandlers = gizmoHandlers;
-      selection.setDirectDragEnabled(true);
       selection.setObjectMode('translate');
       selection.setSelectedIds(new Set(['7']));
 
@@ -394,6 +435,86 @@ describe('SceneSelection', () => {
   // the arbiter only rejects it by size once a pen has been seen recently. If
   // that admitted palm held the press slot, every Pencil tap after it would be
   // discarded until the hand lifted.
+  describe('box selection', () => {
+    it('adds what a Shift-drag box touches', () => {
+      dispatch('pointerdown', { clientX: 10, clientY: 10, shiftKey: true });
+      dispatch('pointermove', { clientX: 190, clientY: 190, shiftKey: true });
+      dispatch('pointerup', { clientX: 190, clientY: 190, shiftKey: true });
+
+      expect(handlers.selectExactly).toHaveBeenLastCalledWith(['7']);
+      // The box is drawn with the drag that would otherwise orbit.
+      expect(cameraListener).toHaveBeenCalledTimes(0);
+    });
+
+    it('takes away what an Alt-drag box touches', () => {
+      selection.setSelectedIds(new Set(['7']));
+      dispatch('pointerdown', { clientX: 10, clientY: 10, altKey: true });
+      dispatch('pointermove', { clientX: 190, clientY: 190, altKey: true });
+      dispatch('pointerup', { clientX: 190, clientY: 190, altKey: true });
+
+      expect(handlers.selectExactly).toHaveBeenLastCalledWith([]);
+    });
+
+    it('leaves alone what the box does not reach', () => {
+      dispatch('pointerdown', { clientX: 2, clientY: 2, shiftKey: true });
+      dispatch('pointermove', { clientX: 20, clientY: 20, shiftKey: true });
+      dispatch('pointerup', { clientX: 20, clientY: 20, shiftKey: true });
+
+      expect(handlers.selectExactly).toHaveBeenLastCalledWith([]);
+    });
+
+    // No vertex of the part lies inside a box drawn in the middle of one face.
+    it('catches a part when the box sits inside one of its faces', () => {
+      dispatch('pointerdown', { clientX: 95, clientY: 95, shiftKey: true });
+      dispatch('pointermove', { clientX: 105, clientY: 105, shiftKey: true });
+      dispatch('pointerup', { clientX: 105, clientY: 105, shiftKey: true });
+
+      expect(handlers.selectExactly).toHaveBeenLastCalledWith(['7']);
+    });
+
+    it('draws with a pencil in multi-select mode, and leaves fingers orbiting', () => {
+      selection.setAdditiveSelection(true);
+      dispatch('pointerdown', { pointerType: 'touch', clientX: 10, clientY: 10 });
+      dispatch('pointermove', { pointerType: 'touch', clientX: 190, clientY: 190 });
+      dispatch('pointerup', { pointerType: 'touch', clientX: 190, clientY: 190 });
+      expect(handlers.selectExactly).toHaveBeenCalledTimes(0);
+
+      dispatch('pointerdown', { pointerType: 'pen', pointerId: 2, clientX: 10, clientY: 10 });
+      dispatch('pointermove', { pointerType: 'pen', pointerId: 2, clientX: 190, clientY: 190 });
+      dispatch('pointerup', { pointerType: 'pen', pointerId: 2, clientX: 190, clientY: 190 });
+      expect(handlers.selectExactly).toHaveBeenLastCalledWith(['7']);
+    });
+
+    it('is a plain Shift-click when the pointer does not travel', () => {
+      tap('mouse', 0, { shiftKey: true });
+      expect(handlers.select).toHaveBeenCalledWith('7', true);
+      expect(handlers.selectExactly).toHaveBeenCalledTimes(0);
+    });
+  });
+
+  describe('paint', () => {
+    it("erases with a pen's eraser end, whatever the brush is set to", () => {
+      const gizmoHandlers = {
+        delta: vi.fn(),
+        end: vi.fn(),
+        facePicked: vi.fn(),
+        paintDab: vi.fn(),
+        paintEnd: vi.fn(),
+        paintRadiusChange: vi.fn(),
+      };
+      selection.gizmoHandlers = gizmoHandlers;
+      selection.setObjectMode('paint');
+      selection.setPaintBrush('enforcer', 2);
+
+      dispatch('pointerdown', { pointerType: 'pen', button: 5 });
+      dispatch('pointerup', { pointerType: 'pen', button: 5 });
+      dispatch('pointerdown', { pointerType: 'pen', button: 0 });
+
+      const modes = gizmoHandlers.paintDab.mock.calls.map((call) => call[4]);
+      expect(modes).toEqual(['erase', 'enforcer']);
+    });
+  });
+
   describe('pen priority', () => {
     it('lets a pen take the press over from a resting finger', () => {
       dispatch('pointerdown', { pointerType: 'touch', pointerId: 1, clientX: 4, clientY: 4 });

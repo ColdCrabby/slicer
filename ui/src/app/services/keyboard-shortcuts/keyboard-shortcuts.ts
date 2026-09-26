@@ -8,9 +8,15 @@ import { GcodePreview } from '../gcode-preview';
 import { SceneEngine } from '../scene-engine';
 import { SceneHistory } from '../scene-history/scene-history';
 import { Slicer } from '../slicer';
-import { ViewerControl } from '../viewer-control';
+import { SceneCommand } from '../scene-command/scene-command';
+import { type ObjectMode, ViewerControl } from '../viewer-control';
 import { WorkplateObjects } from '../workplate-objects/workplate-objects';
-import { isTauriHost, isTauriMobile } from '../../runtime/domain/runtime-mode.util';
+import { nudgeDelta, type NudgeKey } from './nudge';
+import {
+  isApplePlatform,
+  isTauriHost,
+  isTauriMobile,
+} from '../../runtime/domain/runtime-mode.util';
 
 export interface ShortcutConfig {
   actionId: string;
@@ -19,7 +25,13 @@ export interface ShortcutConfig {
   /** Human-readable description of what the action does. */
   displayDescription: string;
   canMatch?: () => boolean;
-  handleAction: () => void;
+  /** Receives the key press, for actions that scale with a held modifier. */
+  handleAction: (event: KeyboardEvent) => void;
+  /**
+   * `false` keeps a binding out of Settings → Shortcuts — for a variant that
+   * the listed entry already describes, such as a nudge's fine step.
+   */
+  listed?: boolean;
 }
 
 type ParsedShortcutConfig = ShortcutConfig & {
@@ -42,6 +54,7 @@ export class KeyboardShortcuts {
   private readonly slicer = inject(Slicer);
   private readonly gcodePreview = inject(GcodePreview);
   private readonly workplate = inject(WorkplateObjects);
+  private readonly sceneCommand = inject(SceneCommand);
 
   /**
    * True when running on macOS desktop/laptop (not iPadOS). Consumers use
@@ -121,11 +134,12 @@ export class KeyboardShortcuts {
       shortcut: '$mod+d',
       displayDescription: 'Duplicate the selected objects',
       canMatch: () => this.canEditSelection(),
-      handleAction: () => {
-        for (const id of this.viewerControl.selectedObjectIds()) {
-          this.workplate.duplicate(id);
-        }
-      },
+      // The copies become the selection, so pressing it again stamps another
+      // row, and the next drag moves the copies rather than the originals.
+      handleAction: () =>
+        this.viewerControl.selectedObjectIds.set(
+          this.workplate.duplicateAll(this.viewerControl.selectedObjectIds()),
+        ),
     },
     {
       actionId: 'slice',
@@ -150,6 +164,26 @@ export class KeyboardShortcuts {
       handleAction: () => sceneHost()?.focus({ preventScroll: true }),
     },
     {
+      // Before `deselect-all`: a painting or face-picking tool is a mode the
+      // user is *in*, and Escape is how every app lets you out of one. The
+      // plain transform tools only give way once the selection is already
+      // clear, so the first Escape there still deselects.
+      actionId: 'leave-tool',
+      shortcut: 'Escape',
+      displayDescription: 'Put the tool down, back to Select & move',
+      canMatch: () => {
+        const mode = this.viewerControl.objectMode();
+        const modal = mode === 'paint' || mode === 'pullToFloor' || mode === 'place';
+        return (
+          this.onPlate() &&
+          mode !== 'translate' &&
+          this.viewerControl.brushPopoutAt() === null &&
+          (modal || this.viewerControl.selectedObjectIds().length === 0)
+        );
+      },
+      handleAction: () => this.viewerControl.objectMode.set('translate'),
+    },
+    {
       actionId: 'deselect-all',
       shortcut: 'Escape',
       displayDescription: 'Clear the selection',
@@ -160,37 +194,40 @@ export class KeyboardShortcuts {
     {
       actionId: 'object-mode-translate',
       shortcut: 'm',
-      displayDescription: 'Switch to translate mode',
+      displayDescription: 'Select & move tool',
       canMatch: () => this.onPlate(),
       handleAction: () => this.viewerControl.objectMode.set('translate'),
     },
     {
       actionId: 'object-mode-rotate',
       shortcut: 'r',
-      displayDescription: 'Switch to rotate mode',
+      displayDescription: 'Rotate tool (press again to put it down)',
       canMatch: () => this.onPlate(),
-      handleAction: () => this.viewerControl.objectMode.set('rotate'),
+      handleAction: () => this.toggleTool('rotate'),
     },
     {
       actionId: 'object-mode-scale',
       shortcut: 's',
-      displayDescription: 'Switch to scale mode',
+      displayDescription: 'Scale tool (press again to put it down)',
       canMatch: () => this.onPlate(),
-      handleAction: () => this.viewerControl.objectMode.set('scale'),
+      handleAction: () => this.toggleTool('scale'),
     },
     {
       actionId: 'object-mode-pull-to-floor',
       shortcut: 'f',
-      displayDescription: 'Switch to pull-face-to-floor mode',
+      displayDescription: 'Pull a face to the floor (press again to put it down)',
       canMatch: () => this.onPlate(),
-      handleAction: () => this.viewerControl.objectMode.set('pullToFloor'),
+      handleAction: () => this.toggleTool('pullToFloor'),
     },
     {
       actionId: 'object-mode-paint',
       shortcut: 'b',
-      displayDescription: 'Switch to paint-support mode',
+      displayDescription: 'Paint supports (press again to put the brush down)',
       canMatch: () => this.onPlate(),
-      handleAction: () => this.enterPaintMode(),
+      handleAction: () =>
+        this.viewerControl.objectMode() === 'paint' && this.viewerControl.viewMode() === 'model'
+          ? this.viewerControl.objectMode.set('translate')
+          : this.enterPaintMode(),
     },
     {
       actionId: 'brush-quick-adjust',
@@ -248,6 +285,14 @@ export class KeyboardShortcuts {
       canMatch: () => this.onPlate() && this.viewerControl.viewMode() === 'gcode',
       handleAction: () => this.gcodePrevLayer(),
     },
+    ...this.nudgeShortcuts(),
+    {
+      actionId: 'zoom-to-selection',
+      shortcut: 'z',
+      displayDescription: 'Zoom to the selection, or to everything',
+      canMatch: () => this.onPlate() && this.sceneEngine.objects().length > 0,
+      handleAction: () => this.viewerControl.frameObjects(this.viewerControl.selectedObjectIds()),
+    },
     {
       actionId: 'focus-tool-panel',
       shortcut: 'Tab',
@@ -296,7 +341,7 @@ export class KeyboardShortcuts {
       )
       .subscribe(({ event, shortcut }) => {
         event.preventDefault();
-        shortcut!.handleAction();
+        shortcut!.handleAction(event);
       });
   }
 
@@ -382,6 +427,68 @@ export class KeyboardShortcuts {
   }
 
   /**
+   * Arrow keys nudge the selection across the bed, as seen from the camera.
+   *
+   * Shift takes a coarse step and ⌥/Alt a fine one — the same ×10 / ×0.1 the
+   * number fields use, so the hand learns one rule. Model view only: in G-code
+   * preview the same keys walk layers and extrusions. Holding a key repeats,
+   * and every repeat inside the history's pause lands in one undo step.
+   */
+  private nudgeShortcuts(): ShortcutConfig[] {
+    const alt = isApplePlatform() ? '⌥' : 'Alt';
+    const keys: [NudgeKey, string][] = [
+      ['ArrowUp', 'away'],
+      ['ArrowDown', 'towards you'],
+      ['ArrowLeft', 'left'],
+      ['ArrowRight', 'right'],
+    ];
+    return keys.flatMap(([key, towards]): ShortcutConfig[] => [
+      {
+        actionId: `nudge-${key}`,
+        shortcut: `[Shift]+${key}`,
+        displayDescription: `Nudge the selection ${towards} 1 mm (Shift 10 mm, ${alt} 0.1 mm)`,
+        canMatch: () => this.canNudge(),
+        handleAction: (event) => this.nudge(key, event.shiftKey ? 10 : 1),
+      },
+      {
+        actionId: `nudge-fine-${key}`,
+        shortcut: `Alt+${key}`,
+        displayDescription: `Nudge the selection ${towards} 0.1 mm`,
+        listed: false,
+        canMatch: () => this.canNudge(),
+        handleAction: () => this.nudge(key, 0.1),
+      },
+    ]);
+  }
+
+  /**
+   * A selection to move, and no focused control that steers with the arrows
+   * itself — the tool radio group, a slider, a menu — or one press would both
+   * change the tool and shove the part.
+   */
+  private canNudge(): boolean {
+    const active = document.activeElement;
+    return (
+      this.canEditSelection() &&
+      !(active instanceof Element && active.closest(ARROW_KEY_WIDGETS) !== null)
+    );
+  }
+
+  private nudge(key: NudgeKey, step: number): void {
+    const { direction, up } = this.viewerControl.cameraState;
+    const [dx, dy] = nudgeDelta(key, step, direction, up);
+    for (const id of this.viewerControl.selectedObjectIds()) {
+      this.sceneCommand.apply({ op: 'Translate', args: { id, delta: [dx, dy, 0] } });
+    }
+  }
+
+  /** Pick up a tool, or put it down if it is already in hand. */
+  private toggleTool(mode: ObjectMode): void {
+    const control = this.viewerControl.objectMode;
+    control.set(control() === mode ? 'translate' : mode);
+  }
+
+  /**
    * Returns a human-readable shortcut label for the given action ID,
    * or `'unset'` if no shortcut is registered.
    *
@@ -392,25 +499,31 @@ export class KeyboardShortcuts {
     if (!config) {
       return 'unset';
     }
-    const isApplePlatform = this.isApplePlatform();
+    const apple = isApplePlatform();
     return (
       config.shortcut
-        .replace(/\$mod/g, isApplePlatform ? '⌘' : 'Ctrl')
+        .replace(/\$mod/g, apple ? '⌘' : 'Ctrl')
         // Physical-key names are how a binding survives ⌥ turning W into ∑;
         // nobody reads a key cap as "KeyW".
         .replace(/\b(?:Key|Digit)(\w)\b/g, '$1')
-        .replace(/\bAlt\b/g, isApplePlatform ? '⌥' : 'Alt')
-        .replace(/\bControl\b/g, isApplePlatform ? '⌃' : 'Ctrl')
+        .replace(/\bAlt\b/g, apple ? '⌥' : 'Alt')
+        .replace(/\bControl\b/g, apple ? '⌃' : 'Ctrl')
+        // An optional modifier (`[Shift]+`) is a variant the description
+        // explains, not a key that has to be held.
+        .replace(/\[\w+\]\+/g, '')
+        .replace(/\bArrow(Up|Down|Left|Right)\b/g, (_, dir: string) => ARROW_GLYPHS[dir])
     );
   }
 
   /** Returns all registered shortcuts as plain data for display in a panel. */
   getAll(): { actionId: string; displayText: string; displayDescription: string }[] {
-    return this.shortcuts.map(({ actionId, displayDescription }) => ({
-      actionId,
-      displayText: this.shortcutFor(actionId),
-      displayDescription,
-    }));
+    return this.shortcuts
+      .filter((s) => s.listed !== false)
+      .map(({ actionId, displayDescription }) => ({
+        actionId,
+        displayText: this.shortcutFor(actionId),
+        displayDescription,
+      }));
   }
 
   private findMatch(event: KeyboardEvent): ShortcutConfig | null {
@@ -502,12 +615,9 @@ export class KeyboardShortcuts {
     );
   }
 
-  /** Remove every selected object; undo brings them back. */
+  /** Remove every selected object; one undo brings them all back. */
   private removeSelected(): void {
-    const targets = this.viewerControl.selectedObjectIds();
-    for (const id of targets) {
-      this.workplate.remove(id);
-    }
+    this.workplate.removeAll(this.viewerControl.selectedObjectIds());
     this.viewerControl.selectedObjectIds.set([]);
   }
 
@@ -527,28 +637,6 @@ export class KeyboardShortcuts {
       // user cannot even see.
       target.closest('dialog[open]') !== null
     );
-  }
-
-  private isApplePlatform(): boolean {
-    const uaData = navigator as Navigator & {
-      userAgentData?: {
-        platform?: string;
-      };
-    };
-    const platform = navigator.platform ?? '';
-    const uaDataPlatform = uaData.userAgentData?.platform ?? '';
-    const userAgent = navigator.userAgent ?? '';
-
-    if (/mac|iphone|ipad|ipod/i.test(`${uaDataPlatform} ${platform}`)) {
-      return true;
-    }
-
-    // iPadOS can report MacIntel while still being a touch device.
-    if (platform === 'MacIntel' && navigator.maxTouchPoints > 1) {
-      return true;
-    }
-
-    return /ipad/i.test(userAgent);
   }
 
   private gcodeNextExtrusion(): void {
@@ -576,6 +664,17 @@ export class KeyboardShortcuts {
  */
 const FOCUSABLE_SELECTOR =
   'button:not([disabled]):not([tabindex="-1"]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]';
+
+/** Focusable widgets that already use the arrow keys for themselves. */
+const ARROW_KEY_WIDGETS =
+  '[role="radiogroup"], [role="radio"], [role="slider"], [role="listbox"], [role="menu"], [role="tablist"], [role="tab"], input[type="range"]';
+
+const ARROW_GLYPHS: Readonly<Record<string, string>> = {
+  Up: '↑',
+  Down: '↓',
+  Left: '←',
+  Right: '→',
+};
 
 /** The 3D scene's own focusable host, which is where the keyboard belongs by default. */
 function sceneHost(): HTMLElement | null {

@@ -32,7 +32,7 @@ is running inside the page. The desktop app is markedly quicker on heavy models.
 **Nothing seems to change when I re-slice** — identical input produces identical
 output, and Cold Crabby will reuse a cached result rather than repeat the work.
 Camera movement and the thumbnail don't count as changes. If you changed a
-setting, the result *will* differ.
+setting, the result _will_ differ.
 
 ## The preview
 
@@ -82,11 +82,15 @@ reset profiles to defaults, or reset the whole app. Each asks for confirmation.
 **The 3D view is choppy** — in **Settings → General**, lower **Render
 resolution** and **Preview detail**, and turn **Anti-aliasing** off.
 
-**A big G-code preview is slow to scrub** — switch from *all layers* to *current
-layer only*.
+**A big G-code preview is slow to scrub** — switch from _all layers_ to _current
+layer only_.
 
 ## Still stuck
 
-Check what version you're on in **Settings → General**, then open an issue on
-[GitHub](https://github.com/max-scopp/slicer-engine/issues) with the model, your
-settings, and what you expected.
+Open the **?** menu in the title bar and choose **Send feedback**. It opens a new
+issue on GitHub with your version and platform already filled in — add the
+model, your settings, and what you expected.
+
+The same button is how to tell us what you like or wish it did. After your
+first few slices the app offers it once in a small notice, and once more much
+later; send feedback from either place and it stops asking.
