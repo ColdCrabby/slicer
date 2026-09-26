@@ -6,6 +6,7 @@ import {
   signal,
   inject,
 } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { ConnectionState } from '../../components/connection-state/connection-state';
 import { Logo } from '../../components/logo/logo';
 import { WorkplateTabs } from '../../components/workplate-tabs/workplate-tabs';
@@ -48,7 +49,7 @@ export function apiDocsUrlFor(mode: RuntimeMode, apiUrl: string): string | null 
  */
 @Component({
   selector: 'nexus-titlebar',
-  imports: [ConnectionState, Logo, WorkplateTabs, Icon, IconButton, TooltipDirective],
+  imports: [ConnectionState, Logo, RouterLink, WorkplateTabs, Icon, IconButton, TooltipDirective],
   templateUrl: './titlebar.html',
   styleUrl: './titlebar.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

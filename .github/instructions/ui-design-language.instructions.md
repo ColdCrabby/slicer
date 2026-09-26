@@ -150,17 +150,38 @@ Two rules follow from it:
 
 ## Layout & Component Patterns
 
-- **The app is chrome around one floating work surface.** The titlebar and nav
-  rail have **no fill and no border** — they sit on the window background
-  (`--color-bg-secondary`). The routed page is a single rounded surface
-  (`--color-bg-primary`, `--radius-shell`, one `--color-border` hairline) held
-  off the right and bottom window edges by `--shell-gutter`, and clipped so the
-  scene and settings drawer round with it. Tokens live in
-  `ui/src/styles/theme/_shell.scss`. Never draw a rule between the chrome and
-  the page again — the surface's own edge is that line.
+- **The app is chrome around a stage of floating panels.** The titlebar and
+  nav rail have **no fill and no border** — they sit on the window background
+  (`--color-bg-secondary`). The routed page stands on a transparent stage held
+  off the right and bottom window edges by `--shell-gutter`, and every region
+  of it is its own **panel**: `[nexusPanel]` (`ui/src/app/ui/panel/panel.ts`)
+  — `--panel-radius`, one `--panel-border` hairline, clipped — and
+  neighbouring panels are `--panel-gap` (5px) apart. **Exactly one panel per
+  page is `primary`** — the scene, the editor, the page of preferences — and
+  only it takes the dark surface (`--panel-bg-primary`); every other panel
+  keeps the window's lighter tone (`--panel-bg`). Never rule one region off from another with a hairline:
+  if it is a separate region, it is a separate panel. Tokens live in
+  `ui/src/styles/theme/_shell.scss`, styles in `styles/components/_panels.scss`.
+- **A panel over another panel is laid on it, never beside it.** The slice
+  settings float over the scene's left edge, docked or not; docked, the scene
+  pads its content clear of them while its dark surface runs on underneath —
+  never squeeze the scene's width for a panel, and animate that padding with
+  the panel. `raised` (a shadow) is for flyouts that need lifting off busy
+  content; the slice settings go without. A panel inset inside another takes
+  `--panel-radius-nested` (8px), so its corners follow the outer curve.
+- **Flyouts come out of the side they are opened from.** The library opens
+  from the rail, so it floats over the scene's left edge — over the print
+  settings — inset `--panel-gap` and turning in on the same hinge
+  (`styles/_panel-turn.scss`, which also keeps the mirrored hinge for a
+  right-hand panel). Only the print settings dock. In the rail, the page on screen is filled; a flyout open beside it is
+  outlined with a dot — never two filled items at once.
+- **A draggable panel edge is three dots in the gap** — `nexus-panel-resizer`,
+  or the `.panel-grip` class where the drag logic already exists. Never an
+  invisible strip or an accent hairline.
 - **Titlebar tabs float; they do not hang.** Workplate tabs are small pills
-  (`--radius-md`) centred in the bar; the active one takes the surface's tone
-  and border rather than an accent fill, so it reads as a piece of the page.
+  (`--radius-md`) centred in the bar, with no border at all; the active one is
+  marked by a faint tint (`--color-surface-alt`) and full-strength text, never
+  an outline or accent fill.
 - **Islands / cards:** rounded solid surface, `--radius-lg`, `overflow: hidden`,
   separated from the app canvas (`--color-bg-primary`) by surface tone. Add a
   border only when the card needs contrast (floating over the 3D scene) rather

@@ -13,6 +13,8 @@ import {
   viewChild,
 } from '@angular/core';
 import { Icon } from '@coldcrabby/ui';
+import { Panel } from '../../ui/panel/panel';
+import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
 import { Viewport } from '../../services/viewport';
 
 const STORAGE_WIDTH_KEY = 'nexus.sidebar.width';
@@ -38,22 +40,29 @@ const HOVER_CLOSE_DELAY_MS = 240;
 // Generous enough that the panel sliding in under a stationary pointer never
 // reads as "the pointer left".
 const HOVER_LEAVE_GRACE_PX = 32;
-// How close to the screen edge a pointer must rest to arm a peek. Wide enough
-// to hit without aiming; the hover delay and the held-button check are what
-// keep a pass across the scene's left edge from opening it.
-const EDGE_ARM_PX = 32;
+// How close to the scene's edge a pointer must rest to arm a peek. Wide enough
+// to hit without aiming — the reveal handle only hints at this band, it is not
+// the target; the hover delay and the held-button check are what keep a pass
+// across the edge from opening it.
+const EDGE_ARM_PX = 56;
+/**
+ * The scene's own controls, which the edge band never opens the drawer from:
+ * everything floating on the plate, and any control at all.
+ */
+const SCENE_CHROME = '.shell-actions-layer > *, button, a, input, select, [role="button"]';
 
 @Component({
   selector: 'nexus-sidebar',
   standalone: true,
-  imports: [Icon],
+  imports: [Icon, Panel],
   templateUrl: './sidebar.component.html',
   styleUrl: './sidebar.component.scss',
   host: {
     '[class.is-collapsed]': 'collapsed()',
     '[class.is-expanded]': 'isExpanded()',
-    '[class.is-overlay]': 'isOverlay()',
+    '[class.is-edge-armed]': 'edgeArmed()',
     '[class.is-dragging]': 'isDragging()',
+    '[class.panels-unsettled]': '!settled()',
   },
 })
 export class Sidebar {
@@ -65,7 +74,8 @@ export class Sidebar {
   /** The user's docked/hidden preference, honoured wherever there is room. */
   private readonly dockedPreference = signal(this.readCollapsed());
   /**
-   * Docked (false) reserves layout space; collapsed (true) floats as an overlay.
+   * Docked (false) keeps the panel open over the scene, which pads its content
+   * clear of it; collapsed (true) hides it until peeked.
    *
    * A phone is never wide enough to dock: 280px of settings beside a 390px
    * screen leaves no scene to settle them against. The stored preference is
@@ -80,6 +90,8 @@ export class Sidebar {
   /** An ephemeral hover preview (pointer-capable devices only); closes on leave. */
   protected readonly hoverPreview = signal(false);
   protected readonly isDragging = signal(false);
+  /** Past first render; see `.panels-unsettled` in styles/components/_panels.scss. */
+  protected readonly settled = signal(false);
 
   /** Whether the content has been scrolled far enough to offer a "scroll to top". */
   protected readonly showScrollTop = signal(false);
@@ -96,10 +108,8 @@ export class Sidebar {
   protected readonly isExpanded = computed(
     () => !this.collapsed() || this.overlayOpen() || this.hoverPreview(),
   );
-  /** Panel is visible but floating over the scene (collapsed + peeking). */
-  protected readonly isOverlay = computed(
-    () => this.collapsed() && (this.overlayOpen() || this.hoverPreview()),
-  );
+  /** The pointer is resting in the edge band, and a peek is about to open. */
+  protected readonly edgeArmed = signal(false);
   /** A tap/click peek, which is the kind that needs dismissing (hover ones close themselves). */
   protected readonly isPinnedPeek = computed(() => this.collapsed() && this.overlayOpen());
 
@@ -115,10 +125,22 @@ export class Sidebar {
   constructor() {
     afterNextRender(() => {
       this.applyCssWidth(this.readWidth());
+      // A beat after the stored width and docked state are in, so neither is
+      // animated into place on the way in.
+      setTimeout(() => this.settled.set(true), 60);
     });
 
     this.armEdgeHover();
     this.armOutsideDismiss();
+
+    const shortcuts = inject(KeyboardShortcuts);
+    const ref = { toggle: () => this.toggle() };
+    shortcuts.printSettingsRef = ref;
+    this.destroyRef.onDestroy(() => {
+      if (shortcuts.printSettingsRef === ref) {
+        shortcuts.printSettingsRef = null;
+      }
+    });
 
     this.destroyRef.onDestroy(() => {
       this.clearHoverTimers();
@@ -139,6 +161,25 @@ export class Sidebar {
     }
   }
 
+  /**
+   * The keyboard's toggle: dock or hide where there is room to dock, and open
+   * or close the drawer on a phone, where there is not.
+   */
+  toggle(): void {
+    if (this.viewport.isHandheld()) {
+      if (this.isExpanded()) {
+        this.dismissOverlay();
+      } else {
+        this.expand();
+      }
+      return;
+    }
+    const next = !this.collapsed();
+    this.dockedPreference.set(next);
+    this.dismissOverlay();
+    this.saveCollapsed(next);
+  }
+
   /** Track scroll depth so the floating "scroll to top" affordance can appear. */
   protected onContentScroll(event: Event): void {
     const top = (event.target as HTMLElement).scrollTop;
@@ -157,13 +198,7 @@ export class Sidebar {
    */
   protected onCollapseToggle(event: MouseEvent): void {
     event.stopPropagation();
-    const next = !this.collapsed();
-    this.dockedPreference.set(next);
-    this.clearHoverTimers();
-    this.stopPointerWatch();
-    this.overlayOpen.set(false);
-    this.hoverPreview.set(false);
-    this.saveCollapsed(next);
+    this.toggle();
   }
 
   /**
@@ -171,9 +206,8 @@ export class Sidebar {
    * element.
    *
    * An invisible strip along the edge would have to be `pointer-events: auto`
-   * to receive `mouseenter`, and the sidebar host is zero-width while collapsed
-   * — so that strip lands squarely on the leftmost slice of the 3D scene, for
-   * its whole height, swallowing camera drags, click-to-select and (because the
+   * to receive `mouseenter` — so that strip lands squarely on the leftmost
+   * slice of the 3D scene, for its whole height, swallowing camera drags, click-to-select and (because the
    * sidebar is a *sibling* of `<main>`) file drops. Reading `clientX` instead
    * costs one comparison per move and lays nothing over the plate.
    *
@@ -194,28 +228,34 @@ export class Sidebar {
           this.clearOpenTimer();
           return;
         }
-        // The band is the panel's own edge, bounded by the panel's own height:
-        // the titlebar and the nav rail's bottom padding sit in the same column
-        // of pixels and have nothing to do with the settings drawer.
+        // The band is the scene's own edge, bounded by the scene's height: the
+        // titlebar and the nav rail sit in the same column of pixels and have
+        // nothing to do with the settings drawer.
         const rect = this.el.nativeElement.getBoundingClientRect();
         const atEdge =
           event.clientX >= rect.left &&
           event.clientX <= rect.left + EDGE_ARM_PX &&
           event.clientY >= rect.top &&
           event.clientY <= rect.bottom;
-        // The tab overlaps the arming band, and it is a button: aiming at it
-        // should arm a click, not a reveal.
-        const overTab =
-          event.target instanceof Element && event.target.closest('.sidebar-reveal-hint') !== null;
-        if (!atEdge || overTab) {
+        // Only over the plate itself. The toolbar, the objects list and the
+        // tool cards float inside the same band, and a pointer on its way to
+        // one of their buttons is not asking for the settings — opening the
+        // drawer then puts it over the very button being reached for.
+        const overChrome =
+          event.target instanceof Element &&
+          event.target.closest(SCENE_CHROME) !== null &&
+          event.target.closest('.sidebar-reveal-hint') === null;
+        if (!atEdge || overChrome) {
           this.clearOpenTimer();
           return;
         }
         if (this.hoverOpenTimer !== null) {
           return;
         }
+        this.edgeArmed.set(true);
         this.hoverOpenTimer = setTimeout(() => {
           this.hoverOpenTimer = null;
+          this.edgeArmed.set(false);
           this.hoverPreview.set(true);
           this.watchPointerForLeave();
         }, HOVER_OPEN_DELAY_MS);
@@ -240,7 +280,7 @@ export class Sidebar {
    * on whatever it was aimed at.
    *
    * Two things count as inside. The host covers the panel, its dock nub and
-   * the reveal tab. The floating container covers the popovers the panel's own
+   * the reveal handle. The floating container covers the popovers the panel's own
    * selects and tooltips open, which the floating service renders at body level
    * and which are therefore "outside" by DOM position while being the panel by
    * every other measure.
@@ -278,8 +318,8 @@ export class Sidebar {
    * own edge is immune to all of it: the panel is either under the pointer or
    * it is not, however it got there.
    *
-   * The edge is taken from the layout width rather than the animated rect, so a
-   * panel still sliding in is judged by where it is going, not where it is.
+   * The edge is taken from the layout box rather than the animated rect, so a
+   * panel still turning in is judged by where it is going, not where it is.
    */
   private watchPointerForLeave(): void {
     if (this.pointerWatch) {
@@ -290,7 +330,8 @@ export class Sidebar {
       if (!panel) {
         return;
       }
-      const edge = this.el.nativeElement.getBoundingClientRect().left + panel.offsetWidth;
+      const edge =
+        this.el.nativeElement.getBoundingClientRect().left + panel.offsetLeft + panel.offsetWidth;
       if (event.clientX <= edge + HOVER_LEAVE_GRACE_PX) {
         this.clearCloseTimer();
         return;
@@ -367,6 +408,7 @@ export class Sidebar {
   }
 
   private clearOpenTimer(): void {
+    this.edgeArmed.set(false);
     if (this.hoverOpenTimer !== null) {
       clearTimeout(this.hoverOpenTimer);
       this.hoverOpenTimer = null;
@@ -417,7 +459,7 @@ export class Sidebar {
       this.document.removeEventListener('mousemove', onMove);
       this.document.removeEventListener('mouseup', onUp);
       this.isDragging.set(false);
-      this.saveWidth(this.el.nativeElement.offsetWidth);
+      this.saveWidth(this.panelWidth());
     };
 
     this.document.addEventListener('mousemove', onMove);
@@ -462,7 +504,7 @@ export class Sidebar {
       this.document.removeEventListener('touchend', onEnd);
       this.document.removeEventListener('touchcancel', onEnd);
       this.isDragging.set(false);
-      this.saveWidth(this.el.nativeElement.offsetWidth);
+      this.saveWidth(this.panelWidth());
     };
 
     this.document.addEventListener('touchmove', onMove, { passive: false });
@@ -478,11 +520,21 @@ export class Sidebar {
   private startResize(clientX: number): void {
     this.isDragging.set(true);
     this.dragStartX = clientX;
-    this.dragStartWidth = this.el.nativeElement.offsetWidth;
+    this.dragStartWidth = this.panelWidth();
   }
 
+  private panelWidth(): number {
+    return this.panel()?.nativeElement.offsetWidth ?? DEFAULT_WIDTH;
+  }
+
+  /**
+   * Written on the parent, not the host: the scene beside the sidebar pads its
+   * content by the same number while the panel is docked, and a custom property
+   * on the host would be invisible to its sibling.
+   */
   private applyCssWidth(width: number): void {
-    this.el.nativeElement.style.setProperty('--sidebar-w', `${width}px`);
+    const target = this.el.nativeElement.parentElement ?? this.el.nativeElement;
+    target.style.setProperty('--sidebar-w', `${width}px`);
   }
 
   private readWidth(): number {

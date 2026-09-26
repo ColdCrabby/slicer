@@ -1,70 +1,72 @@
-<button
-  class="sidebar-pin"
-  type="button"
-  [class.is-pinned]="!collapsed()"
-  [attr.aria-pressed]="!collapsed()"
-  [attr.aria-label]="collapsed() ? 'Dock panel' : 'Hide panel'"
-  [attr.title]="collapsed() ? 'Dock panel' : 'Hide panel'"
-  (click)="onCollapseToggle($event)"
->
-  @if (collapsed()) {
-    <nexus-icon name="pin-slash" />
-  } @else {
-    <nexus-icon name="pin" />
-  }
-</button>
-
-<div class="sidebar-panel" #panel>
-  <div class="sidebar-content" #scrollContainer (scroll)="onContentScroll($event)">
-    <div class="sidebar-content-inner">
-      <ng-content />
-    </div>
-  </div>
-
-  @if (isPinnedPeek()) {
-    <!-- Opened by a tap, the drawer covers most of a phone. Tapping outside
-         closes it, but nothing said so — this says it, where a thumb is. -->
-    <div class="sidebar-done-bar">
-      <button type="button" class="sidebar-done" (click)="onDone()">Done</button>
-    </div>
-  }
-
+<!-- The sheet is what turns: the panel and its dock nub together, so the nub
+     is part of the page rather than a second thing chasing it. -->
+<div class="sidebar-sheet" #panel>
   <button
-    class="sidebar-scrolltop"
-    [class.is-visible]="showScrollTop()"
+    class="sidebar-pin"
     type="button"
-    aria-label="Scroll to top"
-    [attr.tabindex]="showScrollTop() ? 0 : -1"
-    [attr.aria-hidden]="!showScrollTop()"
-    (click)="scrollToTop()"
+    [class.is-pinned]="!collapsed()"
+    [attr.aria-pressed]="!collapsed()"
+    [attr.aria-label]="collapsed() ? 'Dock panel' : 'Hide panel'"
+    [attr.title]="collapsed() ? 'Dock panel' : 'Hide panel'"
+    (click)="onCollapseToggle($event)"
   >
-    <nexus-icon name="nav-arrow-up" aria-hidden="true" />
+    @if (collapsed()) {
+      <nexus-icon name="pin-slash" />
+    } @else {
+      <nexus-icon name="pin" />
+    }
   </button>
 
+  <div class="sidebar-panel" nexusPanel>
+    <div class="sidebar-content" #scrollContainer (scroll)="onContentScroll($event)">
+      <div class="sidebar-content-inner">
+        <ng-content />
+      </div>
+    </div>
+
+    @if (isPinnedPeek()) {
+      <!-- Opened by a tap, the drawer covers most of a phone. Tapping outside
+         closes it, but nothing said so — this says it, where a thumb is. -->
+      <div class="sidebar-done-bar">
+        <button type="button" class="sidebar-done" (click)="onDone()">Done</button>
+      </div>
+    }
+
+    <button
+      class="sidebar-scrolltop"
+      [class.is-visible]="showScrollTop()"
+      type="button"
+      aria-label="Scroll to top"
+      [attr.tabindex]="showScrollTop() ? 0 : -1"
+      [attr.aria-hidden]="!showScrollTop()"
+      (click)="scrollToTop()"
+    >
+      <nexus-icon name="nav-arrow-up" aria-hidden="true" />
+    </button>
+  </div>
+
+  <!-- Outside the panel, in the gap beside it: the panel clips its contents,
+       and a grip belongs on the edge it moves rather than inside it. -->
   <div
-    class="resize-handle"
+    class="resize-handle panel-grip-host"
     aria-hidden="true"
+    [class.is-dragging]="isDragging()"
     (mousedown)="onResizeStart($event)"
     (touchstart)="onResizeTouchStart($event)"
-  ></div>
+  >
+    <span class="panel-grip"><i></i></span>
+  </div>
 </div>
 
 @if (collapsed() && !isExpanded()) {
-  <!-- The tab is a click target and nothing more. Hover-peek is armed from the
-       pointer's position (see `armEdgeHover` in the component), never from an
-       element: while the peek was armed by the host's own `mouseenter`, hovering
-       this tab opened the drawer, which unmounted the tab, which put the pointer
-       on the scene, which fired the matching `mouseleave` — open, close, open.
-       Arming by geometry has no element to unmount, and lays nothing invisible
-       over the plate. -->
+  <!-- The hint, and the door for anything that cannot hover. A mouse never
+       needs to aim at it: resting anywhere along the scene's edge opens the
+       panel, armed from the pointer's position (see `armEdgeHover`) rather
+       than from an element, so nothing invisible is laid over the plate. -->
   <button
     class="sidebar-reveal-hint"
     type="button"
     aria-label="Show print settings"
     (click)="onOpenPeek($event)"
-  >
-    <nexus-icon name="control-slider" aria-hidden="true" />
-    <span>Print settings</span>
-    <nexus-icon name="nav-arrow-right" aria-hidden="true" />
-  </button>
+  ></button>
 }

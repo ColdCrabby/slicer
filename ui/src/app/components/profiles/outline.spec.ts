@@ -215,12 +215,19 @@ function stack(depths: number[], height = 24, gap = 2): RailRow[] {
 describe('graphLine', () => {
   const [section, setting] = GRAPH_LANES;
 
-  it('runs straight down a folded outline in two points', () => {
+  // A section's node sits on the middle of its row; the line stops in it.
+  it('runs straight down a folded outline in two points, node to node', () => {
     const line = graphLine(stack([0, 0, 0]));
     expect(line).toEqual([
-      { x: section, y: 0 },
-      { x: section, y: 76 },
+      { x: section, y: 12 },
+      { x: section, y: 64 },
     ]);
+  });
+
+  it('runs a setting row at the end its full height, having no node to stop in', () => {
+    const rows = stack([0, 1]);
+    const line = graphLine(rows);
+    expect(line[line.length - 1].y).toBe(rows[1].bottom);
   });
 
   it('swings in under an open section and back out before the next one', () => {
@@ -261,8 +268,8 @@ describe('sliceLine', () => {
   const line = graphLine(stack([0, 1, 1, 0]));
 
   it('starts and stops exactly at the band it was asked for', () => {
-    const slice = sliceLine(line, 10, 60);
-    expect(slice[0].y).toBe(10);
+    const slice = sliceLine(line, 20, 60);
+    expect(slice[0].y).toBe(20);
     expect(slice[slice.length - 1].y).toBe(60);
   });
 
@@ -281,7 +288,7 @@ describe('sliceLine', () => {
 
   it('clips a band that runs past either end of the line', () => {
     const slice = sliceLine(line, -50, 500);
-    expect(slice[0].y).toBe(0);
+    expect(slice[0].y).toBe(line[0].y);
     expect(slice[slice.length - 1].y).toBe(line[line.length - 1].y);
   });
 

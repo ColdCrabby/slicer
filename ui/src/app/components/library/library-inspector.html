@@ -8,6 +8,19 @@
     (keydown.escape)="$event.stopPropagation(); revert(name)"
     (blur)="rename($event)"
   />
+  <!-- Two presses: the first arms it (and says so), the second removes. -->
+  <button
+    nexusIconButton
+    type="button"
+    class="inspector-remove"
+    [class.is-confirming]="confirmingRemove()"
+    [attr.aria-label]="confirmingRemove() ? 'Press again to remove' : removeLabel()"
+    [tooltip]="confirmingRemove() ? 'Press again to remove' : removeLabel()"
+    (click)="remove()"
+    (blur)="disarm()"
+  >
+    <nexus-icon name="trash" />
+  </button>
   <button nexusIconButton type="button" aria-label="Close" (click)="dismiss.emit()">
     <nexus-icon name="xmark" />
   </button>
@@ -23,35 +36,26 @@
 }
 
 <div class="inspector-actions">
-  @if (actions.openPlate()) {
-    <button
-      nexusButton
-      variant="primary"
-      type="button"
-      [disabled]="actions.busy() || missing()"
-      (click)="actions.addToPlate(entry())"
-    >
-      Add to plate
-    </button>
-    <button
-      nexusButton
-      type="button"
-      [disabled]="actions.busy() || missing()"
-      (click)="actions.openAsPlate(entry())"
-    >
-      New plate
-    </button>
-  } @else {
-    <button
-      nexusButton
-      variant="primary"
-      type="button"
-      [disabled]="actions.busy() || missing()"
-      (click)="actions.openAsPlate(entry())"
-    >
-      Put on a new plate
-    </button>
-  }
+  <!-- The page does not know which workplate is meant, so it asks. -->
+  <button
+    nexusButton
+    variant="primary"
+    type="button"
+    aria-haspopup="listbox"
+    [disabled]="actions.busy() || missing() || actions.workplates().length === 0"
+    (click)="chooseWorkplate($any($event.currentTarget))"
+  >
+    Add to workplate
+    <nexus-icon name="nav-arrow-down" />
+  </button>
+  <button
+    nexusButton
+    type="button"
+    [disabled]="actions.busy() || missing()"
+    (click)="actions.openAsPlate(entry())"
+  >
+    New workplate
+  </button>
 </div>
 
 <dl class="inspector-facts">
@@ -111,16 +115,13 @@
   </ul>
 }
 
-<button
-  nexusButton
-  variant="ghost"
-  size="sm"
-  type="button"
-  class="inspector-remove"
-  [class.is-confirming]="confirmingRemove()"
-  (click)="remove()"
-  (blur)="disarm()"
->
-  <nexus-icon name="trash" />
-  {{ confirmingRemove() ? 'Confirm?' : removeLabel() }}
-</button>
+<ng-template #pickerPanel>
+  <nexus-workplate-tab-search
+    [entries]="actions.workplates()"
+    [closable]="false"
+    placeholder="Search open workplates"
+    heading="Add to workplate"
+    (pick)="addTo($event)"
+    (dismiss)="dismissPicker()"
+  />
+</ng-template>

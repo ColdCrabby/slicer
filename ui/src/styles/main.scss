@@ -49,6 +49,7 @@
 @use 'utilities/utilities';
 
 // Shared component styles emitted globally (see partial header for rationale).
+@use './components/panels';
 @use './components/profiles';
 @use './components/manage';
 

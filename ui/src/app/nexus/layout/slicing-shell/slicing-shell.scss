@@ -1,4 +1,5 @@
 @use 'breakpoints' as *;
+@use 'panel-turn' as *;
 
 $default-inset: 40px;
 
@@ -8,11 +9,49 @@ $default-inset: 40px;
   height: 100%;
 }
 
+// The scene is the page's primary panel, and always its full width. The print
+// settings float over its left edge (nexus/sidebar) and never take layout room
+// from it. Docked, the scene insets its own content instead, while its dark
+// surface carries on underneath the panel. Two insets, because the two kinds
+// of content want different edges:
+//
+// - The canvas starts at the panel's inner edge — tucked a gap under it — and
+//   fades in over twice the gap, so the plate runs out softly behind the panel
+//   instead of stopping on a hard line where the panel's top corner clears it.
+// - The floating chrome (toolbar, cards, rail) starts clear of the panel and
+//   of the controls on its edge, where nothing of it is hidden or covered.
 .shell-content {
-  position: relative;
-
   flex: 1;
   overflow: auto;
+  padding-left: var(--scene-canvas-inset, 0px);
+  // Docking and hiding move the content in step with the panel turning in or
+  // away, on the same curve and clock.
+  transition: padding-left $panel-turn-enter $panel-turn-ease-enter;
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
+:host:has(> nexus-sidebar:not(.is-collapsed)) {
+  --scene-canvas-inset: var(--sidebar-w, 280px);
+  // Past the panel, and past the lane its dock nub and resize grip stand in on
+  // its right edge (24px, the nub's width), so neither sits over a control.
+  --scene-chrome-inset: calc(var(--sidebar-w, 280px) + var(--panel-gap) + 24px);
+
+  // The routed page — the canvas and what is drawn on it. Router-inserted, so
+  // it carries none of this component's attributes.
+  .shell-content > ::ng-deep :not(router-outlet, .shell-actions-layer) {
+    mask-image: linear-gradient(to right, transparent, #000 calc(2 * var(--panel-gap)));
+  }
+}
+
+// A drag is followed exactly, not eased after.
+:host:has(> nexus-sidebar.is-dragging) {
+  .shell-content,
+  .shell-actions-layer {
+    transition: none;
+  }
 }
 
 // The G-code text column. A fixed share of the window rather than a fixed
@@ -22,26 +61,69 @@ $default-inset: 40px;
 .text-panel {
   flex: none;
   width: clamp(320px, 32vw, 560px);
-  // Above the scene's floating layer, so the column's own shadow falls across
-  // the plate rather than under the cards floating over it.
-  z-index: 20;
+  margin-left: var(--panel-gap);
 }
 
 // The library flyout. A column of its own, like the text panel, so the plate
 // stays whole beside it — the point is to see where a model will land.
+// The library, over the scene's left edge and the print settings on it — it
+// is opened from the rail, so it comes out of that side. Inset the panel gap
+// like the print settings, above them, and turning in on the same hinge.
+.library-sheet {
+  position: absolute;
+  top: var(--panel-gap);
+  left: var(--panel-gap);
+  bottom: var(--panel-gap);
+  z-index: 30;
+  width: var(--library-w, clamp(280px, 26vw, 380px));
+  transform-origin: 0 50%;
+}
+
+// Over docked print settings it is never the narrower of the two: a library
+// that stops short of the panel under it shows a sliver of that panel down its
+// edge. Dragged narrower than that, it simply holds the panel's width.
+:host:has(> nexus-sidebar:not(.is-collapsed)) .library-sheet {
+  width: max(var(--library-w, clamp(280px, 26vw, 380px)), var(--sidebar-w, 280px));
+}
+
+// While the library covers the print settings, their edge controls — the dock
+// nub and the resize grip — would stand beside the library's own grip.
+:host:has(> .library-sheet) nexus-sidebar ::ng-deep :is(.sidebar-pin, .resize-handle) {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.library-turn-in {
+  @include panel-turn-in(library-turn);
+}
+
+.library-turn-out {
+  @include panel-turn-out(library-turn);
+}
+
+@include panel-turn-keyframes(end, library-turn);
+
 .library-flyout {
-  flex: none;
-  width: clamp(280px, 26vw, 380px);
-  z-index: 20;
+  height: 100%;
+  border-radius: var(--panel-radius-nested);
 }
 
 .shell-actions-layer {
   display: grid;
   position: absolute;
+  // Clear of the docked panel by its own inset (see `.shell-content`), moving
+  // with it on the same clock as the canvas.
   top: 0;
+  right: 0;
+  bottom: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
+  padding-left: var(--scene-chrome-inset, 0px);
+  transition: padding-left $panel-turn-enter $panel-turn-ease-enter;
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
 
   // `minmax(0, 1fr)`, not `1fr`: the shorthand is `minmax(auto, 1fr)`, and that
   // `auto` minimum is a floor at the content's min-content width. The toolbar
@@ -97,14 +179,7 @@ $default-inset: 40px;
     display: flex;
     flex-direction: column;
     gap: var(--spacing-sm);
-    // Clear of the settings drawer's pull tab, which hangs at this same corner
-    // whenever the sidebar is collapsed: the tab starts one `--spacing-sm` below
-    // the toolbar, so this is that gap plus the tab plus one more. Sized for the
-    // tab's *touch* height (44px; it is 34px with a cursor) so the cards sit in
-    // the same place whatever is pointing at them, and docking or hiding the
-    // drawer never shifts them. Kept in step with `.sidebar-reveal-hint` in
-    // sidebar.component.scss, which owns those heights.
-    margin: calc(44px + 2 * var(--spacing-sm)) var(--spacing-lg) var(--spacing-lg);
+    margin: var(--spacing-sm) var(--spacing-lg) var(--spacing-lg);
     // Only the cards take the pointer; the gaps between them stay
     // click-through to the plate behind.
     pointer-events: none;
@@ -247,6 +322,17 @@ $default-inset: 40px;
 // inspector — sliders, selects, a role legend — room to be operable rather than
 // merely present.
 @include handheld {
+  // A phone never docks the sidebar (it is only ever a drawer), so the scene
+  // has nothing to pad for.
+  :host:has(> nexus-sidebar:not(.is-collapsed)) {
+    --scene-canvas-inset: 0px;
+    --scene-chrome-inset: 0px;
+
+    .shell-content > ::ng-deep :not(router-outlet, .shell-actions-layer) {
+      mask-image: none;
+    }
+  }
+
   // Side by side, neither the plate nor the file has room to be read. The plate
   // is what the toolbar's other controls act on, so it keeps the window and the
   // text column steps aside until there is width for both.
@@ -256,11 +342,13 @@ $default-inset: 40px;
 
   // No room for a column: the flyout covers the lower part of the scene,
   // leaving the plate visible above it.
-  .library-flyout {
-    position: absolute;
+  .library-sheet {
     inset: auto 0 0;
     width: auto;
     height: 60%;
+  }
+
+  .library-flyout {
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     box-shadow: var(--shadow-lg);
   }
@@ -298,15 +386,14 @@ $default-inset: 40px;
       display: none;
     }
 
-    // Tighter side margins for a narrow screen, but a *larger* top clearance:
-    // the pull tab drops to its glyph alone here and grows to 60px.
+    // Tighter margins for a narrow screen.
     .tool-dock {
-      margin: calc(60px + 2 * var(--spacing-sm)) var(--spacing-sm) var(--spacing-sm);
+      margin: var(--spacing-sm);
       margin-left: calc(var(--spacing-sm) + env(safe-area-inset-left, 0px));
       max-width: calc(100vw - 2 * var(--spacing-sm));
     }
 
-    // The left edge belongs to the drawer's pull tab and the tool cards. The
+    // The left edge belongs to the drawer's handle and the tool cards. The
     // object list keeps the desktop arrangement's intent instead — anchored to
     // the far corner of the scene so a long list grows away from the toolbar,
     // not under it.

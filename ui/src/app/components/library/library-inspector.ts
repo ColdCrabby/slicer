@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   computed,
   effect,
@@ -10,8 +11,17 @@ import {
   signal,
   untracked,
   viewChild,
+  type TemplateRef,
 } from '@angular/core';
-import { Button, Icon, IconButton } from '@coldcrabby/ui';
+import {
+  Button,
+  FloatingService,
+  Icon,
+  IconButton,
+  TooltipDirective,
+  type FloatingRef,
+} from '@coldcrabby/ui';
+import { WorkplateTabSearch } from '../workplate-tabs/workplate-tab-search';
 import { ObjectLibrary, type LibraryEntry } from '../../services/library';
 import { LibraryActions } from '../../services/library/library-actions';
 import { removeLabel, revealLabel } from './library-browser';
@@ -30,7 +40,7 @@ const CONFIRM_MS = 3_000;
  */
 @Component({
   selector: 'nexus-library-inspector',
-  imports: [Button, Icon, IconButton, LibraryPreview],
+  imports: [Button, Icon, IconButton, LibraryPreview, TooltipDirective, WorkplateTabSearch],
   templateUrl: './library-inspector.html',
   styleUrl: './library-inspector.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -38,12 +48,17 @@ const CONFIRM_MS = 3_000;
 export class LibraryInspector {
   protected readonly library = inject(ObjectLibrary);
   protected readonly actions = inject(LibraryActions);
+  readonly #floating = inject(FloatingService);
 
   readonly entry = input.required<LibraryEntry>();
   /** Back to the library overview. */
   readonly dismiss = output<void>();
 
   private readonly nameInput = viewChild.required<ElementRef<HTMLInputElement>>('name');
+  private readonly pickerPanel = viewChild.required<TemplateRef<unknown>>('pickerPanel');
+  #picker: FloatingRef | null = null;
+  /** The button the picker hangs from; a component host, so kept as the element. */
+  #pickerTrigger: HTMLElement | null = null;
 
   protected readonly previewFile = signal<File | null>(null);
   protected readonly confirmingRemove = signal(false);
@@ -79,6 +94,8 @@ export class LibraryInspector {
   protected readonly revealLabel = revealLabel();
 
   constructor() {
+    inject(DestroyRef).onDestroy(() => this.closePicker());
+
     // Load the model for the live view, dropping a stale load.
     effect((onCleanup) => {
       const entry = this.entry();
@@ -124,6 +141,53 @@ export class LibraryInspector {
   protected revert(input: HTMLInputElement): void {
     input.value = this.entry().name;
     input.blur();
+  }
+
+  /** Which open workplate to add this model to. */
+  /**
+   * The same searchable list the tab strip's chevron opens, dropped below the
+   * button: pick a workplate and the model goes onto it. A second press on the
+   * button closes it.
+   */
+  protected chooseWorkplate(button: HTMLElement): void {
+    if (this.#picker) {
+      this.closePicker();
+      return;
+    }
+    this.#pickerTrigger = button;
+    this.#picker = this.#floating.openTemplate(
+      this.pickerPanel(),
+      {},
+      {
+        reference: button,
+        interactive: true,
+        originElement: button,
+        options: { placement: 'bottom-start', offset: 4, padding: 8 },
+        onOutsidePointer: () => this.closePicker(),
+      },
+    );
+  }
+
+  protected addTo(uuid: string): void {
+    this.closePicker();
+    void this.actions.addToWorkplate(this.entry(), uuid);
+  }
+
+  /** From the keyboard, focus goes back to the button that opened it. */
+  protected dismissPicker(): void {
+    const trigger = this.#pickerTrigger;
+    this.closePicker();
+    trigger?.focus();
+  }
+
+  protected closePicker(): void {
+    this.#picker?.close();
+    this.#picker = null;
+  }
+
+  /** The keyboard's Delete: the same two presses as the bin. */
+  requestRemove(): void {
+    void this.remove();
   }
 
   /** Inline two-step confirm: the first press arms, the second removes. */

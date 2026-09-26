@@ -6,7 +6,8 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: var(--spacing-md) var(--spacing-lg) var(--spacing-lg);
-  background: var(--color-bg-secondary);
+  // Its frame and tone are the panel's (`[nexusPanel]`, set by the slicing
+  // shell).
 }
 
 .flyout-header {

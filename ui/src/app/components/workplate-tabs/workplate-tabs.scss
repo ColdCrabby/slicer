@@ -45,14 +45,13 @@
   // The close button contributes the right-hand room; a tab without one gets it
   // back below, rather than sitting on 2px and looking clipped.
   padding: 0 2px 0 10px;
-  border: 1px solid transparent;
+  border: none;
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
   transition:
     background-color var(--duration-fast) var(--ease-standard),
-    border-color var(--duration-fast) var(--ease-standard),
     color var(--duration-fast) var(--ease-standard);
 
   &:hover {
@@ -65,12 +64,10 @@
     outline-offset: -1px;
   }
 
-  // Outlined in the surface's own tone and border, so the plate on screen reads
-  // as a small piece of the page below — no accent fill competing with the
-  // scene for attention.
+  // A faint tint and full-strength text, no outline: enough to say which plate
+  // is on screen without a shape competing with the scene for attention.
   &.active {
-    background: var(--color-bg-primary);
-    border-color: var(--color-border);
+    background: var(--color-surface-alt);
     color: var(--color-text-primary);
     cursor: default;
   }
@@ -130,7 +127,7 @@
     background: transparent;
     // The shared `input:focus` rule in base/forms paints a border plus an inset
     // ring on every field; clearing only the outline left that ring behind,
-    // nested inside the tab's own active border.
+    // nested inside the tab.
     outline: none;
     border-color: transparent;
     box-shadow: none;

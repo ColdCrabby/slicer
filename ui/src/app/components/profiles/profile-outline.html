@@ -60,7 +60,6 @@
       >
         <path class="profile-outline__track" [attr.d]="trackPath()" />
         @if (windowPath()) {
-          <path class="profile-outline__lens" [attr.d]="windowPath()" />
           <path class="profile-outline__window" [attr.d]="windowPath()" />
         }
         @for (node of nodes(); track node.id) {
@@ -97,13 +96,7 @@
           <!-- A section with no named rows — the G-code editor is one — would
                otherwise advertise a count of zero. -->
           @if (section.entries.length) {
-            <span class="profile-outline__count">{{ section.entries.length }}</span>
-            <nexus-icon
-              class="profile-outline__twisty"
-              [class.is-open]="isExpanded(section.id)"
-              name="nav-arrow-right"
-              aria-hidden="true"
-            />
+            <nexus-badge class="profile-outline__count">{{ section.entries.length }}</nexus-badge>
           }
         </button>
 

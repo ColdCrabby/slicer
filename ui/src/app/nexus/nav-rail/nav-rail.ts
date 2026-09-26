@@ -26,7 +26,7 @@ interface NavItem {
  * of the places it is busy going to.
  *
  * Library is the one destination that changes with where you are: with a plate
- * on screen it opens beside the plate instead of replacing it, since what the
+ * on screen it opens over the plate instead of replacing it, since what the
  * user wants from the library then is something to put on that plate.
  */
 @Component({
@@ -48,7 +48,7 @@ export class NavRail {
     ),
     { initialValue: this.router.url },
   );
-  /** A plate is on screen, so Library opens beside it. */
+  /** A plate is on screen, so Library opens over it. */
   protected readonly onPlate = computed(() => PLATE_URL.test(this.#url()));
 
   constructor() {

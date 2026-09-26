@@ -1,0 +1,39 @@
+@use 'breakpoints' as *;
+
+// Stands in the gap after the panel it sizes and takes no layout room: the
+// layout positions it (a grid places it in the panel's own area — see
+// `_manage.scss`), and this makes it exactly the gap's width, full height,
+// with the grip centred in it.
+:host {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  // Centred on the gap but wider than it: 5px is a line, not a target. The
+  // overhang falls on the panels' edges, where nothing else is aimed at.
+  left: calc(100% + var(--panel-gap) / 2);
+  width: 12px;
+  translate: -50% 0;
+  display: grid;
+  place-items: center;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 2;
+
+  &:focus-visible {
+    outline: none;
+  }
+}
+
+// Before the panel it sizes: stand in the gap on that panel's left instead.
+:host(.sizes-after) {
+  left: auto;
+  right: calc(100% + var(--panel-gap) / 2);
+  translate: 50% 0;
+}
+
+// Panels stack on a phone; there is no width to drag.
+@include handheld {
+  :host {
+    display: none;
+  }
+}

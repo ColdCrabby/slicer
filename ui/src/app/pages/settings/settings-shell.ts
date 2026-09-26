@@ -1,7 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { NavigationProgress } from '../../services/navigation-progress';
-import { Icon, TooltipDirective } from '@coldcrabby/ui';
+import { Badge, Icon, TooltipDirective } from '@coldcrabby/ui';
+import { Panel } from '../../ui/panel/panel';
 import { SettingsNav } from '../../services/settings-nav';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { PrintersStore } from '../../services/profiles/printers-store';
@@ -36,7 +37,9 @@ import { SettingsNavFooter } from './settings-nav-footer';
     RouterLink,
     RouterLinkActive,
     RouterOutlet,
+    Badge,
     Icon,
+    Panel,
     TooltipDirective,
     SettingsSearchBox,
     SettingsNavFooter,

@@ -4,9 +4,9 @@
     <input
       #search
       type="text"
-      placeholder="Search open workplates"
+      [placeholder]="placeholder()"
       role="combobox"
-      aria-label="Search open workplates"
+      [attr.aria-label]="placeholder()"
       aria-controls="ts-list"
       aria-expanded="true"
       [attr.aria-activedescendant]="filtered().length ? 'ts-row-' + highlighted() : null"
@@ -18,9 +18,9 @@
     />
   </div>
 
-  <div class="ts-heading">Open workplates</div>
+  <div class="ts-heading">{{ heading() }}</div>
 
-  <div id="ts-list" class="ts-list" role="listbox" aria-label="Open workplates">
+  <div id="ts-list" class="ts-list" role="listbox" [attr.aria-label]="heading()">
     @for (entry of filtered(); track entry.uuid; let i = $index) {
       <div
         #row
@@ -32,7 +32,7 @@
         [attr.aria-selected]="i === highlighted()"
         (click)="pick.emit(entry.uuid)"
         (mousedown)="$event.button === 1 && $event.preventDefault()"
-        (auxclick)="$event.button === 1 && onClose(entry.uuid, $event)"
+        (auxclick)="closable() && $event.button === 1 && onClose(entry.uuid, $event)"
         (pointermove)="highlighted.set(i)"
       >
         <nexus-icon class="ts-row-icon" name="cube" />
@@ -42,17 +42,19 @@
             <span class="ts-row-file">{{ entry.filename }}</span>
           }
         </span>
-        <button
-          nexusIconButton
-          size="sm"
-          class="ts-row-close"
-          type="button"
-          tabindex="-1"
-          [attr.aria-label]="'Close ' + entry.name"
-          (click)="onClose(entry.uuid, $event)"
-        >
-          <nexus-icon name="xmark" />
-        </button>
+        @if (closable()) {
+          <button
+            nexusIconButton
+            size="sm"
+            class="ts-row-close"
+            type="button"
+            tabindex="-1"
+            [attr.aria-label]="'Close ' + entry.name"
+            (click)="onClose(entry.uuid, $event)"
+          >
+            <nexus-icon name="xmark" />
+          </button>
+        }
       </div>
     } @empty {
       <p class="ts-empty">

@@ -86,6 +86,12 @@ there, and a change you can't see happen is worse than no change.
 
 ## The settings panel (left)
 
+The panel floats over the left edge of the plate. The pin on its edge keeps it
+open — the plate's contents move over to make room — or hides it. Hidden, a
+slim bar marks the plate's left edge: rest the pointer anywhere along that edge
+and the panel opens, then move away and it closes. Click or tap the bar to keep
+it open until you click elsewhere.
+
 Three rows at the top name what the plate is made of — **printer**, **filament**
 and **process**. Click a row to show its settings below; the **⋯** beside it
 swaps the profile or opens it for editing.
@@ -338,12 +344,11 @@ on its own.
 - **Panels start folded.** The G-code inspector and the objects list each show
   just a header — `G-code · 42 / 180`, `Objects 2`. Tap a header to open it, tap
   again to fold. Your choice sticks from then on.
-- **Print settings are a drawer**, reached from the tab on the left edge just
-  below the toolbar. Tap it to open, tap outside to close — and that tap still
-  lands where you aimed it, so selecting a model or spinning the camera closes
-  the drawer in the same move. It's out of the middle of the screen on purpose:
-  that's where your model is, and the plate stays visible behind the drawer
-  rather than being dimmed out.
+- **Print settings are a drawer**, behind the slim bar on the plate's left
+  edge. Tap it to open, tap outside to close — and that tap still lands where
+  you aimed it, so selecting a model or spinning the camera closes the drawer in
+  the same move. The plate stays visible beside the drawer rather than being
+  dimmed out.
 - **Panels use the room they have.** Unfolded, the G-code inspector shows its
   whole legend and both sliders without scrolling.
 - **Everything is finger-sized.** Buttons, dropdowns, the layer slider and the
@@ -412,7 +417,7 @@ nothing to install — open the slicer's address in your phone's browser.
 - **Slice lives in a sheet across the bottom** of the plate, with the file name
   and the download / send buttons beside it. After slicing, the G-code inspector
   opens inside that sheet and scrolls — Slice stays put.
-- **Print settings are a drawer.** Pull the tab on the left edge, or tap it. Tap
+- **Print settings are a drawer.** Tap the slim bar on the left edge. Tap
   anywhere outside to close — the tap reaches the plate as well, so it doubles as
   your next gesture.
 - **The objects list is folded** to a chip showing how many models are on the

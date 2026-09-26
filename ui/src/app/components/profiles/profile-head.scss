@@ -129,13 +129,25 @@
 }
 
 // A link's weight for a button's job: the safety net, never the main event.
+// Both labels share one grid cell, so the button is always as wide as the
+// longer one and arming it moves nothing.
 .profile-head__link {
+  display: inline-grid;
   padding: 0;
   border: none;
   background: none;
   color: var(--accent);
   font: inherit;
   cursor: pointer;
+
+  > span {
+    grid-area: 1 / 1;
+    visibility: hidden;
+  }
+
+  > span.is-shown {
+    visibility: visible;
+  }
 
   &:hover {
     text-decoration: underline;
@@ -149,21 +161,41 @@
 
   &.is-armed {
     color: var(--color-danger);
-    font-weight: var(--font-weight-medium);
+  }
+
+  // Nothing to restore yet: keeps its room so the first edit does not shift
+  // the line when it appears.
+  &.is-idle {
+    visibility: hidden;
   }
 }
 
+// Every state in one cell and faded between, so the slot is always the width of
+// its longest message and never pushes or pulls what sits beside it.
 .profile-head__save {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
+  display: inline-grid;
+  margin-left: auto;
   --icon-size: 12px;
 
-  &.is-saved {
+  > span {
+    grid-area: 1 / 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 3px;
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease-standard);
+  }
+
+  > span.is-shown {
+    opacity: 1;
+  }
+
+  .is-saved {
     color: var(--color-success);
   }
 
-  &.is-error {
+  .is-error {
     color: var(--color-danger);
   }
 }

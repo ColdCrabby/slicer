@@ -1,5 +1,5 @@
 <div class="settings" [class.is-nav-collapsed]="nav.collapsed()">
-  <aside class="settings-nav">
+  <aside class="settings-nav" nexusPanel>
     <div class="settings-nav-head">
       <h1 class="settings-title">Settings</h1>
       <button
@@ -57,9 +57,9 @@
                   }
                 </span>
                 @if (count !== null) {
-                  <span class="settings-nav-count" [attr.aria-label]="count + ' items'">
+                  <nexus-badge class="settings-nav-count" [attr.aria-label]="count + ' items'">
                     {{ count }}
-                  </span>
+                  </nexus-badge>
                 }
               </a>
             }

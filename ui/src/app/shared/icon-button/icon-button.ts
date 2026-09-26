@@ -52,7 +52,8 @@ import { Icon } from '@coldcrabby/ui';
         padding: 0;
         background: transparent;
         color: var(--color-text-tertiary);
-        cursor: pointer;
+        /* Every one of these is a "more info" affordance: say so. */
+        cursor: help;
         border-radius: var(--radius-sm);
         flex-shrink: 0;
         transition:

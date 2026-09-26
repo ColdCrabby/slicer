@@ -1,6 +1,7 @@
 import { Component, ViewChild, computed, effect, inject, signal } from '@angular/core';
 import type { ElementRef, OnDestroy } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import { Panel } from '../../ui/panel/panel';
 import type { PrinterProfile } from '../../models/printer.model';
 import { ListHistory } from '../../components/list-history/list-history';
 import {
@@ -34,7 +35,7 @@ interface DashboardPrinter {
 @Component({
   selector: 'nexus-home-dashboard',
   standalone: true,
-  imports: [RouterLink, ListHistory, Icon, Button, EmptyState, InlineNotice, SectionHeader],
+  imports: [Panel, RouterLink, ListHistory, Icon, Button, EmptyState, InlineNotice, SectionHeader],
   templateUrl: './home.component.html',
   styleUrl: './home.component.scss',
 })
