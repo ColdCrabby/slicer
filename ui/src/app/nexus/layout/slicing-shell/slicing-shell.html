@@ -28,6 +28,16 @@
   </div>
 </main>
 
+<!-- Beside the plate rather than over it: models are picked while looking at
+     where they will go. On the right because the left edge belongs to the
+     settings drawer, whose dock tab and slide-out peek both reach past it.
+     Loaded on first open — most plates never ask. -->
+@if (libraryFlyout.open()) {
+  @defer (on immediate) {
+    <nexus-library-flyout class="library-flyout" />
+  }
+}
+
 <!-- A sibling of the scene, not an overlay on it: the text is read alongside
      the toolpath it describes, so it takes width rather than covering the
      thing the caret is pointing at. -->

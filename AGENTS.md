@@ -62,6 +62,7 @@ Every module owns its own explanation. Start at the README, not the source.
 | `src/profiles/` | The user's printers, filaments, processes; export | [README](src/profiles/README.md) |
 | `src/printer/` | Outbound transport to real printers (native only) | [README](src/printer/README.md) |
 | `src/workplate/` | The saved form of a plate — presets, diff, placements | [README](src/workplate/README.md) |
+| `src/library/` | Every model ever plated, once — dedup, copies/links, thumbnails | [README](src/library/README.md) |
 | `src/server/` | HTTP + WebSocket host, the G-code result cache | [README](src/server/README.md) |
 | `src/config/` | `slicer.toml`, `config_dir()` | [README](src/config/README.md) |
 | `src/db/` | SQLite history + migrations | [README](src/db/README.md) |

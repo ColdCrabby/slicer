@@ -1,0 +1,152 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+nexus-library-preview {
+  background: var(--color-surface);
+}
+
+.inspector-top {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+// Reads as a title until touched. One ring on focus — the field's own, drawn
+// the way every other text field draws it — rather than an outline around an
+// inset ring.
+.inspector-name {
+  flex: 1;
+  min-width: 0;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  margin-left: calc(-1 * var(--spacing-sm));
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  text-overflow: ellipsis;
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    border-color: var(--color-border);
+  }
+
+  &:focus {
+    border-color: var(--color-focus-ring);
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
+    background: var(--color-surface);
+  }
+}
+
+.inspector-missing {
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-lg);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  text-align: center;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  --icon-size: 24px;
+
+  nexus-icon {
+    color: var(--color-warning);
+  }
+}
+
+.inspector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+
+  > button {
+    flex: 1 1 auto;
+  }
+}
+
+.inspector-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--spacing-xs) var(--spacing-lg);
+  margin: 0;
+  font-size: var(--font-size-sm);
+
+  dt {
+    color: var(--color-text-tertiary);
+  }
+
+  dd {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.inspector-locations {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    min-width: 0;
+
+    > nexus-icon {
+      flex: none;
+      --icon-size: 16px;
+      color: var(--color-text-tertiary);
+    }
+
+    &.is-missing > nexus-icon {
+      color: var(--color-warning);
+    }
+  }
+}
+
+.location-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: var(--font-size-xs);
+}
+
+.location-kind {
+  color: var(--color-text-secondary);
+}
+
+// The end of a path is what tells two apart, so it truncates at the start.
+.location-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  color: var(--color-text-tertiary);
+}
+
+.inspector-remove {
+  align-self: flex-start;
+
+  &.is-confirming {
+    color: var(--color-danger);
+    background: var(--color-danger-light);
+  }
+}

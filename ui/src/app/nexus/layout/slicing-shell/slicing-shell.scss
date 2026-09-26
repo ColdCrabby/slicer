@@ -27,6 +27,14 @@ $default-inset: 40px;
   z-index: 20;
 }
 
+// The library flyout. A column of its own, like the text panel, so the plate
+// stays whole beside it — the point is to see where a model will land.
+.library-flyout {
+  flex: none;
+  width: clamp(280px, 26vw, 380px);
+  z-index: 20;
+}
+
 .shell-actions-layer {
   display: grid;
   position: absolute;
@@ -243,6 +251,17 @@ $default-inset: 40px;
   // text column steps aside until there is width for both.
   .text-panel {
     display: none;
+  }
+
+  // No room for a column: the flyout covers the lower part of the scene,
+  // leaving the plate visible above it.
+  .library-flyout {
+    position: absolute;
+    inset: auto 0 0;
+    width: auto;
+    height: 60%;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    box-shadow: var(--shadow-lg);
   }
 
   .shell-actions-layer {

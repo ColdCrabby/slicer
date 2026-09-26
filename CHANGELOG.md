@@ -27,6 +27,17 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
+### Added
+
+- **Library.** Every model that reaches a plate is kept once, with a picture,
+  so the next plate is built from what you have. Duplicates — renamed copies,
+  re-exports — are recognised; the selected model turns in a live preview.
+  With a plate open, the library opens beside it, and picking a model puts it
+  straight on the plate.
+- **Copy, link or both.** On the desktop, choose whether models are copied into
+  the library or linked where they are, and point it at folders to watch. On
+  iPad the library is a folder in Files, so a model saved there just appears.
+
 ### Fixed
 
 - **The same model now slices to the same G-code.** Simplifying a region before
