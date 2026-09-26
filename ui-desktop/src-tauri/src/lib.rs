@@ -65,6 +65,7 @@ pub fn run() {
     let app = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(bridge::runtime_bridge::AppState::new())
         .manage(open_with::OpenedFiles::default())
         .setup(|_app| {

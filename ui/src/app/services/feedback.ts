@@ -1,7 +1,8 @@
 import { inject, Injectable } from '@angular/core';
-import { isTauriHost, resolveRuntimeMode } from '../runtime/domain/runtime-mode.util';
+import { resolveRuntimeMode } from '../runtime/domain/runtime-mode.util';
 import { AppVersion } from './app-version';
 import { BrowserStorage } from './browser-storage';
+import { openExternal } from './external-links';
 import { NotificationService } from './notifications';
 
 /** Where feedback lands: a new issue on the public tracker. */
@@ -65,11 +66,7 @@ export class Feedback {
       resolveRuntimeMode(),
       typeof navigator === 'undefined' ? 'unknown' : navigator.userAgent,
     );
-    if (isTauriHost()) {
-      void import('@tauri-apps/plugin-shell').then(({ open }) => open(url));
-      return;
-    }
-    window.open(url, '_blank', 'noopener,noreferrer');
+    openExternal(url);
   }
 
   /** Call on every successful slice; offers feedback when a threshold is reached. */

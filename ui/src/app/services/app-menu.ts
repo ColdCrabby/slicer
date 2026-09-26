@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { listen } from '@tauri-apps/api/event';
+import { openExternal } from './external-links';
 import { Logger } from './logger';
 import { Slicer } from './slicer';
 import { ViewerControl } from './viewer-control';
@@ -58,7 +59,7 @@ export class AppMenu {
         this.#slicer.downloadGcode();
         return;
       case 'help-docs':
-        void import('@tauri-apps/plugin-shell').then(({ open }) => open(DOCS_URL));
+        openExternal(DOCS_URL);
         return;
       case 'help-shortcuts':
         void this.#router.navigate(['/settings/controls'], { fragment: 'pref-shortcuts' });

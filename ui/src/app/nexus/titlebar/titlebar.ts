@@ -14,12 +14,12 @@ import { environment } from '../../../environments/environment';
 import type { RuntimeMode } from '../../runtime/domain/runtime-mode';
 import {
   isTauriDesktop,
-  isTauriHost,
   isTauriMobile,
   resolveRuntimeMode,
 } from '../../runtime/domain/runtime-mode.util';
 import { Icon, IconButton, TooltipDirective } from '../../ui/shell-primitives';
 import { Viewport } from '../../services/viewport';
+import { openExternal } from '../../services/external-links';
 import { Feedback } from '../../services/feedback';
 
 /**
@@ -168,13 +168,4 @@ export class NexusTitlebar {
     const platform = navigator.platform ?? '';
     return /Mac/i.test(platform) || /Mac OS X/i.test(navigator.userAgent);
   }
-}
-
-/** Open a link outside the app: the OS browser from a native shell, a new tab otherwise. */
-function openExternal(url: string): void {
-  if (isTauriHost()) {
-    void import('@tauri-apps/plugin-shell').then(({ open }) => open(url));
-    return;
-  }
-  window.open(url, '_blank', 'noopener,noreferrer');
 }
