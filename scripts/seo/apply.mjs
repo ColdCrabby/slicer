@@ -16,6 +16,7 @@
 //                    writes its own sitemap, and this folds it in
 //   llms.txt         a plain-text map of the site for language models
 //   social-card.png  the picture a shared link unfurls into
+//   google*.html     Google Search Console's ownership check
 //
 // Every edit to index.html has to land exactly once or the build fails. A
 // rewritten index.html that quietly lost its canonical URL would otherwise
@@ -173,6 +174,13 @@ fs.writeFileSync(
 );
 
 fs.copyFileSync(path.join(here, 'social-card.png'), path.join(out, socialCard.path.slice(1)));
+
+// Search Console's proof that we own the domain. Public by design — it only
+// shows that whoever published it controls this site — so it lives here, in
+// the one build that is this site, rather than in a secret.
+for (const file of fs.readdirSync(here).filter((name) => /^google[0-9a-f]+\.html$/.test(name))) {
+  fs.copyFileSync(path.join(here, file), path.join(out, file));
+}
 
 console.log(`Search-engine layer applied for ${home}`);
 
