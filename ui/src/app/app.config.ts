@@ -11,6 +11,7 @@ import { provideMarkdown } from 'ngx-markdown';
 import { environment } from '../environments/environment';
 import { APP_ROUTES } from './app-routes';
 import { AccentService } from './services/accent';
+import { ExternalLinks } from './services/external-links';
 import { CATALOG_SOURCE } from './services/catalog/cloud-catalog';
 import { provideCatalogClient } from './services/catalog/catalog-client';
 import { RemoteCatalogSource } from './services/catalog/remote-catalog-source';
@@ -45,6 +46,7 @@ export const appConfig: ApplicationConfig = {
       inject(UserInputModality);
       inject(UploadGuard);
       inject(StepperRepeat);
+      inject(ExternalLinks);
       inject(ProfileSync);
       // Has to exist before the first navigation starts, or the app's very
       // first (and slowest, uncached) route transition is the one it misses.
