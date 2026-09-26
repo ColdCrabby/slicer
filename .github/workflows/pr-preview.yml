@@ -80,7 +80,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pr-preview
-      url: ${{ steps.deploy.outputs.pages-deployment-alias-url }}
+      url: ${{ steps.deploy.outputs.alias-url }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -145,23 +145,39 @@ jobs:
 
       - name: Deploy to Cloudflare Pages
         id: deploy
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SHA: ${{ steps.build.outputs.sha }}
+        run: |
+          # Wrangler runs through npx from outside the checkout: installing it
+          # into the pnpm workspace (as cloudflare/wrangler-action does) is
+          # refused at the workspace root.
+          site="${GITHUB_WORKSPACE}/_site"
+          branch="pr-${PR_NUMBER}"
           # `pr-<n>` gives each pull request a stable alias that every push
           # updates in place: https://pr-<n>.<project>.pages.dev
-          command: >-
-            pages deploy _site
-            --project-name=${{ env.PAGES_PROJECT }}
-            --branch=pr-${{ env.PR_NUMBER }}
-            --commit-hash=${{ steps.build.outputs.sha }}
-            --commit-dirty=true
+          (cd "${RUNNER_TEMP}" && npx --yes wrangler@4 pages deploy "${site}" \
+            --project-name="${PAGES_PROJECT}" \
+            --branch="${branch}" \
+            --commit-hash="${SHA}" \
+            --commit-dirty=true)
+
+          # Read the addresses back from the API rather than scraping
+          # wrangler's output: the newest preview deployment of this branch.
+          api="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${PAGES_PROJECT}/deployments"
+          latest="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" "${api}?env=preview&per_page=25" \
+            | jq -c --arg b "${branch}" '[.result[] | select(.deployment_trigger.metadata.branch == $b)] | first')"
+          deploy_url="$(jq -r '.url // empty' <<<"${latest}")"
+          alias_url="$(jq -r '.aliases[0] // empty' <<<"${latest}")"
+          echo "deployment-url=${deploy_url}" >> "$GITHUB_OUTPUT"
+          echo "alias-url=${alias_url:-${deploy_url}}" >> "$GITHUB_OUTPUT"
+          echo "Preview: ${alias_url:-${deploy_url}} (this commit: ${deploy_url})"
 
       - name: Post the address on the pull request
         env:
           GH_TOKEN: ${{ github.token }}
-          ALIAS_URL: ${{ steps.deploy.outputs.pages-deployment-alias-url }}
+          ALIAS_URL: ${{ steps.deploy.outputs.alias-url }}
           DEPLOY_URL: ${{ steps.deploy.outputs.deployment-url }}
           SHA: ${{ steps.build.outputs.sha }}
         run: |
