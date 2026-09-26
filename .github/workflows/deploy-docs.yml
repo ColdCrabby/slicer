@@ -16,6 +16,7 @@ on:
       - "pnpm-workspace.yaml"
       - "package.json"
       - "build.rs"
+      - "scripts/build-site.sh"
       - ".github/workflows/deploy-docs.yml"
   workflow_dispatch:
 
@@ -64,16 +65,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build web-slicer WASM
+      # The same build the pull-request previews publish — see pr-preview.yml.
+      - name: Build the site
         env:
-          CXX_wasm32_unknown_unknown: ${{ github.workspace }}/tools/wasm32-clang++.js
-          # Pin the baked-in commit SHA so it exactly matches version.json below,
+          # Pin the baked-in commit SHA so it exactly matches version.json,
           # letting a stale tab detect that a newer build has been deployed.
           SLICER_GIT_SHA: ${{ github.sha }}
-        run: pnpm run hydrate:web-slicer
-
-      - name: Build UI (web-slicer)
-        run: pnpm --filter slicer-ui exec ng build --configuration web-slicer --base-href /
+          SLICER_DEPLOY_REF: ${{ github.ref_name }}
+        run: bash scripts/build-site.sh _site
 
       # Deploy gate: a failing UI unit test must block the production Pages
       # publish, even on a direct push to main that skipped PR checks. Skip
@@ -87,42 +86,15 @@ jobs:
             echo "No UI unit tests (*.spec.ts / *.test.ts) found — skipping."
           fi
 
-      - name: Build with VitePress
-        run: pnpm --filter slicer-engine-docs docs:build
-
-      - name: Assemble Pages artifact
+      - name: GitHub Pages touches
         run: |
-          mkdir -p _site/docs
-
-          if [ -d ui/dist/slicer-ui/browser ]; then
-            cp -R ui/dist/slicer-ui/browser/. _site/
-          elif [ -d ui/dist/slicer-ui ]; then
-            cp -R ui/dist/slicer-ui/. _site/
-          else
-            echo "Could not find Angular build output under ui/dist/slicer-ui" >&2
-            exit 1
-          fi
-
-          cp -R docs/.vitepress/dist/. _site/docs/
           touch _site/.nojekyll
-
-          # Deploy manifest for the UI's out-of-date detector. Its SHA matches
-          # the one baked into the WASM bundle (SLICER_GIT_SHA above); a stale
-          # tab re-fetches this file and prompts a reload when they differ.
-          printf '{"sha":"%s","version":"%s"}\n' \
-            "${{ github.sha }}" "${{ github.ref_name }}" > _site/version.json
-
           # SPA fallback: GitHub Pages returns 404.html (with the request URL
           # preserved) for any path it can't resolve to a static file. Serving
           # the Angular shell there lets the client-side router handle deep
           # links on hard reload instead of showing a 404. base-href is "/",
           # so index.html works unchanged as the fallback.
-          if [ -f _site/index.html ]; then
-            cp _site/index.html _site/404.html
-          else
-            echo "Expected _site/index.html for SPA 404 fallback" >&2
-            exit 1
-          fi
+          cp _site/index.html _site/404.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v6

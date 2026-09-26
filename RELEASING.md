@@ -6,21 +6,24 @@ the published GitHub Release, and the attached artifacts — is derived from tha
 tag and from [CHANGELOG.md](CHANGELOG.md). There is no second place to bump a
 version by hand.
 
-## Three kinds of build
+## Four kinds of build
 
-| Build | Made by | Who it is for | Reports as |
+| Build | Made by | Who it is for | Where |
 | --- | --- | --- | --- |
-| **Latest dev build** | every merge to `main` | anyone who wants the newest work today | `development` |
-| **Release candidate** | a `vX.Y.Z-rc.N` tag | the final test sweep before a release | `X.Y.Z-rc.N` |
-| **Release** | a `vX.Y.Z` tag | everyone | `X.Y.Z` |
+| **PR preview** | every push to a pull request | reviewers, before it merges | its own address on Cloudflare Pages |
+| **Latest dev build** | every merge to `main` | anyone who wants the newest work today | the Releases page (desktop), GitHub Pages (web) |
+| **Release candidate** | a `vX.Y.Z-rc.N` tag | the final test sweep before a release | a GitHub pre-release |
+| **Release** | a `vX.Y.Z` tag | everyone | a GitHub Release |
 
-The dev build is always there and never needs a person. A release goes through
-a candidate first: the notes are finished, the candidate is built exactly as the
-release will be, someone tests it, and only then is the real tag cut.
+Previews and dev builds happen on their own and report their version as
+`development`. A release goes through a candidate first: the notes are
+finished, the candidate is built exactly as the release will be, someone tests
+it, and only then is the real tag cut.
 
 ```mermaid
 flowchart LR
-  M[merge to main] --> D[Latest dev build]
+  PR[pull request] --> PV[PR preview]
+  PR --> M[merge to main] --> D[Latest dev build]
   M --> P[curate notes] --> RC[tag vX.Y.Z-rc.1]
   RC --> T{test sweep}
   T -- small fix --> F[fix on main] --> T
@@ -205,6 +208,41 @@ build** (tag `dev-build`) with fresh Windows and macOS desktop bundles.
 - **Never cancelled mid-build.** Merges that arrive during a build queue up and
   collapse into one follow-up build of the newest commit.
 
+## PR previews
+
+[`.github/workflows/pr-preview.yml`](.github/workflows/pr-preview.yml) gives
+every pull request its own copy of the static site — the web slicer at the
+root, the docs under `/docs/` — so a change can be tried in a browser before it
+merges.
+
+- **The same build as GitHub Pages.** Both call
+  [`scripts/build-site.sh`](scripts/build-site.sh); only the host differs. The
+  web slicer runs entirely in the browser, so a static host is all it needs.
+- **One address per pull request**, `https://pr-<n>.<project>.pages.dev`,
+  updated in place on every push. It is posted as a single comment on the pull
+  request (edited, never repeated) and shown as its deployment.
+- **Gone when the pull request closes** — merged or not, its deployments are
+  deleted.
+- **Not for forks.** A fork's workflow never sees the repository's secrets, and
+  giving them to its code would be unsafe. A maintainer can deploy a fork's pull
+  request by hand once they have read it: *Actions → PR preview → Run workflow*
+  with its number.
+- **Not indexed.** Cloudflare marks preview deployments `noindex`.
+
+### Setting it up
+
+Previews skip quietly until these exist in the repository settings:
+
+| Name | Kind | What it is |
+| --- | --- | --- |
+| `CLOUDFLARE_API_TOKEN` | secret | an API token with **Account → Cloudflare Pages → Edit** |
+| `CLOUDFLARE_ACCOUNT_ID` | secret | the account id from the Cloudflare dashboard |
+| `CLOUDFLARE_PAGES_PROJECT` | variable, optional | the Pages project name (default `coldcrabby-slicer`) |
+
+The workflow creates the Pages project on first use. The free plan is enough;
+its limit that matters here is 25 MiB per file, which the WASM bundle must stay
+under.
+
 ## macOS bundles & code signing
 
 Both desktop workflows build a **universal** macOS binary
@@ -248,3 +286,5 @@ This requires a paid Apple Developer account. Until those are set, the ad-hoc +
 - [`.github/workflows/release.yml`](.github/workflows/release.yml) — candidates and releases.
 - [`.github/workflows/dev-build.yml`](.github/workflows/dev-build.yml) — the Latest dev build.
 - [`scripts/release-commits.sh`](scripts/release-commits.sh) — the commit list for the nerds.
+- [`.github/workflows/pr-preview.yml`](.github/workflows/pr-preview.yml) and [`scripts/build-site.sh`](scripts/build-site.sh) — PR previews.
+- [`.github/workflows/deploy-docs.yml`](.github/workflows/deploy-docs.yml) — the web slicer and docs on GitHub Pages.
