@@ -157,10 +157,32 @@ pub fn changelog_entries() -> Vec<ChangelogEntry> {
 }
 
 /// The changelog entry for a specific version label (case-insensitive), if any.
+///
+/// A release candidate (`1.2.0-rc.1`) with no section of its own resolves to
+/// its base version's section, since an RC ships the notes of the release it
+/// is a candidate for.
 pub fn changelog_entry(version: &str) -> Option<ChangelogEntry> {
-    parse_changelog(CHANGELOG)
-        .into_iter()
-        .find(|e| e.version.eq_ignore_ascii_case(version))
+    find_entry(parse_changelog(CHANGELOG), version)
+}
+
+fn find_entry(entries: Vec<ChangelogEntry>, version: &str) -> Option<ChangelogEntry> {
+    let base = release_line(version);
+    let mut fallback = None;
+    for entry in entries {
+        if entry.version.eq_ignore_ascii_case(version) {
+            return Some(entry);
+        }
+        if fallback.is_none() && base != version && entry.version.eq_ignore_ascii_case(base) {
+            fallback = Some(entry);
+        }
+    }
+    fallback
+}
+
+/// The release a version belongs to: `1.2.0-rc.1` → `1.2.0`. Anything without
+/// a pre-release suffix is returned unchanged.
+fn release_line(version: &str) -> &str {
+    version.split_once('-').map_or(version, |(base, _)| base)
 }
 
 /// Small internal helper: turn an empty string into `None`.
@@ -260,6 +282,25 @@ preamble text ignored
         assert_eq!(entries.len(), 1);
         // Direct parse check; changelog_entry() reads the embedded file.
         assert!(entries[0].version.eq_ignore_ascii_case("1.0.0"));
+    }
+
+    #[test]
+    fn release_candidate_falls_back_to_its_release() {
+        let md = "## [Unreleased]\n\n- next\n\n## [1.2.0] - 2026-01-31\n\n- shipped\n";
+        let rc = find_entry(parse_changelog(md), "1.2.0-rc.2").unwrap();
+        assert_eq!(rc.version, "1.2.0");
+        assert!(find_entry(parse_changelog(md), "1.3.0-rc.1").is_none());
+
+        let own = "## [1.2.0-rc.1]\n\n- rc only\n\n## [1.2.0]\n\n- shipped\n";
+        let exact = find_entry(parse_changelog(own), "1.2.0-rc.1").unwrap();
+        assert_eq!(exact.version, "1.2.0-rc.1");
+    }
+
+    #[test]
+    fn release_line_strips_the_pre_release_suffix() {
+        assert_eq!(release_line("1.2.0-rc.1"), "1.2.0");
+        assert_eq!(release_line("1.2.0"), "1.2.0");
+        assert_eq!(release_line("Unreleased"), "Unreleased");
     }
 
     #[test]

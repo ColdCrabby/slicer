@@ -1,49 +1,61 @@
 ---
 name: release
-description: Cut a release locally — curate CHANGELOG.md, acknowledge contributors (spotlighting first-timers), tag, and push to trigger the GitHub Release. Use when the user says "release", "cut a release", "prepare a release", "ship a version", "write release notes", or "bump the version".
+description: Prepare and ship a release — freshen up the Unreleased changelog notes, acknowledge contributors (spotlighting first-timers), cut a release candidate for a final test sweep, then tag the real release. Use when the user says "release", "cut a release", "prepare a release", "release candidate", "RC", "ship it", "ship a version", "write release notes", or "bump the version".
 ---
 
-# Cut a Release
+# Prepare and Ship a Release
 
-Drive the whole local release flow for Slicer Engine: turn the commits since the
-last tag into curated, enthusiastic release notes, acknowledge every
-contributor (and give first-timers an extra spotlight), then tag and push so
-[`.github/workflows/release.yml`](../../../.github/workflows/release.yml) builds and
-publishes the GitHub Release.
+A release goes out in two passes, with a test sweep between them:
 
-**A git tag is the single source of truth.** You are producing two artifacts —
-a curated `CHANGELOG.md` section and a `vX.Y.Z` tag. Everything else (baked-in
-version, GitHub Release notes, the UI "What's New" dialog) is derived from those.
-See [RELEASING.md](../../../RELEASING.md) for the surrounding system.
+1. **Prepare** — turn the commits since the last release into short, enjoyable
+   notes, acknowledge every contributor, and tag a **release candidate**
+   (`vX.Y.Z-rc.N`). CI builds it exactly as the release will be built.
+2. **Ship** — once the candidate has been tested (and maybe got a tiny fix),
+   date the notes and tag **`vX.Y.Z`** on the tested commit.
+
+Between releases, every merge already publishes a **Latest dev build** on its
+own — nothing in this skill touches it.
+
+**A git tag is the single source of truth.** You produce a curated
+`CHANGELOG.md` section and two tags. Everything else — the baked-in version, the
+GitHub Release body, the in-app "What's New" — is derived from those. The full
+commit list is added to the GitHub Release automatically; never paste it into
+`CHANGELOG.md`. See [RELEASING.md](../../../RELEASING.md) for the whole system.
 
 ## Guardrails
 
-- **Never push or tag without explicit user confirmation.** Show the final notes
-  and the version, and wait for a "yes" before `git tag` / `git push`.
+- **Never push or tag without explicit user confirmation** — once for the
+  candidate, again for the release. Show the notes and the version, and wait
+  for a "yes" before each `git tag` / `git push`.
+- **Never skip the candidate.** Even a small release gets an `-rc.1` and a test
+  sweep; that is the point of the flow.
 - **Never invent changes.** Every bullet must trace to a real commit in the range.
 - **Never fabricate contributors.** Use only what the scripts report from git.
 - **Don't skip hooks or force anything.** No `--no-verify`, no `--force`.
 - If the working tree is dirty or the branch isn't the release branch, stop and
   ask before proceeding.
 
-## Procedure
+## Pass 1 — Prepare the release candidate
 
 ### 1. Preflight
 
 ```bash
-git rev-parse --abbrev-ref HEAD          # expect the release branch (usually main)
+git rev-parse --abbrev-ref HEAD          # expect main
 git status --short                        # expect clean
-git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo "(no prior tag)"
+git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude 'v*-*' 2>/dev/null || echo "(no prior release)"
+git tag --list 'v*-rc.*' --sort=-v:refname | head -3   # any candidate in flight?
 ```
 
-If the tree is dirty, ask the user to commit/stash first. Confirm the branch is
-the one they intend to release from.
+If the tree is dirty, ask the user to commit or stash first. If a candidate for
+the next version already exists, you are in **Pass 2** (or cutting `rc.N+1`) —
+skip ahead.
 
 ### 2. Gather the facts (never guess)
 
 ```bash
 scripts/gen-changelog-draft.sh           # categorised commit draft since last tag
 scripts/release-contributors.sh          # contributors + first-timers since last tag
+scripts/release-commits.sh               # the commit list GitHub will show
 ```
 
 Read the actual commits too when a subject is terse:
@@ -54,8 +66,8 @@ git log --no-merges --format='%h %s' <last-tag>..HEAD
 
 ### 3. Decide the version
 
-Infer a [SemVer](https://semver.org/) bump from the commits and **confirm with
-the user**:
+Infer a [SemVer](https://semver.org/) bump from the commits since the last
+**stable** tag and **confirm with the user**:
 
 | Signal in the range                          | Bump   |
 | -------------------------------------------- | ------ |
@@ -65,12 +77,29 @@ the user**:
 
 Recommend a version, state your reasoning in one line, and let the user override.
 
-### 4. Curate the CHANGELOG section — the voice matters
+### 4. Freshen up the notes — the voice matters
 
-Edit [`CHANGELOG.md`](../../../CHANGELOG.md). Rewrite the `## [Unreleased]`
-content into a polished, dated section. **Do not just paste the draft** — the
-draft is raw material; you are writing for humans (this exact text ships to
-users in the "What's New" dialog and becomes the GitHub Release body).
+Edit [`CHANGELOG.md`](../../../CHANGELOG.md). **Always rewrite the
+`## [Unreleased]` section — never promote it as it stands.** Entries are added
+one change at a time, by whoever landed it, and they read that way: too long,
+too technical, repetitive. Turn them into notes someone is glad to read — this
+exact text is the "What's New" dialog in the app and the GitHub Release body.
+
+Write for a person who prints things, not for a person who reads the code:
+
+- **Short.** A reader should get the whole release in under a minute. Merge
+  related entries, drop the ones nobody would notice, cut every sentence that
+  explains *how* instead of *what you get*.
+- **Enticing.** Lead with what they can do now. Make them want to update.
+- **Useful.** Say where to find it or what to press when that is not obvious.
+  One number is fine when it is the point ("fits a third more parts on a
+  plate"); a measurement from a debugging session is not.
+- **No technicalities.** No algorithm names unless users already know them
+  (Arachne, yes; Voronoi, no), no hash orders, no internal type or file names,
+  no pipeline stages. Those live in the module READMEs and the commit list.
+- **Keep the draft as raw material only.** `gen-changelog-draft.sh` and the
+  existing `Unreleased` entries tell you what happened; the notes you write say
+  why it matters.
 
 Structure each release section like this:
 
@@ -119,12 +148,14 @@ change here. Thank you, and welcome aboard.
   detail under Added/Changed/Fixed.
 - **Facts, not hype.** Enthusiasm rides on real capability. If a claim isn't
   backed by a commit, cut it.
-- **Condensed, not exhaustive.** Each entry is one to three tight lines — what it
-  does, its default, the one number worth quoting. Deep rationale (why an
-  algorithm works, measured bead deltas, pipeline ordering) belongs in
-  `AGENTS.md` and the module READMEs, **not** here. A user skims these notes; a
-  maintainer reads the code docs. If a bullet grows into a paragraph of
-  justification, you're writing the wrong document.
+- **Condensed, not exhaustive.** Each entry is one or two tight lines — what it
+  does for the reader, and where to find it if that isn't obvious. Deep
+  rationale (why an algorithm works, measured bead deltas, pipeline ordering)
+  belongs in `AGENTS.md` and the module READMEs, **not** here. If a bullet grows
+  into a paragraph of justification, you're writing the wrong document.
+- **The nerds are already covered.** Every commit since the last release is
+  appended to the GitHub Release in a folded list, automatically. That is what
+  frees these notes to leave the small stuff out — never paste it in by hand.
 - **Group a long category under `####` subheadings by theme.** One flat run of 25
   bullets is unscannable; a handful of themed groups (e.g. *Infill & surfaces*,
   *Multi-object build plates*, *Printer & firmware output*, *App, platform &
@@ -156,53 +187,97 @@ change here. Thank you, and welcome aboard.
   new — don't call every author a "first-timer" in that case; instead thank the
   founding contributors warmly.
 
-After rewriting the dated section, add a fresh empty `## [Unreleased]` heading
-above it so the next cycle has a home.
+Rename the rewritten section to `## [X.Y.Z] - <today>` and add a fresh empty
+`## [Unreleased]` heading above it so the next cycle has a home.
 
 ### 5. Review with the user
 
-Show the rendered section and the chosen version. Get explicit approval. Revise
-until they're happy. **Do not proceed to tagging without a clear yes.**
+Show the rendered section and the chosen version. Revise until they're happy.
+**Do not tag without a clear yes.**
 
-### 6. Commit, tag, push
+### 6. Commit and tag the candidate
 
-Use the repository's Conventional Commits style (see the `commit` skill for
-message conventions).
+The section is headed `## [X.Y.Z] - <today>` — the candidate has no heading of
+its own; it shows the `X.Y.Z` notes under a "release candidate" banner. Use the
+repository's Conventional Commits style.
 
 ```bash
 git add CHANGELOG.md
 git commit -m "docs: changelog for <version>"
+git tag "v<version>-rc.1"
+git push origin main "v<version>-rc.1"
+```
+
+Pushing the tag triggers the release workflow, which publishes a GitHub
+**pre-release** with every platform's build. Point the user at it, then hand
+over the test sweep: offer the [`test-changes`](../test-changes/SKILL.md)
+checklist for what the notes promise.
+
+## Between the passes — the test sweep
+
+The user installs the candidate and tries it. What comes back decides the next
+step:
+
+| Found | Do |
+| --- | --- |
+| Nothing | Pass 2. |
+| A tiny, obviously safe fix | Land it on `main` (its own PR, as usual), then Pass 2. |
+| Anything that needs testing again | Land the fix, then tag `v<version>-rc.2` and sweep again. |
+
+A user-visible fix gets a line in the `## [<version>]` section — not in
+`Unreleased`, which is already collecting the *next* release.
+
+## Pass 2 — Ship the release
+
+### 1. Check what you are about to tag
+
+```bash
+git log --oneline "v<version>-rc.<n>"..main
+```
+
+That range must be only the fixes from the sweep. If unrelated work has merged
+since the candidate, **do not tag `main`** — it would ship untested changes.
+Create `release/<major>.<minor>` from the candidate's tag, cherry-pick the fixes
+onto it, and do the steps below there. Ask the user when in doubt.
+
+### 2. Date the notes, confirm, tag
+
+Set the section's date to today if it has moved and make sure any sweep fix is
+in it. Show the final section once more and get a yes.
+
+```bash
+git add CHANGELOG.md
+git commit -m "docs: date the <version> release"   # only if something changed
 git tag "v<version>"
+git push origin <branch> "v<version>"
 ```
 
-Confirm once more, then:
+### 3. Verify
 
 ```bash
-git push origin <branch> --follow-tags
+scripts/extract-changelog.sh <version>   # exactly what the Release body starts with
 ```
 
-Pushing the tag triggers the release workflow. Point the user at the Actions run
-and the eventual Release page.
+Confirm it matches the curated section. On a clean checkout of the tag,
+`cargo run -- info` should report `<version>` on the `release` channel. Point
+the user at the Actions run and the Release page.
 
-### 7. Verify
+## Example — freshening up the notes
 
-```bash
-scripts/extract-changelog.sh <version>   # exactly what the Release body will be
+**Raw material** — an `Unreleased` entry as it was written when the fix landed,
+plus a line from `gen-changelog-draft.sh`:
+
+```markdown
+- **The same model now slices to the same G-code.** Simplifying a region before
+  Arachne's medial fill could leave two of its edges crossing, and the Voronoi
+  diagram of crossing edges is undefined — so two runs of one file could print
+  different walls there. Regions are now made clean again after simplifying, and
+  the surface trim no longer depends on hash order. Classic was never affected.
 ```
-
-Confirm it matches the curated section. If a clean checkout of the tag is
-available, `cargo run -- info` should report `<version>` on the `release`
-channel.
-
-## Example — turning raw material into notes
-
-**Raw draft (from `gen-changelog-draft.sh`):**
 
 ```
 ### Added
-- implement Arachne medial-axis wall generator
-- enhance Arachne wall generation with variable-width support and gap-fill parameters
-- add tools for analyzing extrusion width and detecting wall-zone gaps
+- add an object library: every model once, with a picture, on every platform
 ```
 
 **Contributors (from `release-contributors.sh`):**
@@ -212,31 +287,32 @@ CONTRIBUTORS: Max Scopp <me@maxscopp.de>, Jane Dev <jane@users.noreply.github.co
 NEW CONTRIBUTORS: Jane Dev <jane@users.noreply.github.com>
 ```
 
-**Curated section:**
+**Freshened section:**
 
 ```markdown
-## [0.2.0] - 2026-09-01
+## [0.6.0] - 2026-10-01
 
-Walls just got dramatically smarter. This release lands Arachne — a
-medial-axis wall generator that varies bead width to fill thin features
-classic uniform walls leave hollow.
+Every model you have ever printed, one click away. The new Library keeps each
+model once, with a picture, so the next plate starts from what you already have.
 
 ### Highlights
 
-- **Arachne variable-width walls** — the pipeline now grows beads that widen and
-  narrow to follow the model, closing the gaps thin geometry used to leave behind.
+- **Library** — open it beside the plate and pick a model to drop it straight
+  on. Renamed copies and re-exports are recognised as the same model.
 
-### Added
-- Variable-width wall generation with gap-fill parameters.
-- G-code analysis tools for extrusion width and wall-zone void detection.
+### Fixed
+- **Slicing is repeatable.** The same file now always gives the same G-code;
+  thin walls could come out slightly different from one slice to the next.
 
 ### Contributors
 
 Thanks to everyone who shipped this release: @max-scopp, @jane.
 
 And a warm welcome to @jane — this is their first contribution, straight into
-the heart of the wall generator. Fantastic start, and thank you.
+the new Library. Fantastic start, and thank you.
 ```
 
-Notice: one headline sentence, highlights lead with outcome, no emoji pile-up,
-and the new contributor gets a real, specific spotlight.
+Notice: the fix went from five lines of mechanism to one line of what the user
+gets; the headline says why to update; the new contributor gets a real, specific
+spotlight. The Voronoi detail isn't lost — it is in the commit, and the commit
+is in the folded list on the GitHub Release.

@@ -55,5 +55,5 @@ Claude auto-discovers these — no need to invoke them manually:
     most often broken. Fires on any `ui/src` work.
   - **`slicing-verification`** — before/after picture workflow and the
     G-code measurement tools, for geometry changes.
-  - **`release`** — curate the changelog, tag, push.
+  - **`release`** — freshen up the notes, cut a release candidate, then ship.
   - **`test-changes`** — stand up what's needed and write the hand-test checklist.

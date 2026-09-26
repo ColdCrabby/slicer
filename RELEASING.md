@@ -6,16 +6,38 @@ the published GitHub Release, and the attached artifacts — is derived from tha
 tag and from [CHANGELOG.md](CHANGELOG.md). There is no second place to bump a
 version by hand.
 
+## Three kinds of build
+
+| Build | Made by | Who it is for | Reports as |
+| --- | --- | --- | --- |
+| **Latest dev build** | every merge to `main` | anyone who wants the newest work today | `development` |
+| **Release candidate** | a `vX.Y.Z-rc.N` tag | the final test sweep before a release | `X.Y.Z-rc.N` |
+| **Release** | a `vX.Y.Z` tag | everyone | `X.Y.Z` |
+
+The dev build is always there and never needs a person. A release goes through
+a candidate first: the notes are finished, the candidate is built exactly as the
+release will be, someone tests it, and only then is the real tag cut.
+
+```mermaid
+flowchart LR
+  M[merge to main] --> D[Latest dev build]
+  M --> P[curate notes] --> RC[tag vX.Y.Z-rc.1]
+  RC --> T{test sweep}
+  T -- small fix --> F[fix on main] --> T
+  T -- good --> R[tag vX.Y.Z]
+```
+
 ## How versioning works
 
 The running version is computed at **build time** by [`build.rs`](build.rs),
 which probes git:
 
-| Build situation                                   | Reported version |
-| ------------------------------------------------- | ---------------- |
-| Clean checkout sitting exactly on a `vX.Y.Z` tag  | `X.Y.Z`          |
-| Any commit ahead of a tag, or a dirty working tree| `development`    |
-| No tags at all (fresh clone)                      | `development`    |
+| Build situation                                    | Reported version |
+| -------------------------------------------------- | ---------------- |
+| Clean checkout sitting exactly on a `vX.Y.Z` tag   | `X.Y.Z`          |
+| Clean checkout on a `vX.Y.Z-rc.N` tag              | `X.Y.Z-rc.N`     |
+| Any commit ahead of a tag, or a dirty working tree | `development`    |
+| No tags at all (fresh clone)                       | `development`    |
 
 That value is exposed to every target through
 [`src/version.rs`](src/version.rs) (`crate::version::VERSION`) and surfaced by:
@@ -27,7 +49,7 @@ That value is exposed to every target through
 
 Because the version is honest by construction, local development builds always
 read `development` instead of a stale, misleading number. Only a tagged, clean
-release ever reports a real semver.
+build ever reports a real semver.
 
 > The `version` field in `Cargo.toml` is the *next* target version the
 > maintainers are working towards. It is **not** what users see — that always
@@ -43,70 +65,101 @@ to the newly installed version — the first time a user runs an upgraded releas
 OS and cannot hold that much content, the prompt links to the settings section
 instead.
 
-We maintain it with a **hybrid** workflow: a script drafts the notes from git
-history, then a human (or the [`release` skill](.claude/skills/release/SKILL.md))
-curates them into enthusiastic, contributor-aware notes before tagging.
+It is written **for the person using the app**: what they can do now that they
+could not before, in a few short lines each. It is not a record of every commit.
+
+- **`## [Unreleased]` fills up as work lands**, one entry per user-visible
+  change. It is shown on the Latest dev build as "Coming in the next release".
+- **Before every release it is freshened up** — merged, trimmed and rewritten
+  into something enjoyable to read, biggest change first. The
+  [`release` skill](.claude/skills/release/SKILL.md) holds the voice.
+- **A release candidate uses its release's section.** `0.6.0-rc.1` has no
+  heading of its own; it shows the `## [0.6.0]` notes, in the app and on GitHub.
+- **The full commit list is for the nerds**, and lives only on the GitHub
+  Release, folded away under the curated notes —
+  [`scripts/release-commits.sh`](scripts/release-commits.sh) writes it from the
+  commits since the previous stable release. It never goes into `CHANGELOG.md`,
+  which ships inside the app.
 
 ## Cutting a release — the easy way
 
-Run the **`release` skill** (say "cut a release" to the agent). It automates this
-whole section: it gathers the commits and contributors since the last tag, curates
-the `CHANGELOG.md` section in the project's voice — leading with the biggest
-features and giving first-time contributors a real spotlight — then tags and pushes
-once you approve. The manual steps below are what that skill performs, and remain
-available if you prefer to do it by hand.
+Run the **`release` skill** (say "prepare a release" to the agent). It works in
+two passes, and stops for your go-ahead before every tag:
+
+1. **Prepare** — gathers the commits and contributors since the last release,
+   freshens up the notes, and cuts the release candidate.
+2. **Ship** — after your test sweep (and any tiny fix), dates the notes and
+   cuts the release itself.
+
+The manual steps below are what that skill performs.
 
 ## Cutting a release — step by step
 
-1. **Draft the notes from git history.**
+### 1. Prepare the notes
 
-   ```bash
-   scripts/gen-changelog-draft.sh          # since the last v* tag
-   scripts/gen-changelog-draft.sh v0.2.0   # or since an explicit tag
-   scripts/release-contributors.sh         # contributors + first-timers
-   ```
+```bash
+scripts/gen-changelog-draft.sh          # commits since the last v* tag, by category
+scripts/release-contributors.sh         # contributors + first-timers
+scripts/release-commits.sh              # the full list, as it will appear on GitHub
+```
 
-   The first script prints a categorised `## [Unreleased]` block (Added /
-   Changed / Fixed / Documentation / Other). The second lists everyone who
-   landed a change since the last tag and flags first-time contributors so they
-   can be acknowledged. Both write nothing — copy the output as a starting point.
+None of these write anything. Rewrite `## [Unreleased]` into the release's
+notes, rename it to the version with today's date, and open a fresh
+`Unreleased` above it:
 
-2. **Curate `CHANGELOG.md` by hand.** Fold the draft into the existing
-   `## [Unreleased]` section: drop noise, merge related entries, and write for
-   humans. Then promote it to a dated release heading and open a fresh
-   `Unreleased` section above it:
+```markdown
+## [Unreleased]
 
-   ```markdown
-   ## [Unreleased]
+## [0.6.0] - 2026-10-01
 
-   ## [0.2.0] - 2026-09-01
+One or two sentences on the biggest change.
+...
+```
 
-   ### Added
-   - ...
-   ```
+### 2. Cut the release candidate
 
-3. **Commit the changelog.**
+```bash
+git add CHANGELOG.md
+git commit -m "docs: changelog for 0.6.0"
+git tag v0.6.0-rc.1
+git push origin main v0.6.0-rc.1
+```
 
-   ```bash
-   git add CHANGELOG.md
-   git commit -m "docs: changelog for 0.2.0"
-   ```
+The candidate is published as a GitHub **pre-release** with every platform's
+build and the `0.6.0` notes under a "release candidate" banner.
 
-4. **Tag and push.** The tag must be `vX.Y.Z` (optionally with a
-   `-rc.1`-style suffix for pre-releases, which are published as GitHub
-   pre-releases).
+### 3. Test sweep
 
-   ```bash
-   git tag v0.2.0
-   git push origin main --tags
-   ```
+Install the candidate and try what the notes promise, on the platforms that
+matter — the [`test-changes` skill](.claude/skills/test-changes/SKILL.md)
+writes the checklist. Anything found is fixed on `main` like any other change;
+if the fix is user-visible, add a line to the `## [0.6.0]` section, not to
+`Unreleased`.
 
-That is the entire manual process. Pushing the tag triggers
+A fix that needs its own round of testing gets another candidate
+(`v0.6.0-rc.2`). A tiny, obviously safe one can go straight to the release.
+
+### 4. Ship
+
+Set the section's date to today if it has moved, commit, and tag **the commit
+you tested** (plus any tiny fix):
+
+```bash
+git tag v0.6.0
+git push origin main v0.6.0
+```
+
+If unrelated work has merged to `main` since the candidate, do not tag the tip
+of `main` — it would ship untested changes. Branch `release/0.6` from the
+candidate's tag, put the fix and the date there, and tag that branch.
+
+Pushing either kind of tag triggers
 [`.github/workflows/release.yml`](.github/workflows/release.yml), which:
 
-1. Extracts the `## [0.2.0]` section from `CHANGELOG.md`
-   (via [`scripts/extract-changelog.sh`](scripts/extract-changelog.sh)) and
-   **creates the GitHub Release** with those exact notes.
+1. Extracts the version's section from `CHANGELOG.md`
+   (via [`scripts/extract-changelog.sh`](scripts/extract-changelog.sh)), adds
+   the folded commit list, and **creates the GitHub Release** — a pre-release
+   for a candidate.
 2. Builds the **CLI/server binary** for Linux, macOS (x86-64 + arm64), and
    Windows, and attaches each as a `.tar.gz` / `.zip`.
 3. Builds the **Tauri desktop app** for each platform and attaches the
@@ -123,36 +176,34 @@ cargo run -- info
 
 # What are the embedded notes?
 cargo run -- changelog                 # full changelog
-cargo run -- changelog --version 0.2.0 # one section
+cargo run -- changelog --version 0.6.0 # one section (an -rc.N resolves to it too)
 cargo run -- changelog --json          # machine-readable
+
+# Exactly what the GitHub Release body will start with
+scripts/extract-changelog.sh 0.6.0-rc.1
 ```
 
-On a clean checkout of the tag, `cargo run -- info` should print `0.2.0` with
+On a clean checkout of the tag, `cargo run -- info` should print `0.6.0` with
 channel `release`; anywhere else it prints `development`.
 
-## Pre-releases
+## The Latest dev build
 
-Tag with a suffix — `v0.2.0-rc.1` — and the workflow marks the GitHub Release as
-a pre-release. Add a matching `## [0.2.0-rc.1]` section to `CHANGELOG.md` (or the
-notes fall back to auto-generated).
+[`.github/workflows/dev-build.yml`](.github/workflows/dev-build.yml) runs after
+every merge to `main` and replaces a single pre-release titled **Latest dev
+build** (tag `dev-build`) with fresh Windows and macOS desktop bundles.
 
-## Canary builds
-
-Stable releases are tag-driven and deliberate (above). For quick access to the
-bleeding edge, [`.github/workflows/canary.yml`](.github/workflows/canary.yml)
-fires on **every push to `main`** (i.e. every merge) and refreshes a single
-rolling **`canary`** GitHub **pre-release** with fresh Windows and macOS desktop
-bundles.
-
-- **Not a real release.** The version is a throwaway pre-release string
-  (`X.Y.Z-canary.<run>+<sha>`), so builds still report as unofficial and the UI
-  never nags a "What's New" dialog for them.
-- **No changelog needed.** The notes are just the commit range since the last
-  `v*` tag — no `CHANGELOG.md` curation is involved.
-- **Always the tip of `main`.** The rolling `canary` tag and its assets are
-  overwritten on each push, so the Releases tab always offers the latest build.
-
-To publish a *stable*, versioned release, follow the tag-driven flow above.
+- **Honest about what it is.** It reports `development`, so the app never shows
+  a What's New prompt for it, and its notes open by saying it is untested.
+- **Useful notes anyway.** The `Unreleased` changelog, as "Coming in the next
+  release", then the full commit list since the last release.
+- **Replaced in one step.** All platforms build first; only when every one
+  succeeded is the previous dev build swapped out — tag, notes and downloads
+  together. A failed build leaves the last good one in place.
+- **Always on top, always the same links.** The release is recreated each time,
+  so it heads the Releases page, and the downloads keep version-less names, e.g.
+  `…/releases/download/dev-build/Slicer-Engine-Desktop-macOS.dmg`.
+- **Never cancelled mid-build.** Merges that arrive during a build queue up and
+  collapse into one follow-up build of the newest commit.
 
 ## macOS bundles & code signing
 
@@ -168,7 +219,7 @@ quarantine flag to the downloaded bundle and Gatekeeper reports the app as
 xattr -cr "/Applications/Cold Crabby Desktop.app"
 ```
 
-The canary and release notes already spell this out for users.
+The dev build and release notes already spell this out for users.
 
 ### Shipping notarized builds
 
@@ -194,4 +245,6 @@ This requires a paid Apple Developer account. Until those are set, the ad-hoc +
 - [CHANGELOG.md](CHANGELOG.md) — the notes themselves.
 - [`build.rs`](build.rs) — version derivation from git.
 - [`src/version.rs`](src/version.rs) — the version/changelog API.
-- [`.github/workflows/release.yml`](.github/workflows/release.yml) — the pipeline.
+- [`.github/workflows/release.yml`](.github/workflows/release.yml) — candidates and releases.
+- [`.github/workflows/dev-build.yml`](.github/workflows/dev-build.yml) — the Latest dev build.
+- [`scripts/release-commits.sh`](scripts/release-commits.sh) — the commit list for the nerds.

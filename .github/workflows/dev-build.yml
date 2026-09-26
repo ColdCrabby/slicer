@@ -1,0 +1,279 @@
+name: Latest dev build
+
+# Every merge to main republishes one rolling pre-release, "Latest dev build",
+# with fresh Windows and macOS desktop bundles — the newest work, one click
+# away, for anyone who wants to try it before the next release.
+#
+# It is deliberately *not* a release: the binaries report their version as
+# "development" (so the app never shows a What's New prompt for them), and the
+# notes are the not-yet-released changelog plus the raw commit list. Versioned
+# releases and release candidates are tag-driven — see release.yml and
+# RELEASING.md.
+#
+# The build publishes all at once. Bundles are built first, and only when every
+# platform succeeded is the previous dev build replaced — tag, notes and
+# downloads together — so the page never shows a half-updated build, and a
+# failed build leaves the last good one in place.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One build at a time. A running build is never cancelled — cancelling on every
+# merge meant a busy day published nothing at all — but merges that queue up
+# behind it collapse into one: GitHub keeps only the newest pending run.
+concurrency:
+  group: dev-build
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  DEV_TAG: dev-build
+
+jobs:
+  # ── 1. Build the Tauri desktop app for Windows and macOS ───────────────────
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+          - os: windows-latest
+    runs-on: ${{ matrix.os }}
+    env:
+      # A dev build is honestly unversioned. Pinning this (rather than leaving
+      # it to build.rs) also covers a merge that lands exactly on a release
+      # tag, which would otherwise bake in that release's number.
+      SLICER_VERSION: development
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Add macOS universal build targets
+        if: runner.os == 'macOS'
+        run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # The desktop app is a *separate* Cargo workspace; cache both trees
+          # (and path-dep crates) so warm runs are minutes faster.
+          workspaces: |
+            . -> target
+            ui-desktop/src-tauri -> target
+          cache-all-crates: "true"
+          cache-on-failure: "true"
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      # Prebuilt binary — compiling wasm-bindgen-cli from source cost minutes.
+      - name: Install wasm-bindgen-cli
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@0.2.128
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Give the installer a version
+        shell: bash
+        run: |
+          # Installers need a real, increasing number even though the app says
+          # "development": the last stable release plus this run, as
+          # `X.Y.Z-<run>`. Windows MSI/WiX only accepts a numeric pre-release
+          # identifier and caps it at 65535.
+          base="$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude 'v*-*' 2>/dev/null || true)"
+          base="${base#v}"
+          if [[ -z "${base}" ]]; then
+            base="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
+          fi
+          bundle_version="${base}-$(( ${{ github.run_number }} % 65536 ))"
+          echo "Installer version: ${bundle_version}"
+          node -e "const f='ui-desktop/src-tauri/tauri.conf.json';const c=require('./'+f);c.version=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(c,null,2)+'\n');" "${bundle_version}"
+
+      - name: Generate WASM bindings and schemas
+        run: pnpm run hydrate
+
+      - name: Build desktop bundles
+        shell: bash
+        env:
+          # Ad-hoc sign by default so the .app carries a valid signature and
+          # launches (after de-quarantine) on Apple Silicon; switch to a real
+          # Developer ID + notarization automatically when these repo secrets
+          # are configured.
+          #
+          # GitHub Actions always injects `secrets.X` as an *empty string*
+          # env var when the secret doesn't exist (never unset). tauri-bundler
+          # checks these with Rust's `var_os`, which treats `Some("")` as
+          # "present" -- an empty APPLE_CERTIFICATE then makes it try to
+          # import a blank keychain certificate and fail with
+          # `SecKeychainItemImport: One or more parameters ... not valid`.
+          # So these must only be exported when actually non-empty (below),
+          # not assigned unconditionally here.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
+        run: |
+          # Only export the certificate/notarization secrets when they are
+          # actually configured -- see the note above the env: block.
+          if [[ -n "${{ secrets.APPLE_CERTIFICATE }}" ]]; then
+            export APPLE_CERTIFICATE="${{ secrets.APPLE_CERTIFICATE }}"
+            export APPLE_CERTIFICATE_PASSWORD="${{ secrets.APPLE_CERTIFICATE_PASSWORD }}"
+          fi
+          if [[ -n "${{ secrets.APPLE_ID }}" ]]; then
+            export APPLE_ID="${{ secrets.APPLE_ID }}"
+            export APPLE_PASSWORD="${{ secrets.APPLE_PASSWORD }}"
+            export APPLE_TEAM_ID="${{ secrets.APPLE_TEAM_ID }}"
+          fi
+
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            # One universal binary so the DMG runs on both Intel and Apple
+            # Silicon (macos-latest runners are arm64-only otherwise).
+            pnpm --filter slicer-ui-desktop exec tauri build --target universal-apple-darwin
+          else
+            pnpm --filter slicer-ui-desktop build
+          fi
+
+      - name: Verify the macOS bundle is validly ad-hoc signed
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          # Ad-hoc signing (not notarization) is what lets Apple Silicon run the
+          # app at all after the user clears quarantine. If Tauri's signing were
+          # incomplete the app would still be "damaged" even after `xattr -cr`,
+          # so fail loudly here rather than shipping an unlaunchable bundle.
+          # Note: `spctl` is intentionally NOT used — it always rejects an
+          # un-notarized app and would give a false failure.
+          app="ui-desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos/Cold Crabby Desktop.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dvv "$app" 2>&1 | sed -n '1,8p'
+
+      - name: Stage bundles under stable names
+        shell: bash
+        run: |
+          # macOS bundles land under the universal target triple; other OSes use
+          # the default target dir. macOS ships bash 3.2 (no globstar), so
+          # enumerate with find instead of a `**` glob.
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            bundle_dir="ui-desktop/src-tauri/target/universal-apple-darwin/release/bundle"
+          else
+            bundle_dir="ui-desktop/src-tauri/target/release/bundle"
+          fi
+          # Tauri puts the run-specific version in each filename. Version-less
+          # names keep a permanent download link, e.g.
+          #   .../releases/download/dev-build/Slicer-Engine-Desktop-macOS.dmg
+          stable_name() {
+            case "$1" in
+              *.dmg)        echo "Slicer-Engine-Desktop-macOS.dmg" ;;
+              *.app.tar.gz) echo "Slicer-Engine-Desktop-macOS.app.tar.gz" ;;
+              *.msi)        echo "Slicer-Engine-Desktop-Windows-x64.msi" ;;
+              *.exe)        echo "Slicer-Engine-Desktop-Windows-x64-setup.exe" ;;
+              *)            basename "$1" ;;
+            esac
+          }
+          mkdir -p staged
+          while IFS= read -r src; do
+            cp "$src" "staged/$(stable_name "$src")"
+          done < <(find "$bundle_dir" -type f \( \
+            -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.msi' -o -name '*.exe' \
+          \))
+          if [[ -z "$(ls -A staged)" ]]; then
+            echo "No desktop bundles found." >&2
+            exit 1
+          fi
+          ls -l staged
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bundles-${{ runner.os }}
+          path: staged/
+          if-no-files-found: error
+          retention-days: 3
+
+  # ── 2. Replace the previous dev build in one step ──────────────────────────
+  publish:
+    needs: desktop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: bundles-*
+          path: staged
+          merge-multiple: true
+
+      - name: Write the notes
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          sha="${GITHUB_SHA::7}"
+          last="$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude 'v*-*' 2>/dev/null || true)"
+          {
+            echo "**The newest work on \`main\`, built automatically after every merge.**"
+            echo "It is not a release: it has not been through a test sweep, and it"
+            echo "reports its version as \"development\". For something dependable, pick"
+            echo "the latest versioned release instead."
+            echo ""
+            echo "Built from \`${sha}\` on $(date -u +'%Y-%m-%d %H:%M') UTC."
+            if unreleased="$(bash scripts/extract-changelog.sh Unreleased 2>/dev/null)"; then
+              echo ""
+              echo "## Coming in the next release${last:+ (since ${last})}"
+              echo ""
+              echo "${unreleased}"
+            fi
+            # Unsigned macOS bundles are quarantined on download ("damaged");
+            # tell users how to launch them. Skipped once a Developer ID is set.
+            if [[ -z "${APPLE_SIGNING_IDENTITY}" ]]; then
+              echo ""
+              echo "---"
+              echo ""
+              echo "### 🍎 macOS"
+              echo ""
+              echo "This build is unsigned (no paid Apple Developer ID), so macOS Gatekeeper marks the downloaded app as \"damaged\" — **right-click → Open will not clear this**. After moving **Cold Crabby Desktop** to Applications, run this once in Terminal to strip the quarantine flag and launch it:"
+              echo ""
+              echo '```bash'
+              echo 'xattr -cr "/Applications/Cold Crabby Desktop.app"'
+              echo '```'
+            fi
+            commits="$(bash scripts/release-commits.sh HEAD)"
+            if [[ -n "${commits}" ]]; then
+              echo ""
+              echo "---"
+              echo ""
+              echo "${commits}"
+            fi
+          } > NOTES.md
+          cat NOTES.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Recreating (rather than editing) the release is what moves its tag
+          # to this commit — `gh release edit --target` leaves an existing tag
+          # where it was — and keeps the dev build at the top of the Releases
+          # page, which is sorted by creation date.
+          gh release delete "${DEV_TAG}" --cleanup-tag --yes 2>/dev/null || true
+          git push --delete origin "refs/tags/${DEV_TAG}" 2>/dev/null || true
+          gh release create "${DEV_TAG}" staged/* \
+            --target "${GITHUB_SHA}" \
+            --title "Latest dev build" \
+            --notes-file NOTES.md \
+            --prerelease \
+            --latest=false
+
+      - name: Retire the old canary release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The rolling "canary" pre-release this workflow replaced. Safe to
+          # delete this step once it has run.
+          gh release delete canary --cleanup-tag --yes 2>/dev/null || true

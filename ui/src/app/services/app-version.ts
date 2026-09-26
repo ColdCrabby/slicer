@@ -87,7 +87,7 @@ export class AppVersion {
     if (!info) {
       return null;
     }
-    return info.is_release ? info.version : UNRELEASED;
+    return info.is_release ? releaseLine(info.version) : UNRELEASED;
   });
 
   /**
@@ -201,7 +201,10 @@ export class AppVersion {
       return;
     }
 
-    if (lastSeen === info.version) {
+    // A release candidate carries the notes of its release, so moving from
+    // 1.2.0-rc.1 to rc.2 or to 1.2.0 itself has nothing new to show.
+    if (releaseLine(lastSeen) === releaseLine(info.version)) {
+      this.storage.write(LAST_SEEN_KEY, info.version);
       return;
     }
 
@@ -258,7 +261,7 @@ export class AppVersion {
       content: ChangelogList,
       contentInputs: {
         entries: this.changelog(),
-        currentVersion: version,
+        currentVersion: releaseLine(version),
       },
       preferredWidth: '680px',
     });
@@ -416,6 +419,14 @@ export class AppVersion {
       return null;
     }
   }
+}
+
+/**
+ * The changelog heading a version's notes live under: a release candidate
+ * (`1.2.0-rc.1`) ships the notes of the release it is a candidate for.
+ */
+function releaseLine(version: string): string {
+  return version.split('-')[0];
 }
 
 /** True when a changelog heading names a concrete release (not "Unreleased"). */
