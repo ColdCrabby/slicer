@@ -11,18 +11,19 @@ verbatim as the body of each GitHub Release. See [RELEASING.md](RELEASING.md) fo
 the workflow that keeps those in sync.
 
 <!--
-Maintainers: keep an `## [Unreleased]` section at the top. When cutting a release,
-rename it to `## [x.y.z] - YYYY-MM-DD` and add a fresh empty `## [Unreleased]`
-above it. The `release` skill (say "cut a release") automates this — it curates
-these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
-`scripts/release-contributors.sh` provide the raw material if you do it by hand.
+Maintainers: keep an `## [Unreleased]` section at the top and add a short entry
+there for every user-visible change. Before a release it is always freshened up
+— rewritten short, enticing and useful to someone printing, not a list of how
+things were done — then renamed to `## [x.y.z] - YYYY-MM-DD` with a fresh empty
+`## [Unreleased]` above it. A release candidate (`x.y.z-rc.N`) shows that
+section; it never gets one of its own. The `release` skill (say "prepare a
+release") runs the whole flow, and RELEASING.md describes it.
 
-Style: keep each entry to one to three tight lines (what it does, its default,
-the one number worth quoting) — deep rationale lives in AGENTS.md and the module
-READMEs, not here. Break a long category into `#### Theme` groups so it stays
-scannable, keep the bold **Feature name** lead on every bullet, and never put
-issue/PR numbers or repo links in the notes. See the tone rules in
-.claude/skills/release/SKILL.md for the full voice.
+Style: one or two tight lines per entry with a bold **Feature name** lead,
+biggest change first, `#### Theme` groups when a category runs long, and never
+issue/PR numbers or repo links. The full commit list is added to each GitHub
+Release automatically — never paste it here; this file ships inside the app.
+See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 -->
 
 ## [Unreleased]

@@ -1,9 +1,10 @@
 name: Release
 
-# Tagging `vX.Y.Z` is the single trigger for a release. This workflow turns the
-# tag into a published GitHub Release whose notes come straight from
-# CHANGELOG.md, then builds and attaches artifacts for every target. See
-# RELEASING.md for the full process.
+# Tagging `vX.Y.Z` is the single trigger for a release, and `vX.Y.Z-rc.N` for a
+# release candidate ahead of it. This workflow turns the tag into a published
+# GitHub Release whose notes come straight from CHANGELOG.md — plus the full
+# commit list, folded away — then builds and attaches artifacts for every
+# target. See RELEASING.md for the full process.
 on:
   push:
     tags:
@@ -44,10 +45,22 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
-          if bash scripts/extract-changelog.sh "${{ steps.meta.outputs.version }}" > RELEASE_NOTES.md; then
-            echo "Using CHANGELOG.md section for ${{ steps.meta.outputs.version }}"
+          version="${{ steps.meta.outputs.version }}"
+          : > RELEASE_NOTES.md
+          # A release candidate carries the notes of the release it is a
+          # candidate for (extract-changelog.sh falls back to that section),
+          # under a banner saying what it is for.
+          if [[ "${{ steps.meta.outputs.prerelease }}" == "true" ]]; then
+            {
+              echo "> **Release candidate for ${version%%-*}.** This is what we intend to ship —"
+              echo "> give it a try and report anything that looks wrong before the final release."
+              echo ""
+            } >> RELEASE_NOTES.md
+          fi
+          if bash scripts/extract-changelog.sh "${version}" >> RELEASE_NOTES.md; then
+            echo "Using CHANGELOG.md section for ${version}"
           else
-            echo "No CHANGELOG.md section found — falling back to auto-generated notes." | tee RELEASE_NOTES.md
+            echo "No CHANGELOG.md section found — falling back to auto-generated notes." | tee -a RELEASE_NOTES.md
           fi
           # Unsigned macOS bundles are quarantined on download ("damaged"); tell
           # users how to launch them. Skipped once a real Developer ID is set.
@@ -64,6 +77,12 @@ jobs:
               echo 'xattr -cr "/Applications/Cold Crabby Desktop.app"'
               echo '```'
             } >> RELEASE_NOTES.md
+          fi
+          # The curated notes tell the story; the full commit list is folded
+          # away underneath for anyone who wants every detail.
+          commits="$(bash scripts/release-commits.sh "${GITHUB_REF_NAME}")"
+          if [[ -n "${commits}" ]]; then
+            printf '\n---\n\n%s\n' "${commits}" >> RELEASE_NOTES.md
           fi
           cat RELEASE_NOTES.md
 
