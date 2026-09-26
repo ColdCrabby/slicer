@@ -15,12 +15,7 @@ import {
   type PrinterGcodeFlavor,
   type PrinterProfile,
 } from '../../models/printer.model';
-import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
-import { SETTING_CONTRACTS } from '../../models/setting-contract';
-import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
-import { controlFor } from '../../schema-form/models/field-control';
-import { parseSchema } from '../../schema-form/models/schema-parser';
-import type { FieldDef, SchemaGroup } from '../../schema-form/models/field-def';
+import type { FieldDef } from '../../schema-form/models/field-def';
 import {
   CUSTOM_TEMPLATE_ID,
   GCODE_PLACEHOLDER_HINT,
@@ -51,7 +46,6 @@ import { PrintersStore } from '../../services/profiles/printers-store';
 import { correctionsFor, withCorrections } from '../../services/profiles/material-corrections';
 import {
   Icon,
-  Badge,
   Button,
   EmptyState,
   FieldRow,
@@ -61,7 +55,6 @@ import {
   Segmented,
   Select,
   Switch,
-  InlineNotice,
 } from '@coldcrabby/ui';
 import type { FanConfig } from '../../../generated/slicer-engine-global-settings-v1';
 import { FanConfigsEditor } from '../../components/profiles/fan-configs-editor';
@@ -69,65 +62,18 @@ import { FieldShell } from '../../components/profiles/field-shell';
 import { ParamField } from '../../components/profiles/param-field';
 import { ColumnResizer } from '../../components/profiles/column-resizer';
 import { ProfileOutline } from '../../components/profiles/profile-outline';
+import { ProfileHead } from '../../components/profiles/profile-head';
+import { profileSaveState } from '../../components/profiles/profile-save-state';
+import {
+  CORRECTABLE_FIELDS,
+  FAN_TABLE_GROUP,
+  PRINTER_PARAM_GROUPS,
+} from '../../components/profiles/profile-param-groups';
 import { CodeEditor } from '../../components/code-editor/code-editor';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { configureTargetSelector, focusConfigureTarget } from './configure-scroll';
 import { LabelPickerPanel } from '../../components/labels/label-picker-panel';
-
-/**
- * The `SlicingParams` sub-schema extracted from the generated global-settings
- * schema, so the printer editor can render its slice-parameter groups
- * dynamically (the same schema the slice-page settings sidebar consumes). Any
- * new `SlicingParams` field appears automatically — no hand-maintained rows.
- */
-const SLICING_PARAMS_SCHEMA = {
-  ...(globalSettingsSchema.$defs.SlicingParams as Record<string, unknown>),
-  $defs: globalSettingsSchema.$defs as Record<string, unknown>,
-};
-
-/**
- * `x-group` names schema-driven in the printer editor, in display order.
- *
- * The Printer contract owns `['Hardware', 'Retraction', 'Output']`, but `Output`
- * is left out here: its `gcode_flavor` is already the bespoke "Firmware" control
- * and its `*_gcode` fields are multiline strings edited through the dedicated
- * G-code editor block — both need typed widgets `nexus-param-field` can't
- * provide. So the printer only schema-drives `Hardware` and `Retraction`.
- */
-const PRINTER_PARAM_GROUPS = SETTING_CONTRACTS.find((c) => c.id === 'printer')!.groups.filter(
-  (name) => name === 'Hardware' || name === 'Retraction',
-);
-
-/**
- * Params the printer editor does not offer.
- *
- * `resolve` writes both from the chosen printer profile on every slice, so a
- * box here would accept an edit and then quietly discard it. The machine's
- * vendor and model are shown with its name in the header instead, where they
- * read as what they are: a description of the printer, not a setting.
- */
-const DERIVED_PARAM_KEYS = new Set(['printer_vendor', 'printer_model']);
-
-/**
- * The slice-parameter groups rendered in the printer editor, in contract
- * display order. Parsed once from the schema (it never changes at runtime).
- *
- * `nexus-param-field` renders every control in the shared taxonomy except
- * `array` — fan curves and pause triggers have editors of their own — so that
- * and {@link DERIVED_PARAM_KEYS} are all that is filtered out. Groups left with
- * no renderable field are dropped entirely.
- */
-/**
- * The settings a machine may correct per material, in schema order.
- *
- * Read from the schema's `x-per-machine-material` annotations, so the engine's
- * `PER_MACHINE_MATERIAL_KEYS` stays the only list of them and a new one appears
- * here with no change.
- */
-const CORRECTABLE_FIELDS: FieldDef[] = parseSchema(SLICING_PARAMS_SCHEMA).fields.filter(
-  (field) => field.perMachineMaterial,
-);
 
 /**
  * The setting a brand-new material correction starts on.
@@ -140,58 +86,19 @@ const CORRECTABLE_FIELDS: FieldDef[] = parseSchema(SLICING_PARAMS_SCHEMA).fields
  */
 const FIRST_CORRECTION_KEY = 'max_volumetric_speed';
 
-/**
- * Heading of the entry row's own section.
- *
- * Named because every material's section is titled "<Material> corrections" and
- * this one would otherwise match the same suffix — jumping to the corrections
- * would land on the control that asked to jump.
- */
 /** How long an armed "Remove all" waits before disarming itself. */
 const REMOVE_CONFIRM_MS = 4000;
-
-/**
- * The group `fan_configs` declares, and so where its own editor is rendered.
- *
- * Read off the schema rather than written down, so the editor follows the field
- * if `x-group` moves again in `params.rs`. `null` when the field is gone, which
- * renders nothing rather than an orphan section.
- *
- * The fan table is the machine's, not the spool's: it names the physical fans a
- * printer has and the Klipper object each one is wired to. It lived on the
- * filament while `fan_configs` sat in `Cooling`, where editing it for one spool
- * replaced the machine's whole fan list — the filament layer resolves above the
- * printer's — and where the Klipper name field asked a roll of PLA what a fan on
- * your gantry is called.
- */
-const FAN_TABLE_GROUP: string | null =
-  parseSchema(SLICING_PARAMS_SCHEMA).groups.find((g) =>
-    g.fields.some((f) => f.key === 'fan_configs'),
-  )?.name ?? null;
-
-const PARAM_GROUPS: SchemaGroup[] = (() => {
-  const order = new Map<string, number>(PRINTER_PARAM_GROUPS.map((name, index) => [name, index]));
-  return parseSchema(SLICING_PARAMS_SCHEMA)
-    .groups.filter((g) => order.has(g.name))
-    .map((g) => ({
-      ...g,
-      fields: g.fields.filter((f) => !DERIVED_PARAM_KEYS.has(f.key) && controlFor(f) !== 'array'),
-    }))
-    .filter((g) => g.fields.length > 0)
-    .sort((a, b) => (order.get(a.name) ?? 0) - (order.get(b.name) ?? 0));
-})();
 
 @Component({
   selector: 'nexus-settings-printers',
   imports: [
     EmptyState,
-    InlineNotice,
     Button,
     IconButton,
     TooltipDirective,
     Icon,
-    Badge,
     RouterLink,
+    ProfileHead,
     ParamField,
     FanConfigsEditor,
     FieldShell,
@@ -222,7 +129,6 @@ export class PrintersSettings {
   private readonly printerConn = inject(PrinterConnectionService);
   private readonly route = inject(ActivatedRoute);
 
-  protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
   protected readonly flavorOptions = PRINTER_GCODE_FLAVORS;
   protected readonly gcodeTemplateOptions = GCODE_TEMPLATE_OPTIONS;
   protected readonly gcodePlaceholderHint = GCODE_PLACEHOLDER_HINT;
@@ -241,15 +147,6 @@ export class PrintersSettings {
   protected readonly search = signal('');
   protected readonly groupBy = signal<'category' | 'label' | 'none'>('category');
   protected readonly labelFilter = this.filterStore.selectedIds;
-
-  /**
-   * Inline two-step delete — the design language's default for a routine
-   * destructive action. This used to be a typed-name challenge, which is
-   * reserved for irreversible data loss; a profile is a handful of settings the
-   * user can recreate, and typing its name out to remove one was friction
-   * without a matching risk.
-   */
-  protected readonly deleteArmed = signal(false);
 
   /** Printers narrowed by the active label filter and the search query. */
   protected readonly filtered = computed(() => {
@@ -305,6 +202,9 @@ export class PrintersSettings {
     return id ? (this.store.getById(id) ?? null) : null;
   });
 
+  /** What the header says about the last edit to the printer on screen. */
+  protected readonly saveState = profileSaveState(this.store, this.selectedId);
+
   constructor() {
     // Arriving from a wizard's "Add & configure": open the new printer and
     // scroll to the sections the wizard doesn't cover. `focus=gcode` jumps
@@ -320,6 +220,12 @@ export class PrintersSettings {
     const openId = this.route.snapshot.queryParamMap.get('id');
     if (openId && this.store.getById(openId)) {
       this.select(openId);
+    }
+    // Arriving from the Settings search: land on the setting in whichever
+    // printer is open — the default one, unless the link named another.
+    const focus = this.route.snapshot.queryParamMap.get('focus');
+    if (focus && this.selected()) {
+      afterNextRender(() => focusConfigureTarget(configureTargetSelector(focus)));
     }
   }
 
@@ -359,7 +265,6 @@ export class PrintersSettings {
   /** Open a printer in the detail pane and refresh its live status. */
   protected select(id: string): void {
     this.selectedId.set(id);
-    this.disarmDelete();
     const printer = this.store.getById(id);
     if (printer && (printer.connection?.kind ?? 'none') !== 'none') {
       this.printerConn.check(printer);
@@ -397,6 +302,13 @@ export class PrintersSettings {
       });
     }
     items.push(this.labelSubmenu(printer));
+    if (this.store.canRestore(printer.id)) {
+      items.push({
+        label: 'Restore defaults',
+        icon: 'undo',
+        action: () => this.store.restoreBuiltin(printer.id),
+      });
+    }
     if (printer.source !== 'builtin') {
       items.push({ separator: true, label: '' });
       items.push({
@@ -441,31 +353,6 @@ export class PrintersSettings {
     };
   }
 
-  protected toggleDelete(): void {
-    if (this.deleteArmed()) {
-      this.disarmDelete();
-      return;
-    }
-    this.armDelete();
-  }
-
-  protected armDelete(): void {
-    this.deleteArmed.set(true);
-  }
-
-  protected disarmDelete(): void {
-    this.deleteArmed.set(false);
-  }
-
-  /** Delete the selected printer once its name has been typed to confirm. */
-  protected confirmDelete(): void {
-    const printer = this.selected();
-    if (!printer) {
-      return;
-    }
-    this.deletePrinterById(printer.id);
-  }
-
   protected readonly pnum = paramNum;
   protected readonly pstr = paramStr;
 
@@ -474,7 +361,7 @@ export class PrintersSettings {
    * Every field is always shown — the profile editor authors presets, so it
    * never hides gated-off fields (unlike the live slice sidebar).
    */
-  protected readonly paramGroups = PARAM_GROUPS;
+  protected readonly paramGroups = PRINTER_PARAM_GROUPS;
   protected readonly fanTableGroup = FAN_TABLE_GROUP;
 
   /** A printer's fan table, defaulting to empty so the editor can start one. */
@@ -693,11 +580,34 @@ export class PrintersSettings {
     this.removeArmed.set(null);
   }
 
-  protected rename(id: string, event: Event): void {
-    const name = (event.target as HTMLInputElement).value.trim();
-    if (name) {
-      this.store.update(id, { name });
-    }
+  protected renameTo(id: string, name: string): void {
+    this.store.update(id, { name });
+  }
+
+  /**
+   * The printer in one line: what it is, how big, and what it speaks — the
+   * facts a reader checks before trusting a slice to it.
+   */
+  protected summaryOf(printer: PrinterProfile): string {
+    const machine = [printer.vendor, printer.model].filter(Boolean).join(' ');
+    const volume =
+      printer.bed_shape === 'circular'
+        ? `⌀${printer.bed_width} × ${printer.bed_height} mm`
+        : `${printer.bed_width} × ${printer.bed_depth} × ${printer.bed_height} mm`;
+    return [
+      machine,
+      volume,
+      `${paramNum(printer.params, 'nozzle_diameter_mm')} mm nozzle`,
+      this.flavorLabel(printer),
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  }
+
+  /** The firmware by its name — "Klipper", not the stored `klipper`. */
+  protected flavorLabel(printer: PrinterProfile): string {
+    const flavor = paramStr(printer.params, 'gcode_flavor');
+    return this.flavorOptions.find((f) => f.value === flavor)?.label ?? flavor;
   }
 
   protected setBedShape(id: string, value: string): void {
@@ -843,9 +753,8 @@ export class PrintersSettings {
       });
   }
 
-  private deletePrinterById(id: string): void {
+  protected deletePrinterById(id: string): void {
     this.store.remove(id);
-    this.disarmDelete();
     if (this.selectedId() === id) {
       this.selectedId.set(this.store.items()[0]?.id ?? null);
     }

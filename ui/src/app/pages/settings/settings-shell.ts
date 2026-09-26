@@ -1,98 +1,99 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  effect,
-  inject,
-  signal,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { resolveRuntimeMode } from '../../runtime/domain/runtime-mode.util';
 import { NavigationProgress } from '../../services/navigation-progress';
-import { SAVE_DEBOUNCE_MS } from '../../services/profiles/engine-write-through';
-import { ProfileSync, type ProfileSyncStatus } from '../../services/profiles/profile-sync';
 import { Icon, TooltipDirective } from '@coldcrabby/ui';
 import { SettingsNav } from '../../services/settings-nav';
-
-interface SettingsSection {
-  path: string;
-  label: string;
-  icon: string;
-}
+import { ActiveSelection } from '../../services/profiles/active-selection';
+import { PrintersStore } from '../../services/profiles/printers-store';
+import { FilamentsStore } from '../../services/profiles/filaments-store';
+import { PrintProfilesStore } from '../../services/profiles/print-profiles-store';
+import { LabelsStore } from '../../services/profiles/labels-store';
+import { SETTINGS_GROUPS } from './settings-sections';
+import { SettingsSearchBox } from './settings-search-box';
+import { SettingsNavFooter } from './settings-nav-footer';
 
 /**
- * Where the profile library is persisted for the active runtime, used to
- * reassure the user (or warn them) about what survives clearing this browser.
+ * Settings area frame: a section sidebar on the left, routed content right.
  *
- * - `device` (native) — saved locally, next to the engine.
- * - `server` (cloud) — saved on the slicer server; safe if this browser is
- *   wiped.
- * - `browser` (web/wasm) — kept only in this browser; losable.
+ * The sidebar is built to be read at a glance, not just clicked through:
+ *
+ * - **Grouped.** App preferences, the profile library, and — apart at the foot —
+ *   the release notes and the resets. Nine flat rows gave no hint which were
+ *   about this device and which about the printers you own.
+ * - **Live.** Each library page shows how many you have, and the three that
+ *   slice show which one is the default — the answer to "what will this print
+ *   with?" without opening anything.
+ * - **Searchable.** One box finds a page, an app preference, one of your
+ *   profiles, or any slicing parameter the editors show, and lands on it.
+ *
+ * Its width and its fold are shared with the profile editors through
+ * {@link SettingsNav}: on a window the width of an iPad held sideways it folds
+ * to icons by itself while an editor needs the room for its outline.
  */
-type StorageMode = 'device' | 'server' | 'browser';
-
-/** Settings area frame: a section sub-nav on the left, routed content right. */
 @Component({
   selector: 'nexus-settings-shell',
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, Icon, TooltipDirective],
+  imports: [
+    RouterLink,
+    RouterLinkActive,
+    RouterOutlet,
+    Icon,
+    TooltipDirective,
+    SettingsSearchBox,
+    SettingsNavFooter,
+  ],
   templateUrl: './settings-shell.html',
   styleUrl: './settings-shell.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SettingsShell {
-  /**
-   * Folded to an icon rail or not. Public because the template drives the
-   * toggle from it, and shared because the profile editors' contents outline
-   * only appears once this rail has given the room back.
-   */
   protected readonly nav = inject(SettingsNav);
-  private readonly profileSync = inject(ProfileSync);
   private readonly navigation = inject(NavigationProgress);
+  private readonly active = inject(ActiveSelection);
+  private readonly printers = inject(PrintersStore);
+  private readonly filaments = inject(FilamentsStore);
+  private readonly processes = inject(PrintProfilesStore);
+  private readonly labels = inject(LabelsStore);
 
-  protected readonly sections: SettingsSection[] = [
-    { path: 'general', label: 'General', icon: 'control-slider' },
-    { path: 'appearance', label: 'Appearance', icon: 'palette' },
-    { path: 'printers', label: 'Printers', icon: 'printer' },
-    { path: 'filaments', label: 'Filaments', icon: 'droplet' },
-    { path: 'profiles', label: 'Processes', icon: 'reports' },
-    { path: 'labels', label: 'Labels', icon: 'label' },
-    { path: 'shortcuts', label: 'Shortcuts', icon: 'square-cursor' },
-    { path: 'changelog', label: "What's New", icon: 'sparks' },
-    { path: 'danger-zone', label: 'Danger Zone', icon: 'warning-triangle' },
-  ];
+  protected readonly groups = SETTINGS_GROUPS;
 
-  /** Aggregated profile-library sync status; `idle` renders nothing. */
-  protected readonly syncStatus = this.profileSync.status;
-
-  /**
-   * Whether to show the indicator. Delayed by the save debounce so a quick save
-   * (settled within the debounce window) never flashes it; hidden immediately
-   * once sync goes idle.
-   */
-  protected readonly syncVisible = signal(false);
-
-  /**
-   * The status the indicator displays. Held at the last active value while
-   * fading out so the label doesn't blank mid-animation.
-   */
-  private readonly shownStatus = signal<ProfileSyncStatus>('idle');
-
-  /** Short, non-alarming label for the shown sync status. */
-  protected readonly syncLabel = computed(() => {
-    switch (this.shownStatus()) {
-      case 'loading':
-        return 'Loading…';
-      case 'saving':
-        return 'Saving…';
-      case 'error':
-        return "Couldn't save";
+  /** How many of each thing the library holds, for the count beside its page. */
+  protected countFor(path: string): number | null {
+    switch (path) {
+      case 'printers':
+        return this.printers.count();
+      case 'filaments':
+        return this.filaments.count();
+      case 'profiles':
+        return this.processes.count();
+      case 'labels':
+        return this.labels.items().length;
       default:
-        return '';
+        return null;
     }
-  });
+  }
 
-  /** True when the shown status is an error, for the danger styling. */
-  protected readonly syncIsError = computed(() => this.shownStatus() === 'error');
+  /** The default for each page that slices, named under its label. */
+  protected summaryFor(path: string): string | null {
+    switch (path) {
+      case 'printers':
+        return this.active.printer()?.name ?? null;
+      case 'filaments':
+        return this.active.filament()?.name ?? null;
+      case 'profiles':
+        return this.active.profile()?.name ?? null;
+      default:
+        return null;
+    }
+  }
+
+  /** The fold button's words — which also explain a list that folded itself. */
+  protected readonly foldLabel = computed(() =>
+    !this.nav.collapsed()
+      ? 'Collapse section list'
+      : this.nav.foldedForRoom()
+        ? 'Expand section list (folded to make room for the outline)'
+        : 'Expand section list',
+  );
 
   /**
    * Whether this section is the one currently being loaded.
@@ -104,32 +105,4 @@ export class SettingsShell {
   protected isPending(path: string): boolean {
     return this.navigation.isPendingUnder(`/settings/${path}`);
   }
-
-  constructor() {
-    effect((onCleanup) => {
-      const status = this.syncStatus();
-      if (status === 'idle') {
-        this.syncVisible.set(false);
-        return;
-      }
-      this.shownStatus.set(status);
-      const timer = setTimeout(() => this.syncVisible.set(true), SAVE_DEBOUNCE_MS);
-      onCleanup(() => clearTimeout(timer));
-    });
-  }
-
-  /**
-   * Where the profile library is persisted for the active runtime. Drives the
-   * sidebar storage notice.
-   */
-  protected readonly storageMode: StorageMode = ((): StorageMode => {
-    switch (resolveRuntimeMode()) {
-      case 'native':
-        return 'device';
-      case 'cloud':
-        return 'server';
-      default:
-        return 'browser';
-    }
-  })();
 }

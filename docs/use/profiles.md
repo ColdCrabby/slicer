@@ -85,8 +85,8 @@ Choosing the material sets the nozzle and bed temperatures and how hard the part
 fan runs, and everything else lives in the filament's own settings, where it is
 grouped and searchable.
 
-The colour is used in the model view if you turn on **Settings → General → Use
-filament color for models** — handy when you have several spools and want to see
+The colour is used in the model view if you turn on **Settings → 3D View →
+Colour models by filament** — handy when you have several spools and want to see
 which is which.
 
 ### Fan curves
@@ -104,7 +104,7 @@ Klipper you can also give a row the object's own name from `printer.cfg`
 
 ## Adding a print profile
 
-**Settings → Print Profiles → Add profile.** Pick a tuned preset or start from
+**Settings → Processes → Add profile.** Pick a tuned preset or start from
 scratch, then name it and set a layer height. Walls, infill, speeds and supports
 are all in the profile's own settings afterwards — the same page that holds
 every other process parameter, grouped and searchable, rather than a shorter
@@ -256,9 +256,24 @@ All three lists behave the same:
 - **Filter by label**.
 - **Star** one as the default — that's what a new plate starts with.
 - **Right-click** (or long-press on touch) a card for **Labels**, **Duplicate**, **Edit**,
-  **Make default**, **Delete**.
+  **Make default**, **Delete** — or **Restore defaults** on a built-in.
 
-Duplicating and editing beats starting from scratch. Deleting asks first.
+Duplicating and editing beats starting from scratch. Deleting asks first: the
+trash button turns red and reads *Delete?*, and a second press deletes.
+
+The top of the editor is the profile itself: its **name**, which you rename by
+clicking it and typing, a one-line summary of what it is, and **Set default**,
+**Duplicate** and **Delete** beside it. A small *Saved* appears after each
+change — edits save as you make them; there is no Save button to forget.
+
+### Built-ins are yours to edit
+
+The printers, filaments and processes that ship with the app are starting
+points, not locked templates. Change anything — the name included — and it
+saves like any other edit. They cannot be deleted, because every fallback
+resolves to one, so the editor offers **Restore defaults** instead: it puts the
+shipped values back (your labels stay). Duplicate one first only if you want to
+keep the original alongside your version.
 
 Editing a profile reaches every plate that uses it, including plates you sliced
 weeks ago — that is the point of a profile. The exception is a setting you
@@ -276,8 +291,15 @@ The **outline** down the right-hand side is the map. Every section starts
 folded, so the whole editor fits on screen as a dozen lines. Click one to
 open it; that only opens it, and never moves the editor — it is the settings
 listed underneath that take you somewhere. **Expand all** at the top does the
-lot. The section you
-are currently scrolled to is highlighted, so you never lose your place.
+lot.
+
+A line runs down its left edge through a dot for each section, stepping in
+under an open section's settings and back out below them. The bright stretch of
+that line is exactly what the editor is showing: it slides as you scroll, grows
+when more fits on screen, and the dots it covers fill in. The section you are
+scrolled to is named in the accent colour, and when the outline is longer than
+the window it scrolls itself to keep the bright stretch in view — until you
+scroll the outline yourself.
 
 Above it, **Filter settings** narrows the outline as you type, and `Ctrl`/`Cmd`
 + `F` puts the cursor there from anywhere on the page. Matches stay grouped
@@ -291,9 +313,11 @@ closed section would be no answer, so every match is listed whatever state its
 section was in.
 
 **It appears when there is room for it**, and steps aside when there is not —
-the editor always gets enough width to lay a setting out on one line first. If
-you want it on a narrower window, collapsing the section list on the far left to
-icons (the button beside the word *Settings*) frees about as much as it needs.
+the editor always gets enough width to lay a setting out on one line first. On a
+window that is only just too narrow — an iPad held sideways, or a laptop with a
+wide list column — the Settings section list folds itself to icons to make the
+room, and opens again when you leave the editor. Press the button beside the
+word *Settings* to choose for yourself; the app remembers and stops deciding.
 
 The list column itself is draggable: pull the edge between the list and the
 editor to give long profile names the width they need. It stays where you put
@@ -320,11 +344,11 @@ This depends on how you run Cold Crabby, and it matters.
 | **Desktop app** | On the machine, next to the engine | Safe |
 | **Self-hosted** | On the server, synced to every browser | Safe |
 
-The Settings sidebar tells you which of these applies to your session, in as
-many words.
+The foot of the Settings sidebar says which of these applies to your session,
+and **Settings → General → Your library** says it in full.
 
 ::: tip Back them up
-**Settings → General → Backup & Export → Profile library** downloads everything
+**Settings → General → Your library → Export profile library** downloads everything
 — printers, filaments, print profiles, labels — as TOML. Two shapes:
 
 - a **bundle**, one file per profile plus a manifest and README

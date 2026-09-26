@@ -10,7 +10,7 @@ import {
   viewChild,
 } from '@angular/core';
 import type { ComponentRef, OutputRef } from '@angular/core';
-import { Icon } from '@coldcrabby/ui';
+import { Icon } from '../../ui/shell-primitives';
 import type { ContextMenuItem } from './context-menu.model';
 
 /**

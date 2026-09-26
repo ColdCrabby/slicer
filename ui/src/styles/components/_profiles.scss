@@ -149,11 +149,19 @@
   background: inherit;
 }
 
-// Brief accent ring when a wizard's "Add & configure" drops the user here, so
-// the section the wizard skipped is easy to spot after the scroll settles.
-.profile-editor__group.is-configure-flash {
+// Brief accent ring wherever a hand-off drops the user — a wizard's "Add &
+// configure", a field notice's link, an outline jump, a Settings search result
+// — so what they were sent to is easy to spot once the scroll settles among
+// rows that all look alike.
+.is-configure-flash {
   border-radius: var(--radius-md);
   animation: configure-flash 1.6s var(--ease-standard);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-configure-flash {
+    animation-duration: 0.01ms;
+  }
 }
 
 @keyframes configure-flash {

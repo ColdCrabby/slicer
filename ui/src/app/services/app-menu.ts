@@ -61,7 +61,7 @@ export class AppMenu {
         void import('@tauri-apps/plugin-shell').then(({ open }) => open(DOCS_URL));
         return;
       case 'help-shortcuts':
-        void this.#router.navigate(['/settings/shortcuts']);
+        void this.#router.navigate(['/settings/controls'], { fragment: 'pref-shortcuts' });
         return;
     }
   }

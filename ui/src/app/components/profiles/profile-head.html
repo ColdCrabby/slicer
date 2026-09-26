@@ -1,0 +1,100 @@
+<header class="profile-head">
+  <div class="profile-head__main">
+    <div class="profile-head__title">
+      <!-- A leading control the page may add — the filament's colour. -->
+      <ng-content select="[profileHeadLead]" />
+      <label class="profile-head__name-field">
+        <span class="visually-hidden">{{ noun() }} name</span>
+        <input
+          class="profile-head__name"
+          type="text"
+          spellcheck="false"
+          autocomplete="off"
+          [value]="name()"
+          (change)="commitName($event)"
+          (keydown.enter)="finishName($event)"
+          (keydown.escape)="cancelName($event)"
+        />
+        <nexus-icon class="profile-head__name-pencil" name="edit-pencil" aria-hidden="true" />
+      </label>
+    </div>
+
+    @if (summary()) {
+      <p class="profile-head__summary">{{ summary() }}</p>
+    }
+
+    <p class="profile-head__status" role="status" aria-live="polite">
+      @if (isBuiltin()) {
+        <span class="profile-head__provenance">
+          <nexus-icon name="edit-pencil" aria-hidden="true" />
+          <span>Built-in — edit anything here; it saves as you go.</span>
+        </span>
+        @if (canRestore()) {
+          <button
+            type="button"
+            class="profile-head__link"
+            [class.is-armed]="restoreArmed()"
+            (click)="pressRestore()"
+            (blur)="disarm()"
+          >
+            {{ restoreArmed() ? 'Restore shipped values?' : 'Restore defaults' }}
+          </button>
+        }
+      }
+      @switch (saveState()) {
+        @case ('saving') {
+          <span class="profile-head__save">Saving…</span>
+        }
+        @case ('saved') {
+          <span class="profile-head__save is-saved">
+            <nexus-icon name="check" aria-hidden="true" />
+            Saved
+          </span>
+        }
+        @case ('error') {
+          <span class="profile-head__save is-error">Couldn't save</span>
+        }
+      }
+    </p>
+  </div>
+
+  <div class="profile-head__actions">
+    <button
+      type="button"
+      class="profile-head__default"
+      [class.is-default]="isDefault()"
+      [disabled]="isDefault()"
+      [attr.aria-pressed]="isDefault()"
+      (click)="makeDefault.emit()"
+    >
+      <nexus-icon [name]="isDefault() ? 'check' : 'star'" aria-hidden="true" />
+      {{ isDefault() ? 'Default' : 'Set default' }}
+    </button>
+    <button
+      nexusIconButton
+      type="button"
+      [attr.aria-label]="'Duplicate ' + noun()"
+      [tooltip]="'Duplicate ' + noun()"
+      (click)="duplicate.emit()"
+    >
+      <nexus-icon name="copy" />
+    </button>
+    <!-- A built-in cannot be deleted — it is what every fallback resolves to —
+         so it offers Restore instead, beside its provenance. -->
+    @if (!isBuiltin()) {
+      <button
+        type="button"
+        class="profile-head__delete"
+        [class.is-armed]="deleteArmed()"
+        [attr.aria-label]="deleteArmed() ? 'Confirm delete' : 'Delete ' + noun()"
+        (click)="pressDelete()"
+        (blur)="disarm()"
+      >
+        <nexus-icon name="trash" aria-hidden="true" />
+        @if (deleteArmed()) {
+          <span>Delete?</span>
+        }
+      </button>
+    }
+  </div>
+</header>

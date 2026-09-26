@@ -1,0 +1,125 @@
+@use 'breakpoints' as *;
+
+:host {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+// Where the library lives, in one line that links to the sentence behind it.
+.storage {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+  --icon-size: 14px;
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-secondary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+
+  // Kept only in this browser — worth a second look, not an alarm.
+  &[data-mode='browser'] .storage-icon {
+    color: var(--color-warning);
+  }
+}
+
+.storage-icon {
+  flex: none;
+  color: var(--accent);
+}
+
+.sync {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin: 0;
+  padding: 0 var(--spacing-md);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  user-select: none;
+  -webkit-user-select: none;
+
+  &.is-error {
+    color: var(--color-danger);
+  }
+}
+
+.sync-enter {
+  animation: sync-in var(--duration-normal) var(--ease-standard) both;
+}
+
+.sync-leave {
+  animation: sync-out var(--duration-normal) var(--ease-standard) forwards;
+}
+
+.sync-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: sync-pulse 1.4s ease-in-out infinite;
+
+  .sync.is-error & {
+    background: var(--color-danger);
+    animation: none;
+  }
+}
+
+@keyframes sync-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes sync-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sync-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
+// On a phone the sidebar is a chip strip: the storage line is a footnote it has
+// no room for, and "Saving…" sits flush at the strip's trailing edge.
+@include handheld {
+  .storage {
+    display: none;
+  }
+
+  .sync {
+    padding: 0;
+  }
+}
