@@ -1,5 +1,6 @@
 import { inject, Injectable, signal } from '@angular/core';
 import type { ViewerMode } from '../components/viewer';
+import { isApplePlatform } from '../runtime/domain/runtime-mode.util';
 import { BrowserStorage } from './browser-storage';
 
 /**
@@ -209,6 +210,25 @@ export function resolveGcodeStepButtons(mode: GcodeStepButtons, coarsePointer: b
     return false;
   }
   return coarsePointer;
+}
+
+const APPLE = isApplePlatform();
+
+/**
+ * Whether a click toggles its object in or out of the selection instead of
+ * replacing it: ⌘ on Apple platforms, Ctrl elsewhere.
+ *
+ * Never Ctrl on a Mac or an iPad, because there ⌃-click *is* the right click —
+ * treating it as "add to selection" as well made the one gesture do two things.
+ * The scene and the objects list both ask here, so the two cannot disagree.
+ */
+export function isToggleClick(event: { metaKey: boolean; ctrlKey: boolean }): boolean {
+  return APPLE ? event.metaKey : event.ctrlKey;
+}
+
+/** ⌃-click on an Apple platform: the system's secondary click, i.e. a context menu. */
+export function isSecondaryClick(event: { ctrlKey: boolean; button: number }): boolean {
+  return APPLE && event.button === 0 && event.ctrlKey;
 }
 
 const TWO_FINGER_GESTURE_KEY = 'nexus.viewer.trackpadTwoFingerGesture';
@@ -482,6 +502,18 @@ export class ViewerControl {
    * drags it. Bypasses signal/effect overhead.
    */
   orbitSink: ((azimuth: number, polar: number) => void) | null = null;
+
+  /**
+   * Zoom the camera to these objects, or to the whole plate when `ids` is
+   * empty. Set by the viewer; called by the keyboard shortcut, the objects list
+   * and the context menus, so "zoom to" is one camera move wherever it starts.
+   */
+  frameSink: ((ids: readonly bigint[]) => void) | null = null;
+
+  /** See {@link frameSink}. A no-op while no viewer is mounted. */
+  frameObjects(ids: readonly bigint[]): void {
+    this.frameSink?.(ids);
+  }
 
   /**
    * Last pointer position over the 3D canvas, in client pixels, or `null` when

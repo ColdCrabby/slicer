@@ -14,8 +14,9 @@ import { SceneCommand } from '../scene-command/scene-command';
 import { SceneHistory } from '../scene-history/scene-history';
 import { SceneEngine, type SceneObjectSnapshot } from '../scene-engine';
 import { SlicerFile } from '../slicer-file';
+import { ViewerControl } from '../viewer-control';
 import { WasmPerformanceNotice } from '../wasm-performance-notice';
-import { clearOffsetX, footprintOf } from './placement';
+import { centreXY, clearOffsetX, footprintOf, unionAabb } from './placement';
 
 export type { ModelFormat };
 
@@ -58,6 +59,7 @@ export class WorkplateObjects {
   private readonly wasmPerfNotice = inject(WasmPerformanceNotice);
   private readonly modelSources = inject(ModelSourceRegistry);
   private readonly notifications = inject(NotificationService);
+  private readonly viewerControl = inject(ViewerControl);
 
   constructor() {
     inject(SceneHistory).setReviver((object) => this.revive(object));
@@ -215,6 +217,9 @@ export class WorkplateObjects {
         added.length === 1 ? 'Model added' : `${added.length} models added`,
         added.map((r) => r.file.name).join(', '),
       );
+      // What was just added is what the user is about to move or turn, so it
+      // arrives selected — no hunting for it on the plate first.
+      this.viewerControl.selectedObjectIds.set(added.flatMap((r) => r.objectIds ?? []));
       for (const failure of failed) {
         this.notifications.error(`Could not add ${failure.file.name}`, failure.error);
       }
@@ -343,6 +348,89 @@ export class WorkplateObjects {
       op: 'Duplicate',
       args: { id, offset: [width + this.arrange.spacingMm(), 0, 0] },
     });
+  }
+
+  /**
+   * Duplicate several objects as one group and return the copies' ids.
+   *
+   * The whole group moves over by its combined width, so copying a row of parts
+   * lays a second row beside it. Offsetting each copy by its own width instead
+   * dropped the copies of a batch on top of each other's neighbours.
+   */
+  duplicateAll(ids: readonly bigint[]): bigint[] {
+    const sources = this.objects().filter((o) => ids.includes(o.id));
+    if (sources.length === 0) {
+      return [];
+    }
+    const [width] = footprintOf(unionAabb(sources));
+    const offset: [number, number, number] = [width + this.arrange.spacingMm(), 0, 0];
+    const before = new Set(this.objects().map((o) => o.id));
+    for (const source of sources) {
+      this.sceneCommand.apply({ op: 'Duplicate', args: { id: source.id, offset } });
+    }
+    this.sceneCommand.flush();
+    return this.objects()
+      .map((o) => o.id)
+      .filter((id) => !before.has(id));
+  }
+
+  /**
+   * Centre objects on the bed as a group, keeping their layout.
+   *
+   * `CenterOnBed` centres one object, so sending it to each member of a batch
+   * stacked them all on the same spot. The bed centre is not computed here —
+   * the engine owns it — so the first member is centred by the engine and the
+   * point it lands on is read back as the target for the rest.
+   */
+  centerOnBed(ids: readonly bigint[]): void {
+    const members = this.objects().filter((o) => ids.includes(o.id));
+    if (members.length === 0) {
+      return;
+    }
+    const groupCentre = centreXY(unionAabb(members));
+    const [first] = members;
+    const firstBefore = centreXY(first.world_aabb);
+    this.sceneCommand.apply({ op: 'CenterOnBed', args: { id: first.id } });
+    const landed = this.objects().find((o) => o.id === first.id);
+    if (members.length > 1 && landed) {
+      const bedCentre = centreXY(landed.world_aabb);
+      const shift: [number, number] = [
+        bedCentre[0] - groupCentre[0],
+        bedCentre[1] - groupCentre[1],
+      ];
+      // The first member already travelled to the bed centre; pull it back by
+      // its offset from the group centre so it keeps its place in the layout.
+      this.sceneCommand.apply({
+        op: 'Translate',
+        args: {
+          id: first.id,
+          delta: [firstBefore[0] - groupCentre[0], firstBefore[1] - groupCentre[1], 0],
+        },
+      });
+      for (const member of members.slice(1)) {
+        this.sceneCommand.apply({
+          op: 'Translate',
+          args: { id: member.id, delta: [shift[0], shift[1], 0] },
+        });
+      }
+    }
+    this.sceneCommand.flush();
+  }
+
+  /** Rest each object's lowest point on the bed, as one undo step. */
+  dropToFloor(ids: readonly bigint[]): void {
+    for (const id of ids) {
+      this.sceneCommand.apply({ op: 'DropToFloor', args: { id } });
+    }
+    this.sceneCommand.flush();
+  }
+
+  /** Remove several objects as one undo step. */
+  removeAll(ids: readonly bigint[]): void {
+    for (const id of [...ids]) {
+      this.remove(id);
+    }
+    this.sceneCommand.flush();
   }
 
   /** Remove an object from the plate. */

@@ -125,6 +125,15 @@
                 [wheelHover]="true"
                 (valueChange)="setRotation(axis, $event)"
               />
+              <button
+                type="button"
+                class="tp-action tp-turn"
+                [tooltip]="'Quarter turn about ' + axisLabels[axis]"
+                [attr.aria-label]="'Turn 90° about ' + axisLabels[axis]"
+                (click)="quarterTurn(axis)"
+              >
+                90°
+              </button>
             </div>
           }
         }

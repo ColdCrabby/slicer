@@ -1,4 +1,5 @@
 import {
+  Box3,
   BufferGeometry,
   Color,
   Float32BufferAttribute,
@@ -15,6 +16,8 @@ import {
   type WebGLRenderer,
 } from 'three';
 import {
+  isSecondaryClick,
+  isToggleClick,
   PAINT_RADIUS_MAX_MM,
   PAINT_RADIUS_MIN_MM,
   type ObjectMode,
@@ -61,6 +64,35 @@ const SELECTION_EMISSIVE_INTENSITY = 0.55;
 /** Bed normal. Objects sit on Z=0, so a direct drag slides in world XY. */
 const DRAG_PLANE_NORMAL = new Vector3(0, 0, 1);
 
+/**
+ * `PointerEvent.button` for a pen's eraser end (Surface Pen, Wacom). Flipping
+ * the pen over to erase is what the hand already knows from every drawing app.
+ */
+const PEN_ERASER_BUTTON = 5;
+
+/**
+ * Upper bound on vertices projected per object while a box selection is being
+ * dragged. A dense scan runs to millions; a strided sample this size finds any
+ * part the box really touches, and keeps a live box at frame rate.
+ */
+const BOX_SELECT_MAX_SAMPLES = 4000;
+
+/** Whether a box selection adds what it touches, or takes it away. */
+type BoxSelectMode = 'add' | 'subtract';
+
+/** A live box selection, in canvas-relative CSS pixels. */
+interface BoxSelectState {
+  mode: BoxSelectMode;
+  /** The selection when the box started — what it adds to or subtracts from. */
+  base: ReadonlySet<string>;
+  element: HTMLDivElement;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  raf: number;
+}
+
 /** A live direct-drag of the selection across the bed. */
 interface SelectionDragState {
   /** World point under the pointer on the drag plane, at the last move. */
@@ -77,6 +109,14 @@ interface SelectionPressState {
   /** Object under the press, or `null` when it landed on empty space. */
   hitId: string | null;
   additive: boolean;
+  /**
+   * Set when a drag from here should draw a selection box rather than orbit —
+   * Shift (add) or ⌥/Alt (subtract) with a mouse, or a pencil in multi-select
+   * mode. `null` for an ordinary press.
+   */
+  boxSelect: BoxSelectMode | null;
+  /** A pen pressed with its eraser end: paint strokes erase. */
+  eraser: boolean;
   /** Set once the press drifts past {@link slopPx}: no longer a tap. */
   moved: boolean;
   /** A long-press already acted on this press, so the lift must not. */
@@ -85,6 +125,7 @@ interface SelectionPressState {
   /** The event that opened the press, replayed as the context-menu anchor. */
   downEvent: PointerEvent;
   drag: SelectionDragState | null;
+  box: BoxSelectState | null;
 }
 
 /**
@@ -114,13 +155,6 @@ export class SceneSelection {
    * a multi-object selection could only be built from the objects list.
    */
   private additiveSelection = false;
-
-  /**
-   * Whether dragging an already-selected object slides the selection across the
-   * bed. Enabled for touch and pen, where the gizmo's thin arrows are a poor
-   * target for a fingertip; a mouse keeps drag-to-orbit and uses the gizmo.
-   */
-  private directDragEnabled = false;
 
   /** Plane the direct drag slides along — horizontal, through the selection. */
   private readonly dragPlane = new Plane(new Vector3(0, 0, 1), 0);
@@ -198,6 +232,7 @@ export class SceneSelection {
     // before OrbitControls sees it, and that needs `preventDefault`.
     el.addEventListener('wheel', this.onWheel, { capture: true, passive: false });
     el.addEventListener('contextmenu', this.onContextMenu);
+    el.addEventListener('dblclick', this.onDoubleClick);
   }
 
   uninstall(): void {
@@ -209,6 +244,7 @@ export class SceneSelection {
     el.removeEventListener('pointerleave', this.onPointerLeave);
     el.removeEventListener('wheel', this.onWheel, { capture: true });
     el.removeEventListener('contextmenu', this.onContextMenu);
+    el.removeEventListener('dblclick', this.onDoubleClick);
   }
 
   /** See {@link additiveSelection}. */
@@ -216,14 +252,14 @@ export class SceneSelection {
     this.additiveSelection = on;
   }
 
-  /** See {@link directDragEnabled}. */
-  setDirectDragEnabled(on: boolean): void {
-    this.directDragEnabled = on;
-  }
-
   register(id: string, object: Object3D): void {
     object.userData['selectableId'] = id;
     this.selectables.set(id, object);
+  }
+
+  /** Every registered object id. */
+  allIds(): string[] {
+    return [...this.selectables.keys()];
   }
 
   /** The registered `Object3D` for a scene object id, or `null` if unknown. */
@@ -391,13 +427,21 @@ export class SceneSelection {
   // -------------------------------------------------------------------------
 
   private onPointerDown = (event: PointerEvent): void => {
-    if (event.button === 2) {
+    // ⌃-click on a Mac or an iPad trackpad is the system's right click. It
+    // arrives as a left press, so it is re-routed here rather than read as a
+    // modifier-click — which is what it was, and why it used to add to the
+    // selection instead of opening the menu.
+    if (event.button === 2 || (event.pointerType === 'mouse' && isSecondaryClick(event))) {
       // Right button: a click opens the menu, a drag pans. Which it was is only
       // known on release, so just remember where it started.
       this.rightPress = { pointerId: event.pointerId, downEvent: event, moved: false };
       return;
     }
-    if (event.button !== 0 || !this.selectionHandlers) {
+    const eraser =
+      event.pointerType === 'pen' &&
+      event.button === PEN_ERASER_BUTTON &&
+      this.currentObjectMode === 'paint';
+    if ((event.button !== 0 && !eraser) || !this.selectionHandlers) {
       return;
     }
     // On touch — and on a stylus tap without a preceding hover move — there is
@@ -435,6 +479,8 @@ export class SceneSelection {
     }
 
     const hitId = this.selectables.size > 0 ? this.raycastSelectable(event) : null;
+    const toggle = isToggleClick(event) || event.shiftKey;
+    const boxSelect = this.boxSelectModeFor(event, hitId);
     this.pressState = {
       pointerId: event.pointerId,
       pointerType: event.pointerType,
@@ -442,12 +488,15 @@ export class SceneSelection {
       downY: event.clientY,
       slopPx: TAP_SLOP_PX[event.pointerType] ?? DEFAULT_TAP_SLOP_PX,
       hitId,
-      additive: this.additiveSelection || event.ctrlKey || event.metaKey || event.shiftKey,
+      additive: this.additiveSelection || toggle,
+      boxSelect,
+      eraser,
       moved: false,
       consumed: false,
       longPressTimer: null,
       downEvent: event,
       drag: null,
+      box: null,
     };
 
     // With no hover on touch, the face about to be pulled to the floor is
@@ -486,6 +535,14 @@ export class SceneSelection {
       }, LONG_PRESS_MS);
     }
 
+    // A box is drawn with the same drag that would otherwise orbit, so the
+    // camera has to be kept out of it from the start, exactly like a move.
+    if (boxSelect !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
     if (hitId !== null) {
       event.preventDefault();
       // Keep the camera out of a gesture that is about to move this object —
@@ -507,7 +564,7 @@ export class SceneSelection {
       // the same drag spins the model out from under the brush. Painting from
       // *empty bed* is deliberately still an orbit — that is how the user turns
       // the model around to reach its other side without leaving the tool.
-      if (this.currentObjectMode === 'paint' || this.claimsDirectDrag(hitId, event.pointerType)) {
+      if (this.currentObjectMode === 'paint' || this.claimsDirectDrag(hitId, event)) {
         event.stopPropagation();
       }
     }
@@ -552,6 +609,12 @@ export class SceneSelection {
     if (!ps || event.pointerId !== ps.pointerId || !this.selectionHandlers) {
       return;
     }
+    if (ps.box) {
+      this.advanceBox(ps.box, event);
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (ps.drag) {
       this.advanceDrag(ps, event);
       // Safe to stop: a drag only exists for a press whose `pointerdown` was
@@ -570,6 +633,13 @@ export class SceneSelection {
     }
     ps.moved = true;
     this.clearLongPress(ps);
+    if (ps.boxSelect !== null) {
+      ps.box = this.beginBox(ps.boxSelect, ps.downEvent);
+      this.advanceBox(ps.box, event);
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (this.beginDrag(ps, event)) {
       event.preventDefault();
       event.stopPropagation();
@@ -590,8 +660,13 @@ export class SceneSelection {
     if (!ps || event.pointerId !== ps.pointerId) {
       return;
     }
-    const { hitId, additive, moved, consumed, drag } = ps;
+    const { hitId, additive, moved, consumed, drag, box } = ps;
     this.endPress();
+    if (box) {
+      this.commitBox(box);
+      event.preventDefault();
+      return;
+    }
 
     // The lift is never stopped, whatever the press turned out to be.
     //
@@ -634,7 +709,10 @@ export class SceneSelection {
     }
 
     if (hitId === null) {
-      if (this.currentSelectedIds.size > 0) {
+      // A missed ⌘/Shift-click, or a stray tap in multi-select mode, must not
+      // throw away the selection it was building. Escape, or a plain click on
+      // empty bed, still clears.
+      if (!additive && this.currentSelectedIds.size > 0) {
         this.selectionHandlers?.clearSelection();
       }
       return;
@@ -655,6 +733,10 @@ export class SceneSelection {
     if (ps.drag) {
       this.gizmoHandlers?.end();
     }
+    if (ps.box) {
+      // Cancelled mid-box (the OS took the pointer): put back what was there.
+      this.selectionHandlers?.selectExactly?.([...ps.box.base]);
+    }
     if (this.currentObjectMode === 'paint') {
       this.cancelPendingPaint();
       this.gizmoHandlers?.paintEnd();
@@ -671,6 +753,23 @@ export class SceneSelection {
     event.preventDefault();
   };
 
+  /**
+   * Double-click a part to bring it into view; double-click empty bed for the
+   * whole plate. Mouse only — the browser's `dblclick` is a mouse event, and a
+   * double-tap on a tablet already means zoom to the OS.
+   */
+  private onDoubleClick = (event: MouseEvent): void => {
+    if (
+      !this.selectionHandlers?.frame ||
+      this.currentObjectMode === 'paint' ||
+      this.currentObjectMode === 'pullToFloor'
+    ) {
+      return;
+    }
+    const hitId = this.raycastSelectable(event);
+    this.selectionHandlers.frame(hitId === null ? [] : [hitId]);
+  };
+
   // -------------------------------------------------------------------------
   // Press lifecycle
   // -------------------------------------------------------------------------
@@ -681,7 +780,14 @@ export class SceneSelection {
       return;
     }
     this.clearLongPress(ps);
+    if (ps.drag) {
+      this.renderer.domElement.style.cursor = '';
+    }
+    if (ps.box) {
+      this.disposeBox(ps.box);
+    }
     ps.drag = null;
+    ps.box = null;
     this.pressState = null;
   }
 
@@ -719,21 +825,35 @@ export class SceneSelection {
   /**
    * Whether a press here would become a direct drag rather than a camera move.
    *
-   * Deliberately narrow: only a touch or pen contact, only in translate mode,
-   * and only on an object that is *already* selected. Requiring a prior tap
-   * means a model can never be shoved across the plate by a stray swipe, and it
-   * keeps drag-to-orbit available everywhere else on the scene.
+   * Only in the Select & move tool, and only from a model. Beyond that it is
+   * per pointer:
+   *
+   * - **Mouse** — any model, the way every slicer works: press a part and drag
+   *   it. A press on an unselected part selects it as the drag starts, so
+   *   moving something is one gesture, not a click and then a drag. Empty bed
+   *   still orbits, and a held modifier (⌘/Ctrl/Shift) leaves the press to the
+   *   camera and the selection.
+   * - **Touch and pen** — only a model that is *already* selected. A finger
+   *   crossing the plate to orbit lands on models all the time; requiring a
+   *   prior tap means a stray swipe can never shove a part across the bed.
    *
    * Asked at `pointerdown`, before it is known whether the press will travel,
    * because that is when the camera has to be shut out (see there).
    */
-  private claimsDirectDrag(hitId: string | null, pointerType: string): boolean {
+  private claimsDirectDrag(hitId: string | null, event: PointerEvent): boolean {
+    if (
+      this.gizmoHandlers === null ||
+      this.currentObjectMode !== 'translate' ||
+      hitId === null ||
+      event.button !== 0
+    ) {
+      return false;
+    }
+    if (event.pointerType === 'mouse') {
+      return !(isToggleClick(event) || event.shiftKey || event.altKey);
+    }
     return (
-      this.directDragEnabled &&
-      this.gizmoHandlers !== null &&
-      this.currentObjectMode === 'translate' &&
-      (pointerType === 'touch' || pointerType === 'pen') &&
-      hitId !== null &&
+      (event.pointerType === 'touch' || event.pointerType === 'pen') &&
       this.currentSelectedIds.has(hitId)
     );
   }
@@ -747,8 +867,13 @@ export class SceneSelection {
    * @returns whether the drag started.
    */
   private beginDrag(ps: SelectionPressState, event: PointerEvent): boolean {
-    if (!this.claimsDirectDrag(ps.hitId, ps.pointerType)) {
+    if (!this.claimsDirectDrag(ps.hitId, ps.downEvent)) {
       return false;
+    }
+    // A mouse may grab a part it has not selected: it becomes the selection,
+    // so the drag moves what the user pressed and the gizmo lands on it.
+    if (ps.hitId !== null && !this.currentSelectedIds.has(ps.hitId)) {
+      this.selectionHandlers?.select(ps.hitId, false);
     }
     const centroid = this.computeSelectionCentroid();
     if (!centroid) {
@@ -770,6 +895,7 @@ export class SceneSelection {
       // The pointer may already be gone; the drag simply stays canvas-bound.
     }
     ps.drag = { last: start.clone() };
+    this.renderer.domElement.style.cursor = 'grabbing';
     return true;
   }
 
@@ -798,6 +924,215 @@ export class SceneSelection {
   private pointOnDragPlane(event: PointerEvent): Vector3 | null {
     this.raycaster.setFromCamera(this.toNdc(event, this.ndcScratch), this.camera);
     return this.raycaster.ray.intersectPlane(this.dragPlane, this.dragPointScratch);
+  }
+
+  // -------------------------------------------------------------------------
+  // Box selection
+  // -------------------------------------------------------------------------
+
+  /**
+   * Whether a drag from this press should draw a selection box, and which kind.
+   *
+   * - **Mouse** — Shift-drag adds what the box touches, ⌥/Alt-drag takes it
+   *   away: the rectangle-select slicers already use. From a model as well as
+   *   empty bed, because on a crowded plate there may be no empty bed where the
+   *   box needs to start. A Shift-*click* on a model still just toggles it.
+   * - **Pen** — while multi-select is on, a pencil dragged from empty bed draws
+   *   the box. Fingers keep orbiting, so the pencil selects and the hand moves
+   *   the view, and neither has to change tool.
+   *
+   * Never in paint or pull-to-floor, where a drag already means something.
+   */
+  private boxSelectModeFor(event: PointerEvent, hitId: string | null): BoxSelectMode | null {
+    if (
+      !this.selectionHandlers?.selectExactly ||
+      this.currentObjectMode === 'paint' ||
+      this.currentObjectMode === 'pullToFloor' ||
+      event.button !== 0
+    ) {
+      return null;
+    }
+    if (event.pointerType === 'mouse') {
+      if (event.altKey) {
+        return 'subtract';
+      }
+      return event.shiftKey ? 'add' : null;
+    }
+    if (event.pointerType === 'pen' && this.additiveSelection && hitId === null) {
+      return 'add';
+    }
+    return null;
+  }
+
+  private beginBox(mode: BoxSelectMode, down: PointerEvent): BoxSelectState {
+    const canvas = this.renderer.domElement;
+    const rect = canvas.getBoundingClientRect();
+    const element = canvas.ownerDocument.createElement('div');
+    element.className = 'scene-box-select';
+    element.dataset['mode'] = mode;
+    // Positioned against the canvas's own box, which the host lays out
+    // edge-to-edge, so canvas-relative pixels are host-relative too.
+    canvas.parentElement?.appendChild(element);
+    const x = down.clientX - rect.left;
+    const y = down.clientY - rect.top;
+    try {
+      canvas.setPointerCapture(down.pointerId);
+    } catch {
+      // The pointer may already be gone; the box then stays canvas-bound.
+    }
+    canvas.style.cursor = 'crosshair';
+    return {
+      mode,
+      base: new Set(this.currentSelectedIds),
+      element,
+      x0: x,
+      y0: y,
+      x1: x,
+      y1: y,
+      raf: 0,
+    };
+  }
+
+  /** Stretch the box to the pointer, and re-pick at most once a frame. */
+  private advanceBox(box: BoxSelectState, event: PointerEvent): void {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    box.x1 = event.clientX - rect.left;
+    box.y1 = event.clientY - rect.top;
+    const style = box.element.style;
+    style.left = `${Math.min(box.x0, box.x1)}px`;
+    style.top = `${Math.min(box.y0, box.y1)}px`;
+    style.width = `${Math.abs(box.x1 - box.x0)}px`;
+    style.height = `${Math.abs(box.y1 - box.y0)}px`;
+    if (box.raf === 0) {
+      box.raf = requestAnimationFrame(() => {
+        box.raf = 0;
+        this.applyBox(box);
+      });
+    }
+  }
+
+  /**
+   * Select what the box touches — live, so the parts light up as the box
+   * reaches them and the user can see what letting go will do.
+   */
+  private applyBox(box: BoxSelectState): void {
+    const hits = this.objectsInBox(box);
+    const next = new Set(box.base);
+    for (const id of hits) {
+      if (box.mode === 'add') {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+    }
+    this.selectionHandlers?.selectExactly?.([...next]);
+  }
+
+  private commitBox(box: BoxSelectState): void {
+    if (box.raf !== 0) {
+      cancelAnimationFrame(box.raf);
+      box.raf = 0;
+    }
+    this.applyBox(box);
+  }
+
+  private disposeBox(box: BoxSelectState): void {
+    if (box.raf !== 0) {
+      cancelAnimationFrame(box.raf);
+      box.raf = 0;
+    }
+    box.element.remove();
+    this.renderer.domElement.style.cursor = '';
+  }
+
+  /**
+   * Every object the box touches, not only those it swallows whole — a part
+   * half-covered by the box is one the user was pointing at.
+   *
+   * Cheap tests first: the object's projected bounds either miss the box
+   * (out) or sit inside it (in). Only an overlap is settled on the geometry,
+   * by a strided sample of its vertices, then by a ray through the box centre
+   * for the case of a box drawn inside one large face with no vertex in it.
+   */
+  private objectsInBox(box: BoxSelectState): string[] {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const width = Math.max(rect.width, 1);
+    const height = Math.max(rect.height, 1);
+    const left = Math.min(box.x0, box.x1);
+    const right = Math.max(box.x0, box.x1);
+    const top = Math.min(box.y0, box.y1);
+    const bottom = Math.max(box.y0, box.y1);
+    const inBox = (p: Vector3): boolean => {
+      const x = ((p.x + 1) / 2) * width;
+      const y = ((1 - p.y) / 2) * height;
+      return p.z <= 1 && x >= left && x <= right && y >= top && y <= bottom;
+    };
+    this.camera.updateMatrixWorld();
+    const hits: string[] = [];
+    const bounds = new Box3();
+    const corner = this.dragPointScratch;
+    for (const [id, object] of this.selectables) {
+      bounds.setFromObject(object);
+      if (bounds.isEmpty()) {
+        continue;
+      }
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      let allInside = true;
+      for (let i = 0; i < 8; i++) {
+        corner
+          .set(
+            i & 1 ? bounds.max.x : bounds.min.x,
+            i & 2 ? bounds.max.y : bounds.min.y,
+            i & 4 ? bounds.max.z : bounds.min.z,
+          )
+          .project(this.camera);
+        allInside &&= inBox(corner);
+        const x = ((corner.x + 1) / 2) * width;
+        const y = ((1 - corner.y) / 2) * height;
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+      if (maxX < left || minX > right || maxY < top || minY > bottom) {
+        continue;
+      }
+      if (allInside || this.anyVertexInBox(object, inBox)) {
+        hits.push(id);
+      }
+    }
+    // A box drawn wholly inside a big face contains none of its vertices.
+    const centre = this.raycastAt(rect.left + (left + right) / 2, rect.top + (top + bottom) / 2);
+    if (centre !== null && !hits.includes(centre)) {
+      hits.push(centre);
+    }
+    return hits;
+  }
+
+  private anyVertexInBox(root: Object3D, inBox: (ndc: Vector3) => boolean): boolean {
+    const point = this.faceTriScratchA;
+    let found = false;
+    root.traverse((node) => {
+      if (found || !(node instanceof Mesh)) {
+        return;
+      }
+      const positions = node.geometry?.getAttribute('position');
+      if (!positions) {
+        return;
+      }
+      const stride = Math.max(1, Math.floor(positions.count / BOX_SELECT_MAX_SAMPLES));
+      for (let i = 0; i < positions.count; i += stride) {
+        point.fromBufferAttribute(positions, i).applyMatrix4(node.matrixWorld).project(this.camera);
+        if (inBox(point)) {
+          found = true;
+          return;
+        }
+      }
+    });
+    return found;
   }
 
   // -------------------------------------------------------------------------
@@ -1002,7 +1337,7 @@ export class SceneSelection {
         hit.faceIndex,
         [hit.point.x, hit.point.y, hit.point.z],
         this.paintBrushRadius,
-        this.paintBrushMode,
+        this.pressState?.eraser ? 'erase' : this.paintBrushMode,
       );
     }
   }
@@ -1076,7 +1411,11 @@ export class SceneSelection {
   // -------------------------------------------------------------------------
 
   private raycastSelectable(event: MouseEvent): string | null {
-    const ndc = this.toNdc(event, this.ndcScratch);
+    return this.raycastAt(event.clientX, event.clientY);
+  }
+
+  private raycastAt(clientX: number, clientY: number): string | null {
+    const ndc = this.toNdc({ clientX, clientY }, this.ndcScratch);
     this.raycaster.setFromCamera(ndc, this.camera);
     const targets = Array.from(this.selectables.values());
     if (targets.length === 0) {
@@ -1101,7 +1440,7 @@ export class SceneSelection {
     return null;
   }
 
-  private toNdc(event: MouseEvent, out: Vector2): Vector2 {
+  private toNdc(event: { clientX: number; clientY: number }, out: Vector2): Vector2 {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const x = ((event.clientX - rect.left) / Math.max(rect.width, 1)) * 2 - 1;
     const y = -(((event.clientY - rect.top) / Math.max(rect.height, 1)) * 2 - 1);

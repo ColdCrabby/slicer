@@ -94,6 +94,17 @@ export class ThreeDViewToolbar {
    */
   protected readonly editingPlate = computed(() => this.viewMode() === 'model');
 
+  /**
+   * What Select & move does, in the words of the pointer in hand: a mouse drags
+   * any part and Shift-drags a box; a finger or pencil drags a part it has
+   * already tapped.
+   */
+  protected readonly selectMoveHint = computed(() =>
+    this.viewport.isCoarsePointer()
+      ? 'Select & move — tap a part, then drag it'
+      : 'Select & move — drag a part to move it, Shift-drag to box-select',
+  );
+
   /** Whether taps add to the selection instead of replacing it. */
   protected readonly multiSelect = this.viewerControl.additiveSelection;
 
