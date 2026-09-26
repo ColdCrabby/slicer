@@ -11,7 +11,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
+import { Icon, IconButton, TooltipDirective } from '../../../ui/shell-primitives';
 import type { Notice, NoticeTone } from '../../../services/notifications';
 
 const TONE_ICONS: Record<NoticeTone, string> = {

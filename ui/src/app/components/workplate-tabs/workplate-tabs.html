@@ -102,8 +102,7 @@
     size="sm"
     class="wp-tab-search"
     type="button"
-    cdkOverlayOrigin
-    #searchTrigger="cdkOverlayOrigin"
+    #searchTrigger
     aria-label="Search open workplates"
     aria-haspopup="listbox"
     [attr.aria-expanded]="searchOpen()"
@@ -114,22 +113,15 @@
   >
     <nexus-icon name="nav-arrow-down" />
   </button>
-
-  <ng-template
-    cdkConnectedOverlay
-    [cdkConnectedOverlayOrigin]="searchTrigger"
-    [cdkConnectedOverlayOpen]="searchOpen()"
-    [cdkConnectedOverlayPositions]="searchPositions"
-    [cdkConnectedOverlayViewportMargin]="8"
-    (overlayOutsideClick)="onSearchOutsideClick($event, searchTrigger)"
-    (detach)="searchOpen.set(false)"
-  >
-    <nexus-workplate-tab-search
-      [entries]="searchEntries()"
-      [activeUuid]="activeUuid()"
-      (pick)="pickFromSearch($event)"
-      (closeTab)="closeTab($event)"
-      (dismiss)="dismissSearch(searchTrigger)"
-    />
-  </ng-template>
 }
+
+<!-- Floated under the chevron by `FloatingService` while `searchOpen()`. -->
+<ng-template #searchPanel>
+  <nexus-workplate-tab-search
+    [entries]="searchEntries()"
+    [activeUuid]="activeUuid()"
+    (pick)="pickFromSearch($event)"
+    (closeTab)="closeTab($event)"
+    (dismiss)="dismissSearch()"
+  />
+</ng-template>

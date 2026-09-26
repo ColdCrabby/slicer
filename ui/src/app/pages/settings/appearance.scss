@@ -1,59 +1,64 @@
 @use './settings';
 
-.accent-section {
+// The accent, as one strip of swatches: the two sources, a divider, then the
+// presets. A grid of named cards spent six rows of the page on a choice the
+// colours make at a glance; the names are the row's hint and each swatch's
+// accessible name.
+.accent-swatches {
   display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-}
-
-.accent-sources {
-  display: flex;
-  gap: var(--spacing-sm);
-}
-
-.source-chip {
-  display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--spacing-sm);
-  padding: 6px 14px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
+}
+
+.accent-swatches__divider {
+  width: 1px;
+  height: 18px;
+  background: var(--color-border);
+}
+
+.accent-swatch {
+  position: relative;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  // Swatches are content — the colour each one *is* — so they carry their own
+  // values rather than theme tokens.
+  background: var(--swatch);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-text-primary) 14%, transparent);
   cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
   touch-action: manipulation;
+  transition: box-shadow var(--duration-fast) var(--ease-standard);
 
   &:hover {
-    border-color: var(--accent-border);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--color-text-primary) 14%, transparent),
+      0 0 0 3px var(--color-surface-hover);
   }
 
   &:focus-visible {
-    outline: none;
-    border-color: var(--color-focus-ring);
-    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
   }
 
+  // Selected: a ring of the page between the swatch and an outer ring of its
+  // own colour, so it reads on every swatch in both themes.
   &.is-active {
-    border-color: var(--accent);
-    color: var(--color-text-primary);
-    background: var(--accent-soft);
+    box-shadow:
+      0 0 0 2px var(--color-surface),
+      0 0 0 4px var(--swatch);
   }
 }
 
-.source-swatch {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
+.accent-swatch--brand {
+  --swatch: #e0730f;
 }
 
-.source-swatch--brand {
-  background: #e0730f;
-}
-
-.source-swatch--system {
+.accent-swatch--system {
+  --swatch: var(--accent);
   background: conic-gradient(
     from 210deg,
     #ff5257,
@@ -64,71 +69,4 @@
     #953d96,
     #ff5257
   );
-}
-
-.accent-hint {
-  margin: var(--spacing-xs) 0 0;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-}
-
-.preset-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--spacing-sm);
-
-  @media (max-width: 640px) {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-.preset {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-md);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  cursor: pointer;
-  text-align: left;
-  user-select: none;
-  -webkit-user-select: none;
-  touch-action: manipulation;
-
-  &:hover {
-    border-color: var(--accent-border);
-  }
-
-  &:focus-visible {
-    outline: none;
-    border-color: var(--color-focus-ring);
-    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
-  }
-
-  &.is-active {
-    border-color: var(--swatch);
-    box-shadow: 0 0 0 1px var(--swatch);
-  }
-}
-
-.preset-swatch {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--swatch);
-  flex: none;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
-}
-
-.preset-name {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-primary);
-}
-
-.preset-check {
-  margin-left: auto;
-  color: var(--swatch);
-  --icon-size: 18px;
 }

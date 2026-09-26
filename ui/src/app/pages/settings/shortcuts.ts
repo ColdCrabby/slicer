@@ -1,6 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
-import { SectionHeader } from '@coldcrabby/ui';
 
 interface ShortcutRow {
   actionId: string;
@@ -13,14 +12,20 @@ interface ShortcutGroup {
   rows: ShortcutRow[];
 }
 
+/**
+ * Every keyboard shortcut, grouped by where it applies.
+ *
+ * A reference rather than a page of its own: it lives at the foot of Settings →
+ * Controls, beside the trackpad and touch preferences, because "how do I drive
+ * this" is one question whichever hand is answering it.
+ */
 @Component({
-  selector: 'nexus-settings-shortcuts',
-  imports: [SectionHeader],
+  selector: 'nexus-shortcut-reference',
   templateUrl: './shortcuts.html',
   styleUrl: './shortcuts.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ShortcutsSettings {
+export class ShortcutReference {
   private readonly shortcuts = inject(KeyboardShortcuts);
 
   protected readonly groups: ShortcutGroup[] = this.buildGroups();
@@ -49,16 +54,33 @@ export class ShortcutsSettings {
       },
       {
         title: 'Object mode',
+        rows: [
+          ...pick([
+            'object-mode-translate',
+            'object-mode-rotate',
+            'object-mode-scale',
+            'object-mode-pull-to-floor',
+            'object-mode-paint',
+            'leave-tool',
+            'brush-quick-adjust',
+          ]),
+          // Eight bindings, one idea: listed once rather than per arrow.
+          {
+            actionId: 'nudge',
+            displayText: '← ↑ → ↓',
+            displayDescription: `Nudge the selection 1 mm, as seen from the camera (Shift 10 mm, ${alt} 0.1 mm)`,
+          },
+        ],
+      },
+      {
+        title: 'View',
         rows: pick([
-          'object-mode-translate',
-          'object-mode-rotate',
-          'object-mode-scale',
-          'object-mode-pull-to-floor',
-          'object-mode-paint',
-          'brush-quick-adjust',
+          'zoom-to-selection',
+          'toggle-gravity',
+          'toggle-view-mode',
+          'toggle-projection',
         ]),
       },
-      { title: 'View', rows: pick(['toggle-gravity', 'toggle-view-mode', 'toggle-projection']) },
       {
         title: 'Number fields',
         rows: [

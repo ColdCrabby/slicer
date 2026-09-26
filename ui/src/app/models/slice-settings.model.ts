@@ -1,16 +1,12 @@
-import globalSettingsSchema from '../../schemas/slicer-engine-global-settings-v1.json';
+import settingsDigest from '../../generated/settings-digest.json';
 import type { SlicingParams } from '../../generated/slicer-engine-ws-client-message-v1';
 
 export type { SlicingParams as SliceSettings } from '../../generated/slicer-engine-ws-client-message-v1';
 
-/** The one part of a generated schema property this module reads. */
-interface SchemaProp {
-  default?: unknown;
-}
-
 /**
  * Every slicing parameter's engine default, read straight out of the generated
- * JSON Schema.
+ * JSON Schema — by way of `settings-digest.json`, which `gen-types` distils from
+ * it so that startup does not have to download the whole schema.
  *
  * The schema is emitted from `SlicingParams` by `gen-schemas`, so this map *is*
  * the Rust defaults — all 170-odd of them, including the ones no hand-written
@@ -24,14 +20,7 @@ interface SchemaProp {
  * time. See {@link ../services/profiles/active-selection.ActiveSelection}.
  */
 export const ENGINE_DEFAULTS: Readonly<Partial<SlicingParams>> = Object.freeze(
-  Object.fromEntries(
-    Object.entries(
-      (globalSettingsSchema.$defs.SlicingParams as { properties: Record<string, SchemaProp> })
-        .properties,
-    )
-      .filter(([, prop]) => prop.default !== undefined)
-      .map(([key, prop]) => [key, prop.default]),
-  ),
+  settingsDigest.defaults,
 ) as Partial<SlicingParams>;
 
 /**

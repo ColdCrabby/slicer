@@ -61,9 +61,11 @@
   }
 }
 
-.insp-toggle-title {
-  flex: 1;
-  text-align: left;
+/* The inspector's small-caps labels: the fold header, the Layer/Progress
+   titles and the legend's group headings share one voice. */
+.insp-toggle-title,
+.insp-title,
+.legend-group-title {
   font-size: var(--font-size-2xs);
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0.04em;
@@ -71,8 +73,15 @@
   color: var(--color-text-tertiary);
 }
 
-.insp-toggle-summary {
-  flex: none;
+.insp-toggle-title {
+  flex: 1;
+  text-align: left;
+}
+
+/* A mono `current / total` readout — folded in the header, and at full size
+   beside the Layer title. */
+.insp-toggle-summary,
+.layer-readout {
   display: flex;
   align-items: baseline;
   gap: 4px;
@@ -80,7 +89,6 @@
   font-variant-numeric: tabular-nums;
 
   .cur {
-    font-size: var(--font-size-sm);
     font-weight: var(--font-weight-mono-emphasis);
     font-variation-settings: 'wght' var(--font-weight-mono-emphasis);
     color: var(--color-text-primary);
@@ -91,6 +99,14 @@
     font-size: var(--font-size-2xs);
     color: var(--color-text-tertiary);
     line-height: 1;
+  }
+}
+
+.insp-toggle-summary {
+  flex: none;
+
+  .cur {
+    font-size: var(--font-size-sm);
   }
 }
 
@@ -211,33 +227,13 @@
   /* Wide enough for the longer of the two titles, so Layer's readout and
      Progress's start at the same x and the pair reads as one control. */
   min-width: 62px;
-  font-size: var(--font-size-2xs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-text-tertiary);
 }
 
 .layer-readout {
   flex: 1;
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  font-family: var(--font-family-mono);
-  font-variant-numeric: tabular-nums;
 
   .cur {
     font-size: var(--font-size-md);
-    font-weight: var(--font-weight-mono-emphasis);
-    font-variation-settings: 'wght' var(--font-weight-mono-emphasis);
-    color: var(--color-text-primary);
-    line-height: 1;
-  }
-
-  .tot {
-    font-size: var(--font-size-2xs);
-    color: var(--color-text-tertiary);
-    line-height: 1;
   }
 }
 
@@ -412,14 +408,6 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-}
-
-.legend-group-title {
-  font-size: var(--font-size-2xs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-text-tertiary);
 }
 
 .legend-group-grid {

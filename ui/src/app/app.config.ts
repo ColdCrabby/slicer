@@ -23,7 +23,7 @@ import { ProfileSync } from './services/profiles/profile-sync';
 import { IdleRoutePreload } from './services/route-preload';
 import { NexusTitleStrategy } from './services/title-strategy';
 import { UploadGuard } from './services/upload-guard';
-import { UserInputModality } from '@coldcrabby/ui';
+import { UserInputModality } from './ui/shell-primitives';
 
 export const appConfig: ApplicationConfig = {
   providers: [

@@ -250,7 +250,7 @@ background, and the model's colour.
 
 How the model is *rendered* is not a print setting — the picture is taken in the
 3D view, on your machine — so it sits with the other graphics options under
-**Settings → General → Thumbnail look**. Plain, the default, shoots it flatly,
+**Settings → 3D View → Thumbnail look**. Plain, the default, shoots it flatly,
 which means the same plate previews identically wherever it's sliced. Match this
 view borrows your own scene's shading, gloss and contact shadow instead.
 

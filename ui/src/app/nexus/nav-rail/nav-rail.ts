@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/router';
-import { Icon } from '@coldcrabby/ui';
+import { Icon } from '../../ui/shell-primitives';
 import { filter, map } from 'rxjs';
 import { LibraryFlyout } from '../../services/library/library-flyout';
 import { NavigationProgress } from '../../services/navigation-progress';

@@ -65,7 +65,7 @@ notification carries the printer's own message.
 
 **My profiles disappeared** — if you were running in a browser tab, they were
 stored in that browser. Clearing site data removes them. Export a backup from
-**Settings → General → Backup & Export**, and consider the desktop app or a
+**Settings → General → Your library**, and consider the desktop app or a
 self-hosted server, where they live outside the browser.
 
 **A setting I read about isn't there** — options hide when they don't apply.
@@ -79,7 +79,7 @@ reset profiles to defaults, or reset the whole app. Each asks for confirmation.
 
 ## Performance
 
-**The 3D view is choppy** — in **Settings → General**, lower **Render
+**The 3D view is choppy** — in **Settings → 3D View**, lower **Render
 resolution** and **Preview detail**, and turn **Anti-aliasing** off.
 
 **A big G-code preview is slow to scrub** — switch from _all layers_ to _current

@@ -1,18 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import {
-  MAX_FIELD_OF_VIEW,
-  MIN_FIELD_OF_VIEW,
-  ViewerControl,
-  type Antialiasing,
-  type GcodeStepButtons,
-  type ModelShading,
-  type PreviewDetail,
-  type PreviewFollow,
-  type RenderQuality,
-  type TwoFingerGesture,
-} from '../../services/viewer-control';
-import { Viewport } from '../../services/viewport';
+import { ViewerControl, type PreviewFollow } from '../../services/viewer-control';
 import { ProfileExportButton } from '../../components/profiles/profile-export-button';
 import {
   isTauriDesktop,
@@ -22,91 +10,86 @@ import {
 import { formatDuration } from '../../models/duration';
 import { AppVersion } from '../../services/app-version';
 import { AutoSlice, type AutoSliceMode } from '../../services/auto-slice';
-import {
-  HistoryControlsPreference,
-  type HistoryControlsMode,
-} from '../../services/history-controls-preference';
-import { Button, SectionHeader, Slider } from '@coldcrabby/ui';
-import { FovCube } from '../../ui/fov-cube/fov-cube';
+import { Button, Icon, SectionHeader, Segmented, type SegmentOption } from '@coldcrabby/ui';
 import {
   SettingsDetailPreference,
   type SettingsDetailMode,
 } from '../../services/settings-detail-preference';
+import { PrefRow } from './prefs/pref-row';
+import { landOnFragment } from './prefs/land-on-fragment';
+import { storageNote } from './prefs/storage-note';
 
+/**
+ * How the app behaves as a whole: when it slices, how much the settings panels
+ * show, where your library lives, and which build this is.
+ *
+ * It used to hold every app preference — twenty rows, each under a paragraph —
+ * and the 3D view's look and the input controls now have pages of their own.
+ */
 @Component({
   selector: 'nexus-settings-general',
-  imports: [Button, ProfileExportButton, RouterLink, SectionHeader, Slider, FovCube],
+  imports: [Button, Icon, ProfileExportButton, RouterLink, SectionHeader, Segmented, PrefRow],
   templateUrl: './general.html',
   styleUrl: './general.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class GeneralSettings implements OnInit {
-  protected readonly viewer = inject(ViewerControl);
-  private readonly viewport = inject(Viewport);
+  private readonly viewer = inject(ViewerControl);
   private readonly appVersion = inject(AppVersion);
-  protected readonly historyControls = inject(HistoryControlsPreference);
   protected readonly settingsDetail = inject(SettingsDetailPreference);
   protected readonly autoSlice = inject(AutoSlice);
-  protected readonly gesture = this.viewer.trackpadTwoFingerGesture;
-  protected readonly statsVisible = this.viewer.statsVisible;
-  protected readonly palmRejection = this.viewer.palmRejection;
-  protected readonly fieldOfView = this.viewer.fieldOfView;
-  protected readonly antialiasing = this.viewer.antialiasing;
-  protected readonly renderQuality = this.viewer.renderQuality;
-  protected readonly previewDetail = this.viewer.previewDetail;
   protected readonly previewFollow = this.viewer.previewFollow;
-  protected readonly gcodeStepButtons = this.viewer.gcodeStepButtons;
-  protected readonly useFilamentColor = this.viewer.useFilamentColor;
-  protected readonly shadowsEnabled = this.viewer.shadowsEnabled;
-  protected readonly modelShading = this.viewer.modelShading;
-  protected readonly glossEnabled = this.viewer.glossEnabled;
-  protected readonly thumbnailCaptureFx = this.viewer.thumbnailCaptureFx;
-  protected readonly thumbnailSceneEffects = this.viewer.thumbnailSceneEffects;
 
-  protected readonly minFov = MIN_FIELD_OF_VIEW;
-  protected readonly maxFov = MAX_FIELD_OF_VIEW;
+  protected readonly autoSliceOptions: SegmentOption[] = [
+    { value: 'auto', label: 'Automatic' },
+    { value: 'on', label: 'Always' },
+    { value: 'off', label: 'Off' },
+  ];
+
+  protected readonly previewFollowOptions: SegmentOption[] = [
+    { value: 'auto', label: 'Automatic' },
+    { value: 'always', label: 'Always' },
+    { value: 'never', label: 'Never' },
+  ];
+
+  protected readonly settingsDetailOptions: SegmentOption[] = [
+    { value: 'everyday', label: 'Standard' },
+    { value: 'advanced', label: 'Advanced' },
+    { value: 'expert', label: 'Everything' },
+  ];
+
+  /** Where the library is kept in this runtime, and what that means. */
+  protected readonly storage = storageNote();
 
   /**
    * Where the exported library comes from. Engine-backed runtimes export the
    * copy persisted next to the slicer — the one the CLI would read — while the
    * web runtime, where the browser is the engine, exports this browser's copy.
    */
-  protected readonly exportScopeNote =
+  protected readonly exportHint =
     resolveRuntimeMode() === 'web'
-      ? 'Exports the library kept in this browser.'
-      : 'Exports the library saved with the slicer.';
+      ? 'Printers, filaments, processes and labels as TOML — this browser’s copy.'
+      : 'Printers, filaments, processes and labels as TOML — the copy saved with the slicer.';
 
   /**
    * The evidence `Automatic` is deciding on right now, for the plate that is
    * open. Quoted live so a plate that has quietly stopped re-slicing itself
-   * says why, instead of looking like the setting stopped working.
+   * says why, instead of looking like the setting stopped working. Empty for
+   * the fixed choices, which have nothing to explain.
    */
   protected readonly autoSliceNote = computed(() => {
+    if (this.autoSlice.mode() !== 'auto') {
+      return '';
+    }
     const last = this.autoSlice.lastSliceMs();
     if (last === null) {
-      return 'The open plate has not been sliced yet — Automatic starts out re-slicing and settles once it has timed one.';
+      return 'Re-slicing until the open plate has been timed once.';
     }
-    const took = `The open plate last sliced in ${formatDuration(last)}`;
-    if (this.autoSlice.mode() !== 'auto') {
-      return `${took}.`;
-    }
+    const took = formatDuration(last);
     return this.autoSlice.enabled()
-      ? `${took}, so Automatic is re-slicing it on its own.`
-      : `${took}, so Automatic is leaving it to the Slice button.`;
+      ? `The open plate slices in ${took}, so it re-slices on its own.`
+      : `The open plate takes ${took}, so it waits for the Slice button.`;
   });
-
-  /**
-   * What `Automatic` is currently doing for the step buttons, on this device.
-   * Quoted live so someone on a touchscreen laptop — where the pointer, not
-   * the machine type, decides — can see why the buttons are (or aren't) there.
-   */
-  protected readonly gcodeStepButtonsNote = computed(() =>
-    this.gcodeStepButtons() !== 'auto'
-      ? ''
-      : this.viewport.isCoarsePointer()
-        ? 'Automatic is showing them — this pointer is a finger or a pencil.'
-        : 'Automatic is hiding them — this pointer is a mouse or trackpad, and the arrow keys already reach the same steps.',
-  );
 
   /** Build-time version metadata read from the WASM bundle (SSOT). */
   protected readonly info = this.appVersion.info;
@@ -142,80 +125,26 @@ export class GeneralSettings implements OnInit {
    */
   protected readonly platform = isTauriMobile() ? 'Mobile' : isTauriDesktop() ? 'Desktop' : 'Web';
 
+  /** The build in one line: name, version, and where it is running. */
+  protected readonly aboutLine = computed(() => `Cold Crabby ${this.version()} · ${this.platform}`);
+
+  constructor() {
+    landOnFragment();
+  }
+
   ngOnInit(): void {
     void this.appVersion.loadInfo();
   }
 
-  setGesture(gesture: TwoFingerGesture): void {
-    this.viewer.setTrackpadTwoFingerGesture(gesture);
+  setSettingsDetail(mode: string): void {
+    this.settingsDetail.setMode(mode as SettingsDetailMode);
   }
 
-  setStatsVisible(value: boolean): void {
-    this.viewer.setStatsVisible(value);
+  setAutoSlice(mode: string): void {
+    this.autoSlice.setMode(mode as AutoSliceMode);
   }
 
-  /** Choose how much detail the settings panels open at. */
-  setSettingsDetail(mode: SettingsDetailMode): void {
-    this.settingsDetail.setMode(mode);
-  }
-
-  setPalmRejection(value: boolean): void {
-    this.viewer.setPalmRejection(value);
-  }
-
-  setFieldOfView(value: number): void {
-    this.viewer.setFieldOfView(value);
-  }
-
-  setAntialiasing(mode: Antialiasing): void {
-    this.viewer.setAntialiasing(mode);
-  }
-
-  setRenderQuality(quality: RenderQuality): void {
-    this.viewer.setRenderQuality(quality);
-  }
-
-  setPreviewDetail(detail: PreviewDetail): void {
-    this.viewer.setPreviewDetail(detail);
-  }
-
-  setUseFilamentColor(value: boolean): void {
-    this.viewer.setUseFilamentColor(value);
-  }
-
-  setShadowsEnabled(value: boolean): void {
-    this.viewer.setShadowsEnabled(value);
-  }
-
-  setModelShading(mode: ModelShading): void {
-    this.viewer.setModelShading(mode);
-  }
-
-  setGlossEnabled(value: boolean): void {
-    this.viewer.setGlossEnabled(value);
-  }
-
-  setThumbnailCaptureFx(value: boolean): void {
-    this.viewer.setThumbnailCaptureFx(value);
-  }
-
-  setThumbnailSceneEffects(value: boolean): void {
-    this.viewer.setThumbnailSceneEffects(value);
-  }
-
-  setHistoryControls(mode: HistoryControlsMode): void {
-    this.historyControls.setMode(mode);
-  }
-
-  setAutoSlice(mode: AutoSliceMode): void {
-    this.autoSlice.setMode(mode);
-  }
-
-  setPreviewFollow(mode: PreviewFollow): void {
-    this.viewer.setPreviewFollow(mode);
-  }
-
-  setGcodeStepButtons(mode: GcodeStepButtons): void {
-    this.viewer.setGcodeStepButtons(mode);
+  setPreviewFollow(mode: string): void {
+    this.viewer.setPreviewFollow(mode as PreviewFollow);
   }
 }

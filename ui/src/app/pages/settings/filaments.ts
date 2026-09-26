@@ -15,11 +15,6 @@ import {
   type FilamentMaterial,
   type FilamentProfile,
 } from '../../models/filament.model';
-import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
-import { SETTING_CONTRACTS } from '../../models/setting-contract';
-import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
-import { parseSchema } from '../../schema-form/models/schema-parser';
-import type { SchemaGroup } from '../../schema-form/models/field-def';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
@@ -33,7 +28,6 @@ import { LabelsStore } from '../../services/profiles/labels-store';
 import { FilamentsStore } from '../../services/profiles/filaments-store';
 import {
   Icon,
-  Badge,
   Button,
   EmptyState,
   FieldRow,
@@ -43,87 +37,28 @@ import {
   Segmented,
   Select,
   ColorPicker,
-  InlineNotice,
 } from '@coldcrabby/ui';
 import { ParamField } from '../../components/profiles/param-field';
 import { ColumnResizer } from '../../components/profiles/column-resizer';
 import { ProfileOutline } from '../../components/profiles/profile-outline';
-import { controlFor } from '../../schema-form/models/field-control';
+import { ProfileHead } from '../../components/profiles/profile-head';
+import { profileSaveState } from '../../components/profiles/profile-save-state';
+import { FILAMENT_PARAM_GROUPS } from '../../components/profiles/profile-param-groups';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { configureTargetSelector, focusConfigureTarget } from './configure-scroll';
 import { LabelPickerPanel } from '../../components/labels/label-picker-panel';
 
-/**
- * The `SlicingParams` sub-schema extracted from the generated global-settings
- * schema, so the filament editor can render every temperature/cooling parameter
- * dynamically (the same schema the slice-page settings sidebar consumes). Any
- * new `SlicingParams` field in those groups appears automatically — no
- * hand-maintained field list.
- */
-const SLICING_PARAMS_SCHEMA = {
-  ...(globalSettingsSchema.$defs.SlicingParams as Record<string, unknown>),
-  $defs: globalSettingsSchema.$defs as Record<string, unknown>,
-};
-
-/** `x-group` names owned by the Filament contract, in display order. */
-const FILAMENT_GROUPS = SETTING_CONTRACTS.find((c) => c.id === 'filament')!.groups;
-
-/**
- * Param keys this editor lays out itself, in the Identity card at the top.
- *
- * They are schema params like any other, so they would render a second time
- * inside their group. The curated row wins — it sits with the name and colour
- * it belongs beside.
- *
- * The four identity fields are here for a second reason: `resolve` overwrites
- * them from the chosen profile on every slice, so the Identity card is not just
- * the nicer place to edit them, it is the only one that has any effect.
- */
-const BESPOKE_PARAM_KEYS = new Set([
-  'filament_diameter_mm',
-  'filament_cost_per_kg',
-  'filament_name',
-  'filament_color',
-  'filament_type',
-]);
-
-/** Every group the schema declares, before this page narrows them. */
-const PARSED_GROUPS = parseSchema(SLICING_PARAMS_SCHEMA).groups;
-
-/**
- * The filament-parameter groups rendered in the editor, in the Filament
- * contract's display order (`Material`, `Temperature`, `Cooling`, `Extrusion`,
- * `Filament G-code`). Parsed once from the schema (it never changes at runtime);
- * groups owned by other contracts are left out so the filament editor only
- * shows material settings.
- *
- * `nexus-param-field` renders every control in the shared taxonomy except
- * `array` — `fan_configs` is a structured list with an editor of its own — so
- * that and {@link BESPOKE_PARAM_KEYS} are all that is filtered out.
- */
-const PARAM_GROUPS: SchemaGroup[] = (() => {
-  const order = new Map(FILAMENT_GROUPS.map((name, index) => [name, index]));
-  return PARSED_GROUPS.filter((g) => order.has(g.name))
-    .map((g) => ({
-      ...g,
-      fields: g.fields.filter((f) => !BESPOKE_PARAM_KEYS.has(f.key) && controlFor(f) !== 'array'),
-    }))
-    .filter((g) => g.fields.length > 0)
-    .sort((a, b) => order.get(a.name)! - order.get(b.name)!);
-})();
-
 @Component({
   selector: 'nexus-settings-filaments',
   imports: [
     EmptyState,
-    InlineNotice,
     Button,
     IconButton,
     TooltipDirective,
     Icon,
-    Badge,
     RouterLink,
+    ProfileHead,
     ParamField,
     FieldRow,
     NumberInput,
@@ -150,7 +85,6 @@ export class FilamentsSettings {
   private readonly notifications = inject(NotificationService);
   private readonly route = inject(ActivatedRoute);
 
-  protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
   protected readonly materialOptions = FILAMENT_MATERIALS.map((m) => ({
     value: m,
     label: FILAMENT_MATERIAL_LABELS[m],
@@ -166,15 +100,6 @@ export class FilamentsSettings {
   protected readonly search = signal('');
   protected readonly groupBy = signal<'category' | 'label' | 'none'>('category');
   protected readonly labelFilter = this.filterStore.selectedIds;
-
-  /**
-   * Inline two-step delete — the design language's default for a routine
-   * destructive action. This used to be a typed-name challenge, which is
-   * reserved for irreversible data loss; a profile is a handful of settings the
-   * user can recreate, and typing its name out to remove one was friction
-   * without a matching risk.
-   */
-  protected readonly deleteArmed = signal(false);
 
   /** Filaments narrowed by the active label filter and the search query. */
   protected readonly filtered = computed(() => {
@@ -226,14 +151,29 @@ export class FilamentsSettings {
     return id ? (this.store.getById(id) ?? null) : null;
   });
 
+  /** What the header says about the last edit to the filament on screen. */
+  protected readonly saveState = profileSaveState(this.store, this.selectedId);
+
   constructor() {
     // Arriving from the wizard's "Add & configure": open the new filament and
     // scroll to the full editor so the user can keep tuning it.
-    const configureId = this.route.snapshot.queryParamMap.get('configure');
+    const params = this.route.snapshot.queryParamMap;
+    const configureId = params.get('configure');
     if (configureId && this.store.getById(configureId)) {
       this.select(configureId);
-      const target = configureTargetSelector(this.route.snapshot.queryParamMap.get('focus'));
+      const target = configureTargetSelector(params.get('focus'));
       afterNextRender(() => focusConfigureTarget(target));
+      return;
+    }
+    // Arriving from a card or the Settings search: open the filament it named,
+    // and land on the setting it named in whichever filament is open.
+    const openId = params.get('id');
+    if (openId && this.store.getById(openId)) {
+      this.select(openId);
+    }
+    const focus = params.get('focus');
+    if (focus && this.selected()) {
+      afterNextRender(() => focusConfigureTarget(configureTargetSelector(focus)));
     }
   }
 
@@ -271,7 +211,6 @@ export class FilamentsSettings {
   /** Open a filament in the detail pane. */
   protected select(id: string): void {
     this.selectedId.set(id);
-    this.disarmDelete();
   }
 
   /** Make the selected filament the default used for slicing. */
@@ -298,6 +237,13 @@ export class FilamentsSettings {
       { label: 'Duplicate', icon: 'copy', action: () => this.duplicate(filament.id) },
     ];
     items.push(this.labelSubmenu(filament));
+    if (this.store.canRestore(filament.id)) {
+      items.push({
+        label: 'Restore defaults',
+        icon: 'undo',
+        action: () => this.store.restoreBuiltin(filament.id),
+      });
+    }
     if (filament.source !== 'builtin') {
       items.push({ separator: true, label: '' });
       items.push({
@@ -342,31 +288,6 @@ export class FilamentsSettings {
     };
   }
 
-  protected toggleDelete(): void {
-    if (this.deleteArmed()) {
-      this.disarmDelete();
-      return;
-    }
-    this.armDelete();
-  }
-
-  protected armDelete(): void {
-    this.deleteArmed.set(true);
-  }
-
-  protected disarmDelete(): void {
-    this.deleteArmed.set(false);
-  }
-
-  /** Delete the selected filament once its name has been typed to confirm. */
-  protected confirmDelete(): void {
-    const filament = this.selected();
-    if (!filament) {
-      return;
-    }
-    this.deleteFilamentById(filament.id);
-  }
-
   private confirmDeleteFromContextMenu(filament: FilamentProfile): void {
     this.dialog
       .confirm({
@@ -383,9 +304,8 @@ export class FilamentsSettings {
       });
   }
 
-  private deleteFilamentById(id: string): void {
+  protected deleteFilamentById(id: string): void {
     this.store.remove(id);
-    this.disarmDelete();
     if (this.selectedId() === id) {
       this.selectedId.set(this.store.items()[0]?.id ?? null);
     }
@@ -397,7 +317,7 @@ export class FilamentsSettings {
    * shown — the profile editor is where presets are authored, so it never
    * hides gated-off fields (unlike the live slice sidebar).
    */
-  protected readonly paramGroups = PARAM_GROUPS;
+  protected readonly paramGroups = FILAMENT_PARAM_GROUPS;
 
   protected update(id: string, patch: Partial<FilamentProfile>): void {
     this.store.update(id, patch);
@@ -413,12 +333,6 @@ export class FilamentsSettings {
     }
   }
 
-  /**
-   * A filament's fan table, or the empty list when it has never been edited.
-   *
-   * Absent means "the engine's default single part-cooling fan", which the
-   * editor shows as no rows — adding one is how the user takes it over.
-   */
   /** A filament's `params` bag as a plain record for the field controls. */
   protected paramsOf(filament: FilamentProfile): Record<string, unknown> {
     return (filament.params as Record<string, unknown>) ?? {};
@@ -448,11 +362,19 @@ export class FilamentsSettings {
     this.updateParams(id, { [key]: value });
   }
 
-  protected rename(id: string, event: Event): void {
-    const name = (event.target as HTMLInputElement).value.trim();
-    if (name) {
-      this.store.update(id, { name });
-    }
+  protected renameTo(id: string, name: string): void {
+    this.store.update(id, { name });
+  }
+
+  /** The filament in one line: what it is and how hot it runs. */
+  protected summaryOf(filament: FilamentProfile): string {
+    const material = FILAMENT_MATERIAL_LABELS[filament.material] ?? filament.material;
+    return [
+      filament.vendor && filament.vendor !== 'Custom' ? `${filament.vendor} ${material}` : material,
+      `${paramNum(filament.params, 'nozzle_temp')} °C nozzle`,
+      `${paramNum(filament.params, 'bed_temp')} °C bed`,
+      `${paramNum(filament.params, 'filament_diameter_mm')} mm`,
+    ].join(' · ');
   }
 
   protected setColor(id: string, color: string): void {

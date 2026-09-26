@@ -17,7 +17,7 @@ import {
   isTauriMobile,
   resolveRuntimeMode,
 } from '../../runtime/domain/runtime-mode.util';
-import { Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
+import { Icon, IconButton, TooltipDirective } from '../../ui/shell-primitives';
 import { Viewport } from '../../services/viewport';
 import { Feedback } from '../../services/feedback';
 

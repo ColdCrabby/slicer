@@ -1,0 +1,54 @@
+<div class="settings-page">
+  <nexus-section-header
+    heading="Controls"
+    description="Gestures, on-screen buttons and keyboard shortcuts"
+  />
+
+  <section class="pref-group" aria-labelledby="controls-touch">
+    <h2 class="pref-group__title" id="controls-touch">Trackpad &amp; touch</h2>
+    <div class="settings-card">
+      <nexus-pref-row pref="two-finger">
+        <nexus-segmented
+          label="Two-finger swipe"
+          [options]="gestureOptions"
+          [value]="viewer.trackpadTwoFingerGesture()"
+          (valueChange)="setGesture($event)"
+        />
+      </nexus-pref-row>
+      <nexus-pref-row pref="palm-rejection">
+        <nexus-switch
+          label="Palm rejection"
+          [checked]="viewer.palmRejection()"
+          (checkedChange)="viewer.setPalmRejection($event)"
+        />
+      </nexus-pref-row>
+    </div>
+  </section>
+
+  <section class="pref-group" aria-labelledby="controls-buttons">
+    <h2 class="pref-group__title" id="controls-buttons">On-screen buttons</h2>
+    <div class="settings-card">
+      <nexus-pref-row pref="history-buttons">
+        <nexus-segmented
+          label="Undo and redo buttons"
+          [options]="historyOptions"
+          [value]="historyControls.mode()"
+          (valueChange)="setHistoryControls($event)"
+        />
+      </nexus-pref-row>
+      <nexus-pref-row pref="gcode-steps" [hint]="gcodeStepsNote()">
+        <nexus-segmented
+          label="G-code step buttons"
+          [options]="gcodeStepOptions"
+          [value]="viewer.gcodeStepButtons()"
+          (valueChange)="setGcodeStepButtons($event)"
+        />
+      </nexus-pref-row>
+    </div>
+  </section>
+
+  <section class="pref-group shortcuts-section" id="pref-shortcuts" aria-labelledby="controls-keys">
+    <h2 class="pref-group__title" id="controls-keys">Keyboard shortcuts</h2>
+    <nexus-shortcut-reference />
+  </section>
+</div>

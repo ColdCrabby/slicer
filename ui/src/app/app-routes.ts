@@ -87,6 +87,17 @@ export const APP_ROUTES: Routes = [
               import('./pages/settings/appearance').then((m) => m.AppearanceSettings),
           },
           {
+            path: '3d-view',
+            title: '3D View Settings',
+            loadComponent: () => import('./pages/settings/view-3d').then((m) => m.View3dSettings),
+          },
+          {
+            path: 'controls',
+            title: 'Controls',
+            loadComponent: () =>
+              import('./pages/settings/controls').then((m) => m.ControlsSettings),
+          },
+          {
             path: 'printers',
             title: 'Printer Settings',
             loadComponent: () =>
@@ -128,10 +139,13 @@ export const APP_ROUTES: Routes = [
             loadComponent: () => import('./pages/settings/labels').then((m) => m.LabelsSettings),
           },
           {
+            // The shortcut reference is a section of Controls now; old links and
+            // the app menu's "Keyboard Shortcuts" land on it there.
             path: 'shortcuts',
-            title: 'Keyboard Shortcuts',
-            loadComponent: () =>
-              import('./pages/settings/shortcuts').then((m) => m.ShortcutsSettings),
+            redirectTo: () =>
+              inject(Router).createUrlTree(['/settings/controls'], {
+                fragment: 'pref-shortcuts',
+              }),
           },
           {
             path: 'changelog',

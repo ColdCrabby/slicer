@@ -1,7 +1,11 @@
 import { Injectable, inject } from '@angular/core';
 import type { OutputRefSubscription } from '@angular/core';
 import { isTauriDesktop, isTauriHost } from '../../runtime/domain/runtime-mode.util';
-import { FloatingService, type FloatingComponentRef, type FloatingReference } from '@coldcrabby/ui';
+import {
+  FloatingService,
+  type FloatingComponentRef,
+  type FloatingReference,
+} from '../../ui/shell-primitives';
 import { ContextMenu } from './context-menu';
 import type { ContextMenuItem } from './context-menu.model';
 

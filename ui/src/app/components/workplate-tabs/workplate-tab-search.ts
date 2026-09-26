@@ -10,7 +10,7 @@ import {
   viewChild,
   viewChildren,
 } from '@angular/core';
-import { Icon, IconButton } from '@coldcrabby/ui';
+import { Icon, IconButton } from '../../ui/shell-primitives';
 
 /** One row of the tab search: an open tab reduced to what the list shows. */
 export interface TabSearchEntry {

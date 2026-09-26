@@ -1,12 +1,21 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   EDITOR_MIN_WIDTH,
+  GRAPH_LANES,
   RAIL_WIDTH,
   filterOutline,
+  graphLine,
   hasRoomForRail,
   idsInView,
+  pathData,
+  railAnchors,
+  railNeedsFold,
   scanOutline,
+  sliceLine,
+  toRail,
+  type OutlineSection,
   type OutlineSpan,
+  type RailRow,
 } from './outline';
 
 function editor(html: string): HTMLElement {
@@ -132,21 +141,20 @@ describe('idsInView', () => {
 });
 
 describe('hasRoomForRail', () => {
-  const GAP = 24;
-  const LIST = 340;
+  const GAP = 16;
+  const LIST = 260;
   /** What the body must measure for the editor to land exactly on its minimum. */
   const EXACT = EDITOR_MIN_WIDTH + LIST + GAP * 2 + RAIL_WIDTH;
 
-  it('gives the rail a column only once the editor has its full width', () => {
+  it('gives the rail a column only once the editor has its minimum width', () => {
     expect(hasRoomForRail(EXACT, LIST, GAP)).toBe(true);
     expect(hasRoomForRail(EXACT - 1, LIST, GAP)).toBe(false);
   });
 
-  // The editor's content caps at 560 and carries a 24 px gutter either side.
-  // Anything less and the rail would be appearing by taking the padding back
-  // off the form it is meant to be a map of.
-  it('counts the editor as its content width plus both gutters', () => {
-    expect(EDITOR_MIN_WIDTH).toBe(560 + 24 * 2);
+  // A form narrower than this starts wrapping its rows onto two lines, and a
+  // map of the page is not worth doubling the page's height.
+  it('counts the editor as a two-column form plus both gutters', () => {
+    expect(EDITOR_MIN_WIDTH).toBe(448 + 16 * 2);
   });
 
   it('gives the column back as the list column is dragged wider', () => {
@@ -161,6 +169,214 @@ describe('hasRoomForRail', () => {
   it('is a pure function of the space, not of the rail being shown', () => {
     expect(hasRoomForRail(EXACT, LIST, GAP)).toBe(hasRoomForRail(EXACT, LIST, GAP));
     expect(hasRoomForRail(1600, LIST, GAP)).toBe(true);
-    expect(hasRoomForRail(900, LIST, GAP)).toBe(false);
+    expect(hasRoomForRail(700, LIST, GAP)).toBe(false);
+  });
+
+  // The whole point of the budget: an M4 iPad held sideways shows the outline.
+  // The window minus the 60 px app rail, the folded 56 px section list and the
+  // page's 16 px gutters is what the manage body gets.
+  it('fits on an 11-inch and a 13-inch M4 iPad in landscape', () => {
+    const body = (window: number, sectionList: number) => window - 60 - sectionList - 16 * 2;
+    expect(hasRoomForRail(body(1180, 56), LIST, GAP)).toBe(true); // iPad Air 11"
+    expect(hasRoomForRail(body(1210, 56), LIST, GAP)).toBe(true); // iPad Pro 11"
+    expect(hasRoomForRail(body(1376, 200), LIST, GAP)).toBe(true); // iPad Pro 13", list open
+  });
+});
+
+describe('railNeedsFold', () => {
+  const GAP = 16;
+  const LIST = 260;
+  const EXACT = EDITOR_MIN_WIDTH + LIST + GAP * 2 + RAIL_WIDTH;
+
+  it('asks for the fold only when folding is what makes the room', () => {
+    expect(railNeedsFold(EXACT - 144, EXACT, LIST, GAP)).toBe(true);
+  });
+
+  it('leaves the section list alone when there is room with it open', () => {
+    expect(railNeedsFold(EXACT, EXACT + 144, LIST, GAP)).toBe(false);
+  });
+
+  // Folding there would cost the labels and still not show the outline.
+  it('leaves it alone when there is no room even folded', () => {
+    expect(railNeedsFold(EXACT - 400, EXACT - 256, LIST, GAP)).toBe(false);
+  });
+});
+
+/** Rows of a fixed height, stacked with a gap, the way the rail lays them out. */
+function stack(depths: number[], height = 24, gap = 2): RailRow[] {
+  let y = 0;
+  return depths.map((depth, i) => {
+    const row = { id: `r${i}`, depth, top: y, bottom: y + height };
+    y += height + gap;
+    return row;
+  });
+}
+
+describe('graphLine', () => {
+  const [section, setting] = GRAPH_LANES;
+
+  it('runs straight down a folded outline in two points', () => {
+    const line = graphLine(stack([0, 0, 0]));
+    expect(line).toEqual([
+      { x: section, y: 0 },
+      { x: section, y: 76 },
+    ]);
+  });
+
+  it('swings in under an open section and back out before the next one', () => {
+    const line = graphLine(stack([0, 1, 1, 0]));
+    const xs = line.map((p) => p.x);
+    expect(xs[0]).toBe(section);
+    expect(Math.max(...xs)).toBe(setting);
+    expect(xs[xs.length - 1]).toBe(section);
+  });
+
+  // The bend is centred on the seam between the rows and kept inside them, so
+  // the line reaches a row's lane before the row's middle.
+  it('bends across the seam, never past the middle of either row', () => {
+    const rows = stack([0, 1]);
+    const line = graphLine(rows);
+    const bend = line.filter((p) => p.x !== section && p.x !== setting);
+    const seam = (rows[0].bottom + rows[1].top) / 2;
+    for (const p of bend) {
+      expect(p.y).toBeGreaterThan((rows[0].top + rows[0].bottom) / 2);
+      expect(p.y).toBeLessThan((rows[1].top + rows[1].bottom) / 2);
+    }
+    expect(bend.some((p) => p.y < seam) && bend.some((p) => p.y > seam)).toBe(true);
+  });
+
+  it('never goes back up, so a band of height cuts it once', () => {
+    const line = graphLine(stack([0, 1, 1, 0, 1, 0, 0, 1]));
+    for (let i = 1; i < line.length; i++) {
+      expect(line[i].y).toBeGreaterThanOrEqual(line[i - 1].y);
+    }
+  });
+
+  it('is empty for an empty outline', () => {
+    expect(graphLine([])).toEqual([]);
+  });
+});
+
+describe('sliceLine', () => {
+  const line = graphLine(stack([0, 1, 1, 0]));
+
+  it('starts and stops exactly at the band it was asked for', () => {
+    const slice = sliceLine(line, 10, 60);
+    expect(slice[0].y).toBe(10);
+    expect(slice[slice.length - 1].y).toBe(60);
+  });
+
+  it('keeps the bends that fall inside the band', () => {
+    const slice = sliceLine(line, 0, 104);
+    expect(new Set(slice.map((p) => p.x)).size).toBeGreaterThan(2);
+  });
+
+  it('interpolates onto the line mid-bend rather than snapping to a lane', () => {
+    const rows = stack([0, 1]);
+    const seam = (rows[0].bottom + rows[1].top) / 2;
+    const [start] = sliceLine(graphLine(rows), seam, rows[1].bottom);
+    expect(start.x).toBeGreaterThan(GRAPH_LANES[0]);
+    expect(start.x).toBeLessThan(GRAPH_LANES[1]);
+  });
+
+  it('clips a band that runs past either end of the line', () => {
+    const slice = sliceLine(line, -50, 500);
+    expect(slice[0].y).toBe(0);
+    expect(slice[slice.length - 1].y).toBe(line[line.length - 1].y);
+  });
+
+  it('is empty for a band that misses the line or has no height', () => {
+    expect(sliceLine(line, 200, 300)).toEqual([]);
+    expect(sliceLine(line, 30, 30)).toEqual([]);
+  });
+});
+
+describe('pathData', () => {
+  it('writes a move then lines, rounded to a hundredth', () => {
+    expect(
+      pathData([
+        { x: 7, y: 0 },
+        { x: 7.123, y: 10.5 },
+      ]),
+    ).toBe('M7 0 L7.12 10.5');
+  });
+});
+
+describe('railAnchors and toRail', () => {
+  const el = document.createElement('div');
+  const section = (id: string, entries: string[]): OutlineSection => ({
+    id,
+    title: id,
+    el,
+    entries: entries.map((e) => ({ id: e, title: e, el })),
+  });
+
+  // Two sections in the editor: A is 0–400 with its header down to 100 and two
+  // settings at 100–250 and 250–400; B is 420–1000 with nothing listed.
+  const sections = [section('A', ['a1', 'a2']), section('B', [])];
+  const spans = new Map<string, OutlineSpan>([
+    ['A', { top: 0, bottom: 400 }],
+    ['a1', { top: 100, bottom: 250 }],
+    ['a2', { top: 250, bottom: 400 }],
+    ['B', { top: 420, bottom: 1000 }],
+  ]);
+
+  it('maps an open section header, each setting, and a folded section onto their rows', () => {
+    const rows = new Map<string, RailRow>(
+      stack([0, 1, 1, 0], 20, 0).map((row, i) => [['A', 'a1', 'a2', 'B'][i], row]),
+    );
+    const anchors = railAnchors(sections, () => true, spans, rows);
+    expect(toRail(anchors, 0)).toBe(0);
+    expect(toRail(anchors, 100)).toBe(20); // A's header ends where a1 starts
+    expect(toRail(anchors, 175)).toBe(30); // halfway down a1
+    expect(toRail(anchors, 1000)).toBe(80); // the bottom of B
+  });
+
+  it('maps a whole folded section onto its one row', () => {
+    const rows = new Map<string, RailRow>([
+      ['A', { id: 'A', depth: 0, top: 0, bottom: 20 }],
+      ['B', { id: 'B', depth: 0, top: 20, bottom: 40 }],
+    ]);
+    const anchors = railAnchors(sections, () => false, spans, rows);
+    expect(toRail(anchors, 200)).toBe(10);
+    expect(toRail(anchors, 710)).toBe(30);
+  });
+
+  // The window is the point: it slides pixel by pixel, not row by row.
+  it('moves continuously as the editor scrolls', () => {
+    const rows = new Map<string, RailRow>(
+      stack([0, 1, 1, 0], 20, 0).map((row, i) => [['A', 'a1', 'a2', 'B'][i], row]),
+    );
+    const anchors = railAnchors(sections, () => true, spans, rows);
+    const a = toRail(anchors, 150);
+    const b = toRail(anchors, 151);
+    expect(b).toBeGreaterThan(a);
+    expect(b - a).toBeLessThan(1);
+  });
+
+  it('pins content above the first section and below the last to the ends', () => {
+    const rows = new Map<string, RailRow>([
+      ['A', { id: 'A', depth: 0, top: 4, bottom: 24 }],
+      ['B', { id: 'B', depth: 0, top: 26, bottom: 46 }],
+    ]);
+    const anchors = railAnchors(sections, () => false, spans, rows);
+    expect(toRail(anchors, -100)).toBe(4);
+    expect(toRail(anchors, 5000)).toBe(46);
+  });
+
+  it('never runs backwards, even over measurements that overlap', () => {
+    const rows = new Map<string, RailRow>(
+      stack([0, 1, 1, 0], 20, 0).map((row, i) => [['A', 'a1', 'a2', 'B'][i], row]),
+    );
+    const overlapping = new Map(spans).set('a2', { top: 200, bottom: 380 });
+    const anchors = railAnchors(sections, () => true, overlapping, rows);
+    for (let i = 1; i < anchors.length; i++) {
+      expect(anchors[i].from).toBeGreaterThanOrEqual(anchors[i - 1].from);
+      expect(anchors[i].to).toBeGreaterThanOrEqual(anchors[i - 1].to);
+    }
+  });
+
+  it('is zero for an outline with nothing drawn', () => {
+    expect(toRail([], 300)).toBe(0);
   });
 });

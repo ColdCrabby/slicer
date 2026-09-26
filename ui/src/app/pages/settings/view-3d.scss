@@ -1,0 +1,13 @@
+@use './settings';
+
+.fov-control {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  width: min(320px, 100%);
+}
+
+.fov-slider {
+  flex: 1;
+  min-width: 0;
+}

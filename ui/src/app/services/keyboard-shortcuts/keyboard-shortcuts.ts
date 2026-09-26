@@ -1,10 +1,10 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, Injector, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { fromEvent } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
 import { matchKeybindingPress, parseKeybinding } from 'tinykeys';
 import { Arrange } from '../arrange';
-import { GcodePreview } from '../gcode-preview';
+import type { GcodePreview } from '../gcode-preview';
 import { SceneEngine } from '../scene-engine';
 import { SceneHistory } from '../scene-history/scene-history';
 import { Slicer } from '../slicer';
@@ -52,7 +52,7 @@ export class KeyboardShortcuts {
   private readonly sceneEngine = inject(SceneEngine);
   private readonly viewerControl = inject(ViewerControl);
   private readonly slicer = inject(Slicer);
-  private readonly gcodePreview = inject(GcodePreview);
+  private readonly injector = inject(Injector);
   private readonly workplate = inject(WorkplateObjects);
   private readonly sceneCommand = inject(SceneCommand);
 
@@ -542,10 +542,12 @@ export class KeyboardShortcuts {
       return;
     }
     this.viewerControl.viewMode.set('gcode');
-    const status = this.slicer.status();
-    if (!this.gcodePreview.gcodeHandle() && status !== 'slicing' && status !== 'uploading') {
-      void this.slicer.slice();
-    }
+    this.withGcodePreview((preview) => {
+      const status = this.slicer.status();
+      if (!preview.gcodeHandle() && status !== 'slicing' && status !== 'uploading') {
+        void this.slicer.slice();
+      }
+    });
   }
 
   private toggleProjection(): void {
@@ -640,19 +642,32 @@ export class KeyboardShortcuts {
   }
 
   private gcodeNextExtrusion(): void {
-    this.gcodePreview.stepSegment(1);
+    this.withGcodePreview((preview) => preview.stepSegment(1));
   }
 
   private gcodePrevExtrusion(): void {
-    this.gcodePreview.stepSegment(-1);
+    this.withGcodePreview((preview) => preview.stepSegment(-1));
   }
 
   private gcodeNextLayer(): void {
-    this.gcodePreview.stepLayer(1);
+    this.withGcodePreview((preview) => preview.stepLayer(1));
   }
 
   private gcodePrevLayer(): void {
-    this.gcodePreview.stepLayer(-1);
+    this.withGcodePreview((preview) => preview.stepLayer(-1));
+  }
+
+  /**
+   * Reach the G-code preview without making this service depend on it.
+   *
+   * This service is constructed at startup, so a static import here would put
+   * the preview — and the scene engine's wasm glue it imports — in the initial
+   * bundle, and injecting it would start its effects before any plate exists.
+   * Every shortcut that needs it only matches on the plate, where the slicing
+   * shell has already loaded and created it, so the import resolves at once.
+   */
+  private withGcodePreview(use: (preview: GcodePreview) => void): void {
+    void import('../gcode-preview').then((m) => use(this.injector.get(m.GcodePreview)));
   }
 }
 
