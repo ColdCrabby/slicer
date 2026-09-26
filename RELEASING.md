@@ -11,7 +11,7 @@ version by hand.
 | Build | Made by | Who it is for | Where |
 | --- | --- | --- | --- |
 | **PR preview** | every push to a pull request | reviewers, before it merges | its own address on Cloudflare Pages |
-| **Latest dev build** | every merge to `main` | anyone who wants the newest work today | the Releases page (desktop), GitHub Pages (web) |
+| **Latest dev build** | every merge to `main` | anyone who wants the newest work today | the Releases page (desktop), [slicer.maxscopp.de](https://slicer.maxscopp.de/) on GitHub Pages (web) |
 | **Release candidate** | a `vX.Y.Z-rc.N` tag | the final test sweep before a release | a GitHub pre-release |
 | **Release** | a `vX.Y.Z` tag | everyone | a GitHub Release |
 
@@ -207,6 +207,15 @@ build** (tag `dev-build`) with fresh Windows and macOS desktop bundles.
   `…/releases/download/dev-build/Slicer-Engine-Desktop-macOS.dmg`.
 - **Never cancelled mid-build.** Merges that arrive during a build queue up and
   collapse into one follow-up build of the newest commit.
+
+### On the web
+
+The web slicer and the docs at [slicer.maxscopp.de](https://slicer.maxscopp.de/)
+are the Latest dev build too:
+[`.github/workflows/deploy-docs.yml`](.github/workflows/deploy-docs.yml)
+publishes them to GitHub Pages after every merge to `main` that touches them.
+The custom domain comes from [`ui/public/CNAME`](ui/public/CNAME), which the
+UI build copies into the site — delete it and the domain goes with it.
 
 ## PR previews
 
