@@ -12,13 +12,21 @@ All of this is also in the app under **Settings → Controls → Keyboard shortc
 | Redo | `⌘/Ctrl + Y` or `⌘/Ctrl + Shift + Z` |
 | Place objects on the bed | `A` |
 | Select all objects | `⌘/Ctrl + A` |
-| Duplicate the selection | `⌘/Ctrl + D` |
+| Duplicate the selection | `⌘/Ctrl + D` — the copies become the selection |
 | Remove the selection | `Delete` or `Backspace` — undo brings it back |
+| Nudge the selection 1 mm | `←` `→` `↑` `↓` — hold `Shift` for 10 mm, `Alt`/`⌥` for 0.1 mm |
 | Slice the plate | `⌘/Ctrl + Enter` |
-| Put away a card, or clear the selection | `Esc` |
+| Put away a card, clear the selection, or put the tool down | `Esc` |
 
 `Esc` closes whatever floats over the plate — the placement card, the brush
-popout, the print-settings drawer — and clears the selection.
+popout, the print-settings drawer — then works back one step at a time: it
+puts down the brush, pull-to-floor or Place objects straight away; with Rotate
+or Scale it clears the selection first, and the next `Esc` goes back to Select &
+move.
+
+The arrow keys move the selection the way you are looking at it — `→` is right
+on screen, whichever side of the printer you're viewing from — one whole step
+along the bed's X or Y. A held key keeps going, and the whole run is one undo.
 
 Shortcuts stand down while you are typing in a field, so they can't reach past
 your caret — that includes the G-code arrows — and the plate shortcuts only work
@@ -40,18 +48,22 @@ walks the rest of the card as usual, and `Esc` puts you back on the plate.
 
 | Action | Key |
 | --- | --- |
-| Move | `M` |
+| Select & move | `M` |
 | Rotate | `R` |
 | Scale | `S` |
 | Pull a face to the floor | `F` |
 | Paint supports | `B` |
 | Brush size and mode, at the pointer | `Shift + B` |
 
+Press a tool's key again to put it down and go back to Select & move — `B` to
+start painting, `B` to stop.
+
 ## View
 
 | Action | Key |
 | --- | --- |
 | Toggle gravity | `G` |
+| Zoom to the selection, or to everything | `Z` |
 | Model ↔ G-code preview | `P` |
 | Orthographic ↔ perspective | `Shift + Space` |
 
@@ -108,11 +120,22 @@ On a Mac, the desktop app also lists these under **File** in the menu bar.
 
 | Action | Input |
 | --- | --- |
-| Orbit | Left-drag |
+| Orbit | Left-drag on empty bed |
 | Pan | Right-drag |
 | Zoom | Scroll |
 | Select | Click a model |
-| Context menu | Right-click a model, a workplate tab, or a list row |
+| Add or remove one | `⌘`-click on a Mac, `Ctrl`-click elsewhere — or `Shift`-click |
+| Move a model | Drag it, with Select & move — no need to click it first |
+| Select with a box | `Shift`-drag — `Alt`/`⌥`-drag takes the box's contents away instead |
+| Zoom to a model | Double-click it — double-click empty bed for everything |
+| Context menu | Right-click a model, a workplate tab, or a list row — or `⌃`-click on a Mac |
+
+In the objects list, `Shift`-click selects every row between the last one you
+clicked and this one, and double-clicking a row zooms to that model.
+
+A `⌘`- or `Shift`-click that misses every model leaves the selection alone, so
+building a selection doesn't fall apart on a slip. A plain click on empty bed
+clears it.
 
 ## Touch and pen
 
@@ -122,7 +145,13 @@ On a Mac, the desktop app also lists these under **File** in the menu bar.
 | Orbit or pan | Two-finger swipe — pick which in **Settings → Controls** |
 | Zoom | Pinch |
 | Context menu | Long-press |
+| Move a model | Tap it, then drag it |
 | Add to or remove from the selection | Long-press a model → **Add to selection** / **Remove from selection** |
+| Select with a box | Turn on **Multi-select**, then drag across the bed with the pencil |
+| Erase painted support | Turn the pen over and use its eraser end (Surface Pen, Wacom) |
+
+With **Multi-select** on, the pencil draws a selection box while your fingers
+keep turning the view — nothing to switch between.
 
 **Palm rejection** is on by default. Once you've used a stylus, a resting hand
 stops moving the camera. Turn it off in **Settings → Controls** if you don't use

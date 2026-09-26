@@ -61,12 +61,10 @@ export class Arrange {
   private readonly injector = inject(Injector);
 
   /**
-   * The slicer, resolved on first read rather than at construction.
-   *
-   * `Slicer` injects `WorkplateObjects`, which injects this service; taking
-   * `Slicer` eagerly closes that loop and Angular refuses to build any of the
-   * three (NG0200), which leaves the whole app blank. Only the two computeds
-   * below read it, and they run long after construction has finished.
+   * Resolved on first use, not at construction: `Slicer` needs
+   * `WorkplateObjects`, which needs this service, so injecting it eagerly is a
+   * construction cycle and the app fails to start. It is only read inside the
+   * computeds below, long after all three exist.
    */
   private get slicer(): Slicer {
     return this.injector.get(Slicer);

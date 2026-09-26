@@ -1,15 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { BrowserStorage } from '../../services/browser-storage';
 import { SceneEngine, type SceneObjectSnapshot } from '../../services/scene-engine';
-import { ViewerControl } from '../../services/viewer-control';
+import { isSecondaryClick, isToggleClick, ViewerControl } from '../../services/viewer-control';
 import { Viewport } from '../../services/viewport';
 import { MODEL_FILE_ACCEPT } from '../../services/model-source';
-import { WorkplateObjects } from '../../services/workplate-objects';
+import { objectMenuItems, WorkplateObjects } from '../../services/workplate-objects';
 import { Icon, TooltipDirective } from '@coldcrabby/ui';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
-import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
-import { SceneCommand } from '../../services/scene-command/scene-command';
 
 /** Remembers whether the user folded the list away, per device. */
 const EXPANDED_KEY = 'plate.objectsPanelExpanded';
@@ -57,7 +55,6 @@ export class ObjectsPanel {
   private readonly viewport = inject(Viewport);
   private readonly storage = inject(BrowserStorage);
   private readonly contextMenu = inject(ContextMenuService);
-  private readonly sceneCommand = inject(SceneCommand);
 
   protected readonly modelFileAccept = MODEL_FILE_ACCEPT;
 
@@ -167,16 +164,43 @@ export class ObjectsPanel {
     }
   }
 
+  /** The row a Shift-click extends from: the last one clicked without Shift. */
+  private rangeAnchor: bigint | null = null;
+
+  /**
+   * Select a row the way a file list does.
+   *
+   * - **Click** — just this object.
+   * - **⌘-click** (Ctrl off Apple platforms) — toggle it in or out.
+   * - **Shift-click** — every row from the last one clicked to this one.
+   *
+   * Multi-select mode stands in for ⌘ on touch, so a tapped row behaves like a
+   * tapped model. ⌃-click on a Mac is the context menu and never selects.
+   */
   protected select(row: ObjectRow, event: Event): void {
     // Angular types `(keydown.enter)` as a plain Event, so narrow rather than
-    // assume the modifier keys are present. Multi-select mode stands in for the
-    // modifier on touch, so a tapped row behaves like a tapped model.
-    const additive =
-      this.viewerControl.additiveSelection() ||
-      ((event instanceof MouseEvent || event instanceof KeyboardEvent) &&
-        (event.shiftKey || event.metaKey || event.ctrlKey));
+    // assume the modifier keys are present.
+    const keys = event instanceof MouseEvent || event instanceof KeyboardEvent ? event : null;
+    if (event instanceof MouseEvent && isSecondaryClick(event)) {
+      return;
+    }
     const current = this.viewerControl.selectedObjectIds();
-    if (!additive) {
+    if (keys?.shiftKey && this.rangeAnchor !== null) {
+      const ids = this.rows().map((r) => r.id);
+      const from = ids.indexOf(this.rangeAnchor);
+      const to = ids.indexOf(row.id);
+      if (from !== -1 && to !== -1) {
+        const range = ids.slice(Math.min(from, to), Math.max(from, to) + 1);
+        // A range adds to a ⌘-built selection rather than replacing it, as in
+        // Finder: ⌘-pick a few, then Shift-click to sweep in a run.
+        const kept = isToggleClick(keys) ? current.filter((id) => !range.includes(id)) : [];
+        this.viewerControl.selectedObjectIds.set([...kept, ...range]);
+        return;
+      }
+    }
+    this.rangeAnchor = row.id;
+    const toggle = this.viewerControl.additiveSelection() || (keys !== null && isToggleClick(keys));
+    if (!toggle) {
       this.viewerControl.selectedObjectIds.set([row.id]);
       return;
     }
@@ -185,9 +209,15 @@ export class ObjectsPanel {
     );
   }
 
+  /** Double-click a row to find its object on the plate. */
+  protected zoomTo(row: ObjectRow): void {
+    this.viewerControl.frameObjects([row.id]);
+  }
+
   protected duplicate(row: ObjectRow, event: Event): void {
     event.stopPropagation();
-    this.workplate.duplicate(row.id);
+    // Select the copy, as ⌘D does: the next thing done is usually moving it.
+    this.viewerControl.selectedObjectIds.set(this.workplate.duplicateAll([row.id]));
   }
 
   protected requestDelete(row: ObjectRow, event: Event): void {
@@ -203,36 +233,14 @@ export class ObjectsPanel {
   }
 
   /**
-   * The same actions the 3D scene offers on a long-press, on the row that
-   * stands for the same object. The list had only the two buttons that fit
-   * beside a name, so drop-to-floor and centre were reachable only by finding
-   * the part on the plate.
+   * The same menu the 3D scene offers for the same object — acting on the whole
+   * selection when the row is part of it, just as a right-click on the model
+   * does.
    */
   protected onContextMenu(event: MouseEvent, row: ObjectRow): void {
-    const items: ContextMenuItem[] = [
-      { label: 'Duplicate', icon: 'copy', action: () => this.workplate.duplicate(row.id) },
-      {
-        label: 'Drop to floor',
-        icon: 'download',
-        action: () => this.sceneCommand.apply({ op: 'DropToFloor', args: { id: row.id } }),
-      },
-      {
-        label: 'Centre on bed',
-        icon: 'frame-alt',
-        action: () => this.sceneCommand.apply({ op: 'CenterOnBed', args: { id: row.id } }),
-      },
-      { label: '', separator: true },
-      {
-        label: 'Remove',
-        icon: 'bin',
-        danger: true,
-        action: () => {
-          this.workplate.remove(row.id);
-          this.viewerControl.selectedObjectIds.update((ids) => ids.filter((id) => id !== row.id));
-        },
-      },
-    ];
-    void this.contextMenu.open(event, items);
+    const selected = this.viewerControl.selectedObjectIds();
+    const targets = selected.includes(row.id) ? [...selected] : [row.id];
+    void this.contextMenu.open(event, objectMenuItems(targets, this.workplate, this.viewerControl));
   }
 
   protected cancelDelete(event: Event): void {
