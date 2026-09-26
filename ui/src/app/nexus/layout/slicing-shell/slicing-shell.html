@@ -28,6 +28,16 @@
   </div>
 </main>
 
+<!-- A panel beside the plate rather than over it: models are picked while
+     looking at where they will go. On the right because the left edge belongs
+     to the print settings, which float over it. Loaded on first open — most
+     plates never ask. -->
+@if (libraryFlyout.open()) {
+  @defer (on immediate) {
+    <nexus-library-flyout class="library-flyout" nexusPanel />
+  }
+}
+
 <!-- A panel beside the scene, not an overlay on it: the text is read
      alongside the toolpath it describes, so it takes width rather than
      covering the thing the caret is pointing at. -->

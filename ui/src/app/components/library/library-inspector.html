@@ -1,0 +1,126 @@
+<div class="inspector-top">
+  <input
+    #name
+    class="inspector-name"
+    aria-label="Name"
+    [value]="entry().name"
+    (keydown.enter)="name.blur()"
+    (keydown.escape)="$event.stopPropagation(); revert(name)"
+    (blur)="rename($event)"
+  />
+  <button nexusIconButton type="button" aria-label="Close" (click)="dismiss.emit()">
+    <nexus-icon name="xmark" />
+  </button>
+</div>
+
+@if (missing()) {
+  <div class="inspector-missing">
+    <nexus-icon name="warning-triangle" />
+    <span>The file for this model has been moved or deleted.</span>
+  </div>
+} @else {
+  <nexus-library-preview [file]="previewFile()" [placeholder]="thumbnail()" />
+}
+
+<div class="inspector-actions">
+  @if (actions.openPlate()) {
+    <button
+      nexusButton
+      variant="primary"
+      type="button"
+      [disabled]="actions.busy() || missing()"
+      (click)="actions.addToPlate(entry())"
+    >
+      Add to plate
+    </button>
+    <button
+      nexusButton
+      type="button"
+      [disabled]="actions.busy() || missing()"
+      (click)="actions.openAsPlate(entry())"
+    >
+      New plate
+    </button>
+  } @else {
+    <button
+      nexusButton
+      variant="primary"
+      type="button"
+      [disabled]="actions.busy() || missing()"
+      (click)="actions.openAsPlate(entry())"
+    >
+      Put on a new plate
+    </button>
+  }
+</div>
+
+<dl class="inspector-facts">
+  @if (extents(); as dims) {
+    <dt>Size</dt>
+    <dd>{{ dims }}</dd>
+  }
+  @if (entry().shape; as shape) {
+    <dt>Triangles</dt>
+    <dd>{{ shape.triangles.toLocaleString() }}</dd>
+    @if (shape.parts > 1) {
+      <dt>Parts</dt>
+      <dd>{{ shape.parts }}</dd>
+    }
+  }
+  <dt>File</dt>
+  <dd>{{ entry().format.toUpperCase() }} · {{ fileSize() }}</dd>
+  <dt>First seen</dt>
+  <dd>{{ firstSeen() }}</dd>
+  <dt>Used</dt>
+  <dd [attr.title]="lastUsedExact()">{{ usage() }}</dd>
+  @if (alsoSeenAs() > 0) {
+    <dt>Matched</dt>
+    <dd>
+      {{ alsoSeenAs() }} other {{ alsoSeenAs() === 1 ? 'file' : 'files' }} turned out to be this
+      model
+    </dd>
+  }
+</dl>
+
+@if ((entry().locations ?? []).length > 0 && library.capabilities.visibleFolder) {
+  <ul class="inspector-locations" aria-label="Where this model is kept">
+    @for (location of entry().locations; track location.path) {
+      <li [class.is-missing]="location.missing">
+        <nexus-icon [name]="location.kind === 'copy' ? 'archive' : 'link'" />
+        <span class="location-text">
+          <span class="location-kind">
+            {{ location.kind === 'copy' ? 'Copy in the library' : 'Linked file' }}
+            @if (location.missing) {
+              · missing
+            }
+          </span>
+          <span class="location-path" [title]="location.path">{{ location.path }}</span>
+        </span>
+        @if (library.capabilities.reveal && !location.missing) {
+          <button
+            nexusIconButton
+            type="button"
+            [attr.aria-label]="revealLabel"
+            (click)="library.reveal(entry(), location.path)"
+          >
+            <nexus-icon name="open-new-window" />
+          </button>
+        }
+      </li>
+    }
+  </ul>
+}
+
+<button
+  nexusButton
+  variant="ghost"
+  size="sm"
+  type="button"
+  class="inspector-remove"
+  [class.is-confirming]="confirmingRemove()"
+  (click)="remove()"
+  (blur)="disarm()"
+>
+  <nexus-icon name="trash" />
+  {{ confirmingRemove() ? 'Confirm?' : removeLabel() }}
+</button>

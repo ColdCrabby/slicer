@@ -1,0 +1,70 @@
+<div
+  class="library"
+  [class.is-drag-active]="dragActive()"
+  (dragenter)="onDragEnter($event)"
+  (dragover)="onDragOver($event)"
+  (dragleave)="onDragLeave($event)"
+  (drop)="onDrop($event)"
+>
+  <div class="library-main">
+    <nexus-section-header heading="Library" [description]="description()">
+      @if (library.capabilities.visibleFolder || library.capabilities.watchFolders) {
+        <button
+          nexusIconButton
+          type="button"
+          aria-label="Look for new models"
+          [disabled]="library.loading()"
+          (click)="rescan()"
+        >
+          <nexus-icon name="refresh" />
+        </button>
+      }
+      <button nexusButton variant="primary" size="sm" type="button" (click)="pickFiles()">
+        <nexus-icon name="plus" /> Add models
+      </button>
+    </nexus-section-header>
+    <input
+      #fileInput
+      type="file"
+      multiple
+      hidden
+      [accept]="accept"
+      (change)="onFilesPicked($event)"
+    />
+
+    @if (library.entries().length > 0) {
+      <nexus-library-browser
+        [selectedId]="selectedId()"
+        (pick)="select($event)"
+        (activate)="activate($event)"
+        (rename)="rename($event)"
+      />
+    } @else if (library.loaded()) {
+      <nexus-empty-state
+        icon="book-stack"
+        heading="Your library is empty"
+        description="Every model you put on a plate is kept here, once, ready for the next plate."
+      >
+        <button nexusButton variant="primary" type="button" (click)="pickFiles()">
+          Add models
+        </button>
+      </nexus-empty-state>
+    }
+
+    @if (folderHint) {
+      <p class="library-hint">{{ folderHint }}</p>
+    }
+  </div>
+
+  <aside
+    class="library-side"
+    [class.has-selection]="selected() !== null"
+    [attr.aria-label]="selected() ? 'Selected model' : 'About this library'"
+  >
+    @if (selected(); as entry) {
+      <nexus-library-inspector [entry]="entry" (dismiss)="select(null)" />
+    } @else {
+      <nexus-library-overview />
+    }
+  </aside>
+</div>

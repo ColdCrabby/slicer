@@ -1,0 +1,67 @@
+@use 'breakpoints' as *;
+
+:host {
+  display: block;
+  height: 100%;
+}
+
+.library {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  transition: background var(--duration-fast) var(--ease-standard);
+
+  &.is-drag-active {
+    background: var(--accent-softer);
+  }
+
+  @include handheld {
+    flex-direction: column-reverse;
+    justify-content: flex-end;
+    overflow-y: auto;
+  }
+}
+
+.library-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  padding: var(--spacing-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+
+  @include handheld {
+    overflow: visible;
+    padding: var(--spacing-lg);
+  }
+}
+
+.library-hint {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+// ── Side panel: the selected model, or the library itself ──
+
+.library-side {
+  flex: none;
+  width: 320px;
+  overflow-y: auto;
+  padding: var(--spacing-xl) var(--spacing-lg);
+  background: var(--color-bg-secondary);
+
+  // A phone has no room beside the grid, so the panel stacks above it — and
+  // only for a selection. The overview's choices matter on the desktop, where
+  // there are choices to make.
+  @include handheld {
+    width: auto;
+    overflow: visible;
+    padding: var(--spacing-lg);
+
+    &:not(.has-selection) {
+      display: none;
+    }
+  }
+}

@@ -221,6 +221,7 @@ export default withMermaid(
               { text: "Getting started", link: "/use/" },
               { text: "The interface", link: "/use/interface" },
               { text: "The build plate", link: "/use/plate" },
+              { text: "The library", link: "/use/library" },
               { text: "Print settings", link: "/use/settings" },
               { text: "Printers & profiles", link: "/use/profiles" },
               { text: "Reading the preview", link: "/use/preview" },

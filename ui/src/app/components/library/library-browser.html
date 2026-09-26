@@ -1,0 +1,57 @@
+<div class="browser-toolbar">
+  <div class="mgr__search has-focus-ring browser-search">
+    <nexus-icon name="search" />
+    <input
+      #search
+      type="search"
+      placeholder="Search"
+      aria-label="Search the library"
+      [value]="query()"
+      (input)="query.set($any($event.target).value)"
+      (keydown.escape)="escapeSearch($event, search)"
+    />
+    @if (query()) {
+      <button
+        class="mgr__search-clear"
+        type="button"
+        aria-label="Clear search"
+        (click)="clearQuery(search)"
+      >
+        <nexus-icon name="xmark" />
+      </button>
+    }
+  </div>
+  <button
+    #sortButton
+    type="button"
+    class="browser-sort"
+    aria-haspopup="menu"
+    [attr.aria-label]="'Sort: ' + sortLabel()"
+    (click)="openSortMenu(sortButton)"
+  >
+    <nexus-icon name="sort" />
+    <span class="browser-sort-label">{{ sortLabel() }}</span>
+    <nexus-icon name="nav-arrow-down" class="browser-sort-caret" />
+  </button>
+  <ng-content />
+</div>
+
+<div class="browser-grid" role="listbox" aria-label="Models">
+  @for (entry of shown(); track entry.id) {
+    <nexus-library-card
+      [entry]="entry"
+      [thumbnail]="library.thumbnails().get(entry.id) ?? null"
+      [rendering]="library.rendering().has(entry.id)"
+      [selected]="selectedId() === entry.id"
+      (visible)="library.ensureThumbnail(entry)"
+      (pick)="pick.emit(entry)"
+      (activate)="activate.emit(entry)"
+      (nexusContextMenu)="openCardMenu($event, entry)"
+    />
+  } @empty {
+    <p class="browser-none">Nothing matches “{{ query() }}”.</p>
+  }
+  @if (more()) {
+    <div #sentinel class="browser-sentinel" aria-hidden="true"></div>
+  }
+</div>

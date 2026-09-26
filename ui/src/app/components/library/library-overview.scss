@@ -1,0 +1,105 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.overview-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+
+  > nexus-radio-group {
+    align-self: stretch;
+  }
+}
+
+.overview-heading {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.overview-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--spacing-xs) var(--spacing-lg);
+  margin: 0;
+  font-size: var(--font-size-sm);
+
+  dt {
+    color: var(--color-text-tertiary);
+  }
+
+  dd {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .is-warning {
+    display: flex;
+    gap: var(--spacing-xs);
+    --icon-size: 14px;
+
+    nexus-icon {
+      flex: none;
+      margin-top: 2px;
+      color: var(--color-warning);
+    }
+  }
+}
+
+.overview-note {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+// Paths are long and their ends are what tell them apart, so they truncate at
+// the start.
+.overview-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  min-width: 0;
+}
+
+.overview-note .overview-path {
+  display: block;
+  color: var(--color-text-tertiary);
+}
+
+.overview-folders {
+  align-self: stretch;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-primary);
+    --icon-size: 16px;
+
+    > nexus-icon {
+      flex: none;
+      color: var(--color-text-tertiary);
+    }
+
+    .overview-path {
+      flex: 1;
+    }
+  }
+}

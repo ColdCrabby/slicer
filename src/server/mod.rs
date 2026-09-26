@@ -132,6 +132,7 @@ async fn run_server(
         // Retained for the server's lifetime; sessions each hold a subscriber.
         profiles_changed: tokio::sync::broadcast::channel(16).0,
         workplates_changed: tokio::sync::broadcast::channel(64).0,
+        library: crate::library::LibraryStore::new(),
     });
 
     HttpServer::new(move || {
@@ -223,6 +224,43 @@ async fn run_server(
                     .route(
                         "/workplates/{request_uuid}",
                         web::put().to(handlers::put_workplate_handler),
+                    )
+                    .route("/library", web::get().to(handlers::get_library_handler))
+                    .route(
+                        "/library/settings",
+                        web::put().to(handlers::put_library_settings_handler),
+                    )
+                    .route(
+                        "/library/scan",
+                        web::post().to(handlers::scan_library_handler),
+                    )
+                    .route(
+                        "/library/import",
+                        web::post().to(handlers::import_library_handler),
+                    )
+                    .route(
+                        "/library/{id}",
+                        web::patch().to(handlers::rename_library_handler),
+                    )
+                    .route(
+                        "/library/{id}",
+                        web::delete().to(handlers::delete_library_handler),
+                    )
+                    .route(
+                        "/library/{id}/file",
+                        web::get().to(handlers::get_library_file_handler),
+                    )
+                    .route(
+                        "/library/{id}/thumbnail",
+                        web::get().to(handlers::get_library_thumbnail_handler),
+                    )
+                    .route(
+                        "/library/{id}/thumbnail",
+                        web::put().to(handlers::put_library_thumbnail_handler),
+                    )
+                    .route(
+                        "/library/{id}/place",
+                        web::post().to(handlers::place_library_handler),
                     )
                     .route("/openapi.json", web::get().to(handlers::openapi_handler))
                     .route("/docs", web::get().to(handlers::api_docs_handler))

@@ -1,0 +1,72 @@
+<section class="overview-block">
+  <h2 class="overview-heading">This library</h2>
+  <dl class="overview-facts">
+    <dt>Models</dt>
+    <dd>{{ count() }}</dd>
+    <dt>Size</dt>
+    <dd>{{ totalSize() }}</dd>
+    @if (merged() > 0) {
+      <dt>Duplicates</dt>
+      <dd>
+        {{ merged() }} {{ merged() === 1 ? 'file was' : 'files were' }} already here, kept once
+      </dd>
+    }
+    @if (missing() > 0) {
+      <dt>Missing</dt>
+      <dd class="is-warning">
+        <nexus-icon name="warning-triangle" />
+        {{ missing() }} {{ missing() === 1 ? 'file has' : 'files have' }} been moved or deleted
+      </dd>
+    }
+  </dl>
+</section>
+
+<section class="overview-block">
+  <h2 class="overview-heading">Keep models</h2>
+  @if (modeOptions.length > 1) {
+    <nexus-radio-group
+      label="Keep models"
+      [options]="modeOptions"
+      [value]="mode()"
+      (valueChange)="setMode($event)"
+    />
+    @if (modelsDir(); as dir) {
+      <p class="overview-note">
+        Copies go to <span class="overview-path" [title]="dir">{{ dir }}</span>
+      </p>
+    }
+  } @else {
+    <p class="overview-note">{{ fixedNote }}</p>
+  }
+</section>
+
+@if (capabilities.watchFolders) {
+  <section class="overview-block">
+    <h2 class="overview-heading">Folders</h2>
+    <p class="overview-note">
+      Models in these folders, and folders inside them, appear here linked where they are. Point one
+      at your downloads and new models show up on their own.
+    </p>
+    @if (folders().length > 0) {
+      <ul class="overview-folders">
+        @for (folder of folders(); track folder) {
+          <li>
+            <nexus-icon name="folder" />
+            <span class="overview-path" [title]="folder">{{ folder }}</span>
+            <button
+              nexusIconButton
+              type="button"
+              [attr.aria-label]="'Stop watching ' + folder"
+              (click)="removeFolder(folder)"
+            >
+              <nexus-icon name="xmark" />
+            </button>
+          </li>
+        }
+      </ul>
+    }
+    <button nexusButton size="sm" type="button" (click)="addFolder()">
+      <nexus-icon name="folder-plus" /> Add folder
+    </button>
+  </section>
+}
