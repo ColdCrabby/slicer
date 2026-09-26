@@ -19,8 +19,12 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  gap: var(--spacing-sm);
-  width: 220px;
+  gap: var(--spacing-xs);
+  // Written by the component from `RAIL_WIDTH`, the number the room test uses.
+  width: var(--outline-width);
+  // The line's own tone. The border tokens are tuned for hairlines between
+  // surfaces and vanish as a 1.5 px stroke on the page background.
+  --outline-track: color-mix(in oklab, var(--color-text-tertiary) 55%, transparent);
 }
 
 .profile-outline__filter {
@@ -28,6 +32,7 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-xs);
   padding: var(--spacing-xs) var(--spacing-sm);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -84,23 +89,102 @@
   // Scrollbar gutter rather than padding, so a long outline does not shift
   // sideways when it becomes scrollable.
   scrollbar-gutter: stable;
+  overscroll-behavior: contain;
 }
 
-/* The row is the target: it folds its section, and nothing else. It keeps the
-   sticky top and the "you are here" tone that used to live on the button
-   inside it. */
-.profile-outline__section-row {
-  position: sticky;
+// The positioning context for the graph, and the box both it and the rows are
+// measured against — so a row's `top` and the line's `y` are the same number.
+.profile-outline__list {
+  position: relative;
+  padding-bottom: var(--spacing-sm);
+}
+
+// ── The graph ───────────────────────────────────────────────────────────────
+//
+// Drawn over the rows rather than under them, so a hovered row's background
+// never hides the line; `pointer-events: none` lets every click through.
+
+.profile-outline__graph {
+  position: absolute;
   top: 0;
+  left: 0;
   z-index: 1;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.profile-outline__track {
+  fill: none;
+  stroke: var(--outline-track);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+// The part of the line the editor is showing. A soft wide lens under a crisp
+// core, so it reads as a window laid on the line rather than a second line.
+.profile-outline__lens {
+  fill: none;
+  stroke: var(--accent-softer);
+  stroke-width: 9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.profile-outline__window {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+// A section's node — the commit dot, in git-graph terms. Hollow until the
+// window passes over it; the section the editor is scrolled to gets a ring.
+.profile-outline__node {
+  fill: var(--color-bg-primary);
+  stroke: var(--outline-track);
+  stroke-width: 1.5;
+  transition:
+    fill var(--duration-fast) var(--ease-standard),
+    stroke var(--duration-fast) var(--ease-standard);
+
+  &.is-in-window {
+    fill: var(--accent);
+    stroke: var(--accent);
+  }
+
+  &.is-current {
+    stroke: var(--accent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-outline__node {
+    transition: none;
+  }
+}
+
+// ── Rows ────────────────────────────────────────────────────────────────────
+//
+// Indented against the lanes the line runs in (`--outline-lane-*`, written by
+// the component), so text always starts a node's width clear of the line at
+// its own depth.
+
+/* The row is the target: it folds its section, and nothing else. */
+.profile-outline__section-row {
   display: flex;
   align-items: center;
+  gap: var(--spacing-xs);
   width: 100%;
-  padding: 0;
+  min-height: 26px;
+  margin-top: 2px;
+  padding: 0 var(--spacing-xs) 0 calc(var(--outline-lane-0) + 10px);
   border: none;
   border-radius: var(--radius-sm);
-  background: var(--color-bg-primary);
+  background: transparent;
   cursor: pointer;
+  text-align: left;
   transition: background-color var(--duration-fast) var(--ease-standard);
 
   &:disabled {
@@ -134,92 +218,44 @@
   }
 }
 
-.profile-outline__twisty {
-  display: inline-grid;
-  flex: none;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  margin-left: var(--spacing-xs);
-  color: var(--color-text-tertiary);
-  --icon-size: 12px;
-}
-
 .profile-outline__section {
-  display: flex;
   flex: 1;
-  align-items: center;
-  gap: var(--spacing-sm);
   min-width: 0;
-  padding: var(--spacing-xs) var(--spacing-sm);
+  overflow: hidden;
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
   line-height: 1.5;
-  text-transform: uppercase;
   letter-spacing: 0.04em;
-  text-align: left;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
   transition: color var(--duration-fast) var(--ease-standard);
-
-  span:first-child {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
 }
 
 .profile-outline__count {
   flex: none;
   color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
 }
 
-.profile-outline__entries {
-  // Indented against a hairline guide, the way a code outline shows nesting:
-  // one line for the whole section rather than a rule per row.
-  margin: 0 0 var(--spacing-sm) var(--spacing-sm);
-  padding: 2px 0 0 var(--spacing-sm);
-  border-left: 1px solid var(--color-border-lighter);
-  list-style: none;
+// Trailing, so the leading edge belongs to the line and its nodes.
+.profile-outline__twisty {
+  flex: none;
+  color: var(--color-text-tertiary);
+  --icon-size: 12px;
+  transition: transform var(--duration-fast) var(--ease-standard);
 
-  li {
-    position: relative;
+  &.is-open {
+    transform: rotate(90deg);
   }
 }
 
-/**
- * The window, drawn on the guide line.
- *
- * Each visible row lights its own slice of the rule it is indented against, and
- * because the visible rows are contiguous the slices join into one unbroken
- * bar: the rail becomes a map of the whole editor with the part you can
- * actually see marked on it. A single highlighted heading — the usual
- * table-of-contents treatment — says where you are but never how much of the
- * page that is, which on a form of two hundred rows is the more useful half of
- * the question.
- *
- * Drawn over the guide rather than beside it, so nothing moves when it appears.
- */
-.profile-outline__entries li::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: calc((var(--spacing-sm) + 1px) * -1);
-  width: 2px;
-  border-radius: 999px;
-  background: transparent;
-  transition: background-color var(--duration-fast) var(--ease-standard);
-}
-
-.profile-outline__entries li.is-in-view::before {
-  background: var(--accent);
-}
-
-.profile-outline__entries li.is-in-view .profile-outline__entry {
-  color: var(--color-text-primary);
+.profile-outline__entries {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .profile-outline__entry {
@@ -227,7 +263,7 @@
   width: 100%;
   // Dense on purpose: the rail earns its space only if a whole section fits in
   // a glance. The editor beside it is where the finger-sized targets are.
-  padding: 3px var(--spacing-sm);
+  padding: 3px var(--spacing-sm) 3px calc(var(--outline-lane-1) + 9px);
   border: none;
   border-radius: var(--radius-sm);
   background: none;
@@ -252,6 +288,10 @@
     outline: 2px solid var(--color-focus-ring);
     outline-offset: -2px;
   }
+
+  &.is-in-view {
+    color: var(--color-text-primary);
+  }
 }
 
 .profile-outline__empty {
@@ -266,6 +306,7 @@
   display: flex;
   gap: var(--spacing-xs);
   align-items: center;
+  align-self: flex-start;
   padding: var(--spacing-xs) var(--spacing-sm);
   border: none;
   background: transparent;

@@ -98,6 +98,20 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Changed
 
+- **Settings, regrouped for a glance.** The sidebar splits into **App** and
+  **Library**; each library page shows how many you have and which one is the
+  default. General's twenty rows move to **3D View** and **Controls** (keyboard
+  shortcuts included), each preference is one line with the rest behind its ⓘ,
+  and on/off choices are switches.
+- **Search all of Settings** from the sidebar — pages, preferences, your
+  profiles by name, and every printer, filament and process setting.
+- **Built-in profiles read as editable.** Rename one where its name is, see
+  *Saved* after each change, and put the shipped values back with **Restore
+  defaults**; no more "Duplicate to customise".
+- **The profile outline fits on an iPad.** Tighter columns, and the section list
+  folds itself to icons when that is what makes the room. Its left edge is now
+  one continuous line that steps in under open sections, with the part of the
+  editor on screen drawn on it exactly as you scroll.
 - **Place objects nests by shape and by height, not by bounding box.** A plate
   prints a layer at a time, so one part may take the space above or below
   another wherever the two never want the same height in the same place — a part
@@ -115,7 +129,7 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   left the plate's name two letters wide.
 - **Recent plates come first on Home**, and each printer card opens that printer.
 - **Debug overlays and the thumbnail animation are off by default** — turn them
-  on in Settings → General.
+  on in Settings → 3D View.
 - **The browser build's performance note is a one-time notice** with a link to
   the desktop app, not a dialog in front of the model you just opened.
 - **"Save to profiles"** replaces "Sync", and the app says **plate** throughout.

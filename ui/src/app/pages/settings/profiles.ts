@@ -8,11 +8,6 @@ import {
 } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { type PrintProfile } from '../../models/print-profile.model';
-import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
-import { SETTING_CONTRACTS } from '../../models/setting-contract';
-import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
-import { parseSchema } from '../../schema-form/models/schema-parser';
-import type { SchemaGroup } from '../../schema-form/models/field-def';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
@@ -26,64 +21,34 @@ import { LabelsStore } from '../../services/profiles/labels-store';
 import { PrintProfilesStore } from '../../services/profiles/print-profiles-store';
 import {
   Icon,
-  Badge,
   Button,
   EmptyState,
   FieldRow,
   IconButton,
   Segmented,
   TooltipDirective,
-  InlineNotice,
 } from '@coldcrabby/ui';
 import { ParamField } from '../../components/profiles/param-field';
 import { ColumnResizer } from '../../components/profiles/column-resizer';
 import { ProfileOutline } from '../../components/profiles/profile-outline';
-import { controlFor } from '../../schema-form/models/field-control';
+import { ProfileHead } from '../../components/profiles/profile-head';
+import { profileSaveState } from '../../components/profiles/profile-save-state';
+import { PROCESS_PARAM_GROUPS } from '../../components/profiles/profile-param-groups';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { configureTargetSelector, focusConfigureTarget } from './configure-scroll';
 import { LabelPickerPanel } from '../../components/labels/label-picker-panel';
 
-/**
- * The `SlicingParams` sub-schema extracted from the generated global-settings
- * schema, so the profile editor can render every process parameter dynamically
- * (the same schema the slice-page settings sidebar consumes). Any new
- * `SlicingParams` field appears automatically — no hand-maintained field list.
- */
-const SLICING_PARAMS_SCHEMA = {
-  ...(globalSettingsSchema.$defs.SlicingParams as Record<string, unknown>),
-  $defs: globalSettingsSchema.$defs as Record<string, unknown>,
-};
-
-/** `x-group` names owned by the Process contract, in display order. */
-const PROCESS_GROUPS = SETTING_CONTRACTS.find((c) => c.id === 'process')!.groups;
-
-/**
- * The process-parameter groups rendered in the editor, in the Process
- * contract's display order. Parsed once from the schema (it never changes at
- * runtime); groups owned by other contracts (Hardware, Temperature, …) are
- * left out so the print-profile editor only shows process settings.
- */
-const PARAM_GROUPS: SchemaGroup[] = (() => {
-  const order = new Map(PROCESS_GROUPS.map((name, index) => [name, index]));
-  return parseSchema(SLICING_PARAMS_SCHEMA)
-    .groups.filter((g) => order.has(g.name))
-    .map((g) => ({ ...g, fields: g.fields.filter((f) => controlFor(f) !== 'array') }))
-    .filter((g) => g.fields.length > 0)
-    .sort((a, b) => order.get(a.name)! - order.get(b.name)!);
-})();
-
 @Component({
   selector: 'nexus-settings-profiles',
   imports: [
     EmptyState,
-    InlineNotice,
     Button,
     IconButton,
     TooltipDirective,
     Icon,
-    Badge,
     RouterLink,
+    ProfileHead,
     FieldRow,
     ParamField,
     Segmented,
@@ -107,15 +72,13 @@ export class ProfilesSettings {
   private readonly notifications = inject(NotificationService);
   private readonly route = inject(ActivatedRoute);
 
-  protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
-
   /**
    * Flat, sticky process-parameter sections rendered in the editor. Every
    * field is always shown here — a profile is where you *author* presets (e.g.
    * dialling in support settings you keep off by default), so unlike the live
    * slice sidebar the editor never hides gated-off fields.
    */
-  protected readonly paramGroups = PARAM_GROUPS;
+  protected readonly paramGroups = PROCESS_PARAM_GROUPS;
 
   protected readonly groupByOptions = [
     { value: 'label', label: 'Labels' },
@@ -127,9 +90,6 @@ export class ProfilesSettings {
   protected readonly search = signal('');
   protected readonly groupBy = signal<'label' | 'none'>('label');
   protected readonly labelFilter = this.filterStore.selectedIds;
-
-  /** Typed-name delete challenge state (high-impact delete — design language). */
-  protected readonly deleteArmed = signal(false);
 
   /** Print profiles narrowed by the active label filter and the search query. */
   protected readonly filtered = computed(() => {
@@ -169,15 +129,29 @@ export class ProfilesSettings {
     return id ? (this.store.getById(id) ?? null) : null;
   });
 
-  /** Whether the typed name matches the selected profile's name exactly. */
+  /** What the header says about the last edit to the profile on screen. */
+  protected readonly saveState = profileSaveState(this.store, this.selectedId);
+
   constructor() {
     // Arriving from the wizard's "Add & configure": open the new profile and
     // scroll to the full editor so the user can keep tuning it.
-    const configureId = this.route.snapshot.queryParamMap.get('configure');
+    const params = this.route.snapshot.queryParamMap;
+    const configureId = params.get('configure');
     if (configureId && this.store.getById(configureId)) {
       this.select(configureId);
-      const target = configureTargetSelector(this.route.snapshot.queryParamMap.get('focus'));
+      const target = configureTargetSelector(params.get('focus'));
       afterNextRender(() => focusConfigureTarget(target));
+      return;
+    }
+    // Arriving from a card or the Settings search: open the profile it named,
+    // and land on the setting it named in whichever profile is open.
+    const openId = params.get('id');
+    if (openId && this.store.getById(openId)) {
+      this.select(openId);
+    }
+    const focus = params.get('focus');
+    if (focus && this.selected()) {
+      afterNextRender(() => focusConfigureTarget(configureTargetSelector(focus)));
     }
   }
 
@@ -219,7 +193,6 @@ export class ProfilesSettings {
   /** Open a profile in the detail pane. */
   protected select(id: string): void {
     this.selectedId.set(id);
-    this.disarmDelete();
   }
 
   /** Make the selected profile the default used for slicing. */
@@ -246,6 +219,13 @@ export class ProfilesSettings {
       { label: 'Duplicate', icon: 'copy', action: () => this.duplicate(profile.id) },
     ];
     items.push(this.labelSubmenu(profile));
+    if (this.store.canRestore(profile.id)) {
+      items.push({
+        label: 'Restore defaults',
+        icon: 'undo',
+        action: () => this.store.restoreBuiltin(profile.id),
+      });
+    }
     if (profile.source !== 'builtin') {
       items.push({ separator: true, label: '' });
       items.push({
@@ -290,31 +270,6 @@ export class ProfilesSettings {
     };
   }
 
-  protected toggleDelete(): void {
-    if (this.deleteArmed()) {
-      this.disarmDelete();
-      return;
-    }
-    this.armDelete();
-  }
-
-  protected armDelete(): void {
-    this.deleteArmed.set(true);
-  }
-
-  protected disarmDelete(): void {
-    this.deleteArmed.set(false);
-  }
-
-  /** Delete the selected profile once its name has been typed to confirm. */
-  protected confirmDelete(): void {
-    const profile = this.selected();
-    if (!profile) {
-      return;
-    }
-    this.deleteProfileById(profile.id);
-  }
-
   private confirmDeleteFromContextMenu(profile: PrintProfile): void {
     this.dialog
       .confirm({
@@ -331,9 +286,8 @@ export class ProfilesSettings {
       });
   }
 
-  private deleteProfileById(id: string): void {
+  protected deleteProfileById(id: string): void {
     this.store.remove(id);
-    this.disarmDelete();
     if (this.selectedId() === id) {
       this.selectedId.set(this.store.items()[0]?.id ?? null);
     }
@@ -382,11 +336,17 @@ export class ProfilesSettings {
     this.updateParams(id, { [key]: value });
   }
 
-  protected rename(id: string, event: Event): void {
-    const name = (event.target as HTMLInputElement).value.trim();
-    if (name) {
-      this.store.update(id, { name });
-    }
+  protected renameTo(id: string, name: string): void {
+    this.store.update(id, { name });
+  }
+
+  /** The profile in one line: the three numbers a print is usually described by. */
+  protected summaryOf(profile: PrintProfile): string {
+    return [
+      `${paramNum(profile.params, 'layer_height')} mm layers`,
+      `${paramNum(profile.params, 'wall_count')} walls`,
+      `${this.infillPct(paramNum(profile.params, 'infill_density'))}% infill`,
+    ].join(' · ');
   }
 }
 

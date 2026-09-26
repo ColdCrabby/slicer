@@ -1,0 +1,23 @@
+@if (syncVisible()) {
+  <p
+    class="sync"
+    [class.is-error]="syncIsError()"
+    role="status"
+    aria-live="polite"
+    animate.enter="sync-enter"
+    animate.leave="sync-leave"
+  >
+    <span class="sync-dot"></span>
+    <span>{{ syncLabel() }}</span>
+  </p>
+}
+
+<a
+  class="storage"
+  [attr.data-mode]="storage.mode"
+  routerLink="/settings/general"
+  fragment="pref-library-storage"
+>
+  <nexus-icon class="storage-icon" [name]="storage.icon" aria-hidden="true" />
+  <span>{{ storage.title }}</span>
+</a>

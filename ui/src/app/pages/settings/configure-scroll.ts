@@ -39,18 +39,28 @@ export function focusConfigureTarget(target: string): void {
 }
 
 /**
- * The selector a `focus` query parameter names.
- *
- * `gcode` is the wizard's own hand-off and predates the rest; anything else is
- * a slicing-parameter key, matched on the anchor each editor stamps on its
- * fields.
+ * Sections of the printer editor that are addressed by name rather than by a
+ * setting key — its hand-written blocks, which no schema field stands for.
+ * `gcode` is the wizard's own hand-off and predates the rest; the others are
+ * where the Settings search sends "Connection", "Build volume" and the like.
+ * None of them can collide with a key: keys are `snake_case`.
+ */
+const SECTION_TARGETS: Readonly<Record<string, string>> = {
+  gcode: '#gcode-target',
+  // The printer editor's configure target *is* its Connection section.
+  connection: '#configure-target',
+  'build-volume': '#build-volume-target',
+  corrections: '#corrections-target',
+};
+
+/**
+ * The selector a `focus` query parameter names: a named section, or else a
+ * slicing-parameter key, matched on the anchor each editor stamps on its
+ * fields. No `focus` at all means the editor's own configure target.
  */
 export function configureTargetSelector(focus: string | null): string {
   if (!focus) {
     return '#configure-target';
   }
-  if (focus === 'gcode') {
-    return '#gcode-target';
-  }
-  return `[data-setting="${CSS.escape(focus)}"]`;
+  return SECTION_TARGETS[focus] ?? `[data-setting="${CSS.escape(focus)}"]`;
 }

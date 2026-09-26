@@ -1,17 +1,5 @@
 @use './settings';
 
-.subhead {
-  margin-top: var(--spacing-sm);
-}
-
-.fov-control {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  width: min(320px, 60%);
-}
-
 .settings-value-mono {
   font-family: var(--font-family-mono);
   letter-spacing: 0.02em;
@@ -30,7 +18,23 @@
   }
 }
 
-.fov-slider {
-  flex: 1;
-  min-width: 0;
+// Where the library lives, as a quiet chip — reassurance in the server and
+// device cases, a caution in the browser one.
+.storage-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 3px var(--spacing-sm);
+  border-radius: 999px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  --icon-size: 13px;
+
+  &[data-mode='browser'] {
+    background: var(--color-warning-light);
+    color: var(--color-warning);
+  }
 }

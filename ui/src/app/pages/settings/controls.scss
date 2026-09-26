@@ -1,0 +1,6 @@
+@use './settings';
+
+// Lands a "Keyboard Shortcuts" menu jump a little below the top edge.
+.shortcuts-section {
+  scroll-margin-top: var(--spacing-lg);
+}

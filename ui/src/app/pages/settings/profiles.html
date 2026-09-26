@@ -5,8 +5,8 @@
       <div class="mgr__list">
         <header class="mgr__heading">
           <div class="mgr__heading-text">
-            <h2>Print Profiles</h2>
-            <p>Reusable bundles of print settings</p>
+            <h2>Processes</h2>
+            <p>How each print is sliced — layers, walls, infill, speed</p>
           </div>
           <!--
             The heading beside it already names what is being added, so the
@@ -84,11 +84,7 @@
                           <nexus-icon class="mgr__default-star" name="star" />
                         }
                       </span>
-                      <span class="mgr__card-sub">
-                        {{ pnum(profile.params, 'layer_height') }} mm ·
-                        {{ pnum(profile.params, 'wall_count') }} walls ·
-                        {{ infillPct(pnum(profile.params, 'infill_density')) }}% infill
-                      </span>
+                      <span class="mgr__card-sub">{{ summaryOf(profile) }}</span>
                     </span>
                   </button>
                 }
@@ -106,87 +102,28 @@
       <div class="mgr__detail">
         @if (selected(); as profile) {
           <div class="mgr__detail-inner">
-            <div class="mgr__detail-head">
-              <div class="mgr__detail-title">
-                <nexus-badge [variant]="profile.source === 'user' ? 'info' : 'default'">
-                  {{ sourceLabels[profile.source ?? 'user'] }}
-                </nexus-badge>
-                <h2>{{ profile.name }}</h2>
-                <p>
-                  {{ pnum(profile.params, 'layer_height') }} mm ·
-                  {{ pnum(profile.params, 'wall_count') }} walls ·
-                  {{ infillPct(pnum(profile.params, 'infill_density')) }}% infill
-                </p>
-              </div>
-              <div class="mgr__detail-actions">
-                <button
-                  class="mgr__default-btn"
-                  type="button"
-                  [class.is-default]="isDefault(profile.id)"
-                  [disabled]="isDefault(profile.id)"
-                  (click)="setDefault(profile.id)"
-                >
-                  <nexus-icon [name]="isDefault(profile.id) ? 'check' : 'star'" />
-                  {{ isDefault(profile.id) ? 'Default' : 'Set default' }}
-                </button>
-                <button nexusIconButton aria-label="Duplicate" (click)="duplicate(profile.id)">
-                  <nexus-icon name="copy" />
-                </button>
-                @if (profile.source !== 'builtin') {
-                  <button
-                    nexusIconButton
-                    [attr.aria-label]="deleteArmed() ? 'Cancel delete' : 'Delete'"
-                    [class.is-danger]="deleteArmed()"
-                    (click)="toggleDelete()"
-                  >
-                    <nexus-icon [name]="deleteArmed() ? 'xmark' : 'trash'" />
-                  </button>
-                }
-              </div>
-            </div>
-
-            @if (profile.source === 'builtin') {
-              <!-- A built-in is edited in place, so its name keeps describing
-                   values it may no longer hold. Say so, and offer the copy. -->
-              <nexus-inline-notice tone="info" title="Built-in profile">
-                Changes here apply to every plate that uses it, and its name stays as it is.
-                <button nexusButton variant="ghost" size="sm" (click)="duplicate(profile.id)">
-                  Duplicate to customise
-                </button>
-              </nexus-inline-notice>
-            }
-
-            @if (deleteArmed()) {
-              <div class="mgr__danger">
-                <p>
-                  Delete <strong>{{ profile.name }}</strong
-                  >? This cannot be undone.
-                </p>
-                <div class="mgr__danger-row">
-                  <button nexusButton variant="ghost" size="sm" (click)="disarmDelete()">
-                    Cancel
-                  </button>
-                  <button nexusButton variant="danger" size="sm" (click)="confirmDelete()">
-                    Delete
-                  </button>
-                </div>
-              </div>
-            }
+            <nexus-profile-head
+              [profileId]="profile.id"
+              [name]="profile.name"
+              noun="profile"
+              [source]="profile.source"
+              [summary]="summaryOf(profile)"
+              [isDefault]="isDefault(profile.id)"
+              [canRestore]="store.canRestore(profile.id)"
+              [saveState]="saveState()"
+              (rename)="renameTo(profile.id, $event)"
+              (makeDefault)="setDefault(profile.id)"
+              (duplicate)="duplicate(profile.id)"
+              (remove)="deleteProfileById(profile.id)"
+              (restore)="store.restoreBuiltin(profile.id)"
+            />
 
             <div class="profile-editor__group" id="configure-target">
-              <label class="profile-editor__group-title">Labels</label>
-              <nexus-label-picker
-                [assignedIds]="profile.label_ids ?? []"
-                (toggle)="toggleLabel(profile.id, $event)"
-              />
-            </div>
-            <div class="profile-editor__group">
               <label class="profile-editor__group-title">Identity</label>
-              <nexus-field-row label="Name" [stacked]="true">
-                <input
-                  class="wz-input"
-                  [value]="profile.name"
-                  (change)="rename(profile.id, $event)"
+              <nexus-field-row label="Labels" [stacked]="true">
+                <nexus-label-picker
+                  [assignedIds]="profile.label_ids ?? []"
+                  (toggle)="toggleLabel(profile.id, $event)"
                 />
               </nexus-field-row>
             </div>

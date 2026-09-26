@@ -1,0 +1,123 @@
+<div class="settings-page">
+  <nexus-section-header heading="3D View" description="How the scene looks, and what it costs" />
+
+  <section class="pref-group" aria-labelledby="view-look">
+    <h2 class="pref-group__title" id="view-look">Look</h2>
+    <div class="settings-card">
+      <nexus-pref-row pref="filament-color">
+        <nexus-switch
+          label="Colour models by filament"
+          [checked]="viewer.useFilamentColor()"
+          (checkedChange)="viewer.setUseFilamentColor($event)"
+        />
+      </nexus-pref-row>
+      <nexus-pref-row pref="model-shading">
+        <nexus-segmented
+          label="Shading"
+          [options]="shadingOptions"
+          [value]="viewer.modelShading()"
+          (valueChange)="setShading($event)"
+        />
+      </nexus-pref-row>
+      <nexus-pref-row pref="gloss">
+        <nexus-switch
+          label="Gloss"
+          [checked]="viewer.glossEnabled()"
+          (checkedChange)="viewer.setGlossEnabled($event)"
+        />
+      </nexus-pref-row>
+      <nexus-pref-row pref="shadows">
+        <nexus-switch
+          label="Shadows"
+          [checked]="viewer.shadowsEnabled()"
+          (checkedChange)="viewer.setShadowsEnabled($event)"
+        />
+      </nexus-pref-row>
+    </div>
+  </section>
+
+  <section class="pref-group" aria-labelledby="view-camera">
+    <h2 class="pref-group__title" id="view-camera">Camera</h2>
+    <div class="settings-card">
+      <nexus-pref-row pref="fov">
+        <div class="fov-control">
+          <nexus-fov-cube [fov]="viewer.fieldOfView()" />
+          <nexus-slider
+            class="fov-slider"
+            [value]="viewer.fieldOfView()"
+            [min]="minFov"
+            [max]="maxFov"
+            [step]="1"
+            unit="°"
+            label="Field of view"
+            (valueChange)="viewer.setFieldOfView($event)"
+          />
+        </div>
+      </nexus-pref-row>
+    </div>
+  </section>
+
+  <section class="pref-group" aria-labelledby="view-performance">
+    <h2 class="pref-group__title" id="view-performance">Performance</h2>
+    <div class="settings-card">
+      <nexus-pref-row pref="antialiasing">
+        <nexus-segmented
+          label="Anti-aliasing"
+          [options]="antialiasingOptions"
+          [value]="viewer.antialiasing()"
+          (valueChange)="setAntialiasing($event)"
+        />
+      </nexus-pref-row>
+      <nexus-pref-row pref="render-quality">
+        <nexus-segmented
+          label="Render resolution"
+          [options]="renderQualityOptions"
+          [value]="viewer.renderQuality()"
+          (valueChange)="setRenderQuality($event)"
+        />
+      </nexus-pref-row>
+      <nexus-pref-row pref="preview-detail">
+        <nexus-segmented
+          label="Preview detail"
+          [options]="previewDetailOptions"
+          [value]="viewer.previewDetail()"
+          (valueChange)="setPreviewDetail($event)"
+        />
+      </nexus-pref-row>
+    </div>
+  </section>
+
+  <section class="pref-group" aria-labelledby="view-thumbnails">
+    <h2 class="pref-group__title" id="view-thumbnails">Thumbnails</h2>
+    <div class="settings-card">
+      <nexus-pref-row pref="thumbnail-look">
+        <nexus-segmented
+          label="Thumbnail look"
+          [options]="thumbnailLookOptions"
+          [value]="viewer.thumbnailSceneEffects() ? 'scene' : 'plain'"
+          (valueChange)="setThumbnailLook($event)"
+        />
+      </nexus-pref-row>
+      <nexus-pref-row pref="thumbnail-fx">
+        <nexus-switch
+          label="Capture animation"
+          [checked]="viewer.thumbnailCaptureFx()"
+          (checkedChange)="viewer.setThumbnailCaptureFx($event)"
+        />
+      </nexus-pref-row>
+    </div>
+  </section>
+
+  <section class="pref-group" aria-labelledby="view-diagnostics">
+    <h2 class="pref-group__title" id="view-diagnostics">Diagnostics</h2>
+    <div class="settings-card">
+      <nexus-pref-row pref="stats">
+        <nexus-switch
+          label="Performance chips"
+          [checked]="viewer.statsVisible()"
+          (checkedChange)="viewer.setStatsVisible($event)"
+        />
+      </nexus-pref-row>
+    </div>
+  </section>
+</div>

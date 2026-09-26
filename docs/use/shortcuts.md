@@ -1,6 +1,6 @@
 # Keyboard and gestures
 
-All of this is also in the app under **Settings → Keyboard shortcuts**.
+All of this is also in the app under **Settings → Controls → Keyboard shortcuts**.
 
 `⌘` on macOS, `Ctrl` everywhere else.
 
@@ -142,7 +142,7 @@ clears it.
 | Action | Gesture |
 | --- | --- |
 | Orbit | One finger |
-| Orbit or pan | Two-finger swipe — pick which in **Settings → General → Controls** |
+| Orbit or pan | Two-finger swipe — pick which in **Settings → Controls** |
 | Zoom | Pinch |
 | Context menu | Long-press |
 | Move a model | Tap it, then drag it |
@@ -154,12 +154,12 @@ With **Multi-select** on, the pencil draws a selection box while your fingers
 keep turning the view — nothing to switch between.
 
 **Palm rejection** is on by default. Once you've used a stylus, a resting hand
-stops moving the camera. Turn it off in **Settings → General** if you don't use
+stops moving the camera. Turn it off in **Settings → Controls** if you don't use
 a pen.
 
 Without a keyboard, undo and redo appear as buttons in the 3D view toolbar
 instead of shortcuts. They show automatically on touch devices; you can force
-them on or off in **Settings → General → Controls**.
+them on or off in **Settings → Controls**.
 
 On iPad, long-press opens the system action sheet rather than an in-app menu —
 it's the OS's own control, so it behaves the way the rest of iPadOS does.

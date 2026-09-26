@@ -46,6 +46,16 @@ export class LocalCollectionStore<T extends ProfileMeta> {
   /** Last save failure message, or `null`. */
   readonly saveError: Signal<string | null>;
 
+  /**
+   * The last edit made *here* — through {@link update} — and when.
+   *
+   * Hydrating and reloading replace the items too, but those are someone else's
+   * news. An editor that wants to say "Saved" after the user changed something
+   * needs to tell the two apart, and only this store can.
+   */
+  private readonly _lastEdit = signal<{ id: string; at: number } | null>(null);
+  readonly lastEdit = this._lastEdit.asReadonly();
+
   /** Load lifecycle for the initial hydrate / a reload from the engine. */
   private readonly _loadStatus = signal<LoadStatus>('idle');
   readonly loadStatus = this._loadStatus.asReadonly();
@@ -159,7 +169,27 @@ export class LocalCollectionStore<T extends ProfileMeta> {
     this._items.update((list) =>
       list.map((item) => (item.id === id ? { ...item, ...patch } : item)),
     );
+    this._lastEdit.set({ id, at: Date.now() });
     this.persist();
+  }
+
+  /**
+   * Put a built-in back to the values it ships with, keeping the labels the
+   * user filed it under — those are their organisation, not its settings.
+   * No-op for anything that is not a built-in this store was seeded with.
+   */
+  restoreBuiltin(id: string): void {
+    const seed = this.seed.find((item) => item.id === id);
+    const current = this.getById(id);
+    if (!seed || current?.source !== 'builtin') {
+      return;
+    }
+    this.update(id, { ...structuredClone(seed), label_ids: current.label_ids });
+  }
+
+  /** Whether `id` is a built-in this store can restore. */
+  canRestore(id: string): boolean {
+    return this.getById(id)?.source === 'builtin' && this.seed.some((item) => item.id === id);
   }
 
   /** Remove an entry. Builtin defaults are protected and silently ignored. */

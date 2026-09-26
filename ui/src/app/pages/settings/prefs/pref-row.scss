@@ -1,0 +1,108 @@
+@use 'breakpoints' as *;
+
+:host {
+  display: block;
+  // Lands a search result a little below the top edge rather than flush with it.
+  scroll-margin-top: var(--spacing-lg);
+}
+
+// Rows inside one card are separated by a hairline, the only line on the page.
+:host + :host .pref-row {
+  border-top: 1px solid var(--color-border-light);
+}
+
+.pref-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm) var(--spacing-lg);
+  min-height: 44px;
+  padding: var(--spacing-md) 0;
+}
+
+.pref-row__text {
+  flex: 1 1 16rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pref-row__title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-md);
+  color: var(--color-text-primary);
+}
+
+.pref-row__info {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  --icon-size: 15px;
+  transition: color var(--duration-fast) var(--ease-standard);
+
+  &:hover,
+  &.is-open {
+    color: var(--accent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 1px;
+  }
+}
+
+.pref-row__hint {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  color: var(--color-text-tertiary);
+}
+
+.pref-row__detail {
+  max-width: 62ch;
+  margin: var(--spacing-xs) 0 0;
+  padding-left: var(--spacing-sm);
+  border-left: 2px solid var(--accent-soft);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.pref-row__control {
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  min-width: 0;
+  margin-left: auto;
+}
+
+// The shared segmented control fills its parent and decides whether to stack
+// by measuring it, so a column that shrink-wraps it gives it nothing to measure
+// and it stacks every time. A basis wide enough for three plain words keeps it
+// the single track it is meant to be; on a narrow row it wraps under the text
+// and takes the full width instead.
+.pref-row__control:has(nexus-segmented) {
+  flex: 0 0 min(100%, 19.5rem);
+}
+
+@include handheld {
+  .pref-row__control,
+  .pref-row__control:has(nexus-segmented) {
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+}
