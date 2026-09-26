@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
-import { Icon } from '@coldcrabby/ui';
+import { Icon } from '../../ui/shell-primitives';
 import { NavigationProgress } from '../../services/navigation-progress';
 
 interface NavItem {

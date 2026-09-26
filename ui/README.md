@@ -760,6 +760,19 @@ every release, and the reflex is to raise the budget until it means nothing.
   download to the page the user is actually reading. `CodeEditor` waits for an
   `IntersectionObserver`. Waiting for a widget you are looking at is fine; making
   the rest of the app wait for one you are not is the thing to avoid.
+- **Eager code imports `@coldcrabby/ui` through
+  [`shell-primitives.ts`](src/app/ui/shell-primitives.ts), never the package
+  barrel.** esbuild assigns a module to a chunk by following every
+  `export … from` edge of whatever reaches it, so one eager import of the barrel
+  puts every primitive it re-exports in `main`, used or not. Lazy code keeps
+  using the barrel; both resolve to the same files.
+- **Startup reads the settings digest, not the settings schema.** The full
+  schema is ~110 kB of titles and help text only the forms need;
+  `ENGINE_DEFAULTS` and the derived-value map read
+  `src/generated/settings-digest.json`, which `gen-types` distils from it.
+- **A root service reaches heavy, page-bound services by `import()` at the
+  moment of use**, the way `KeyboardShortcuts` reaches `GcodePreview`: its
+  shortcuts only match on the plate, where the preview already exists.
 - **`provideMarkdown()` stays at the root.** The shared UI's tooltip renders
   markdown and tooltips appear everywhere, including in dialogs drawn from the
   root outlet — moving it under a route trades bytes for a `NullInjectorError` in
@@ -917,6 +930,7 @@ Anything under `src/generated/` is **regenerated, not edited**. Each file maps 1
 | `src/generated/*.d.ts`      | Rust schemas via `slicer-engine gen-schemas`      | `pnpm run gen` (also runs on `install`) |
 | `src/generated/scene-wasm/` | `src/scene/wasm.rs` (`cfg(target_arch="wasm32")`) | `make build-wasm` at the repo root      |
 | `src/schemas/*.json`        | JSON Schema emitted by the Rust CLI               | `pnpm run gen-schemas`                  |
+| `src/generated/settings-digest.json` | `src/schemas/slicer-engine-global-settings-v1.json` (defaults + `x-derived-from`) | `pnpm run gen-types` |
 | `public/splash-logo.webp` + the base64 blob in `src/index.html` | `public/logo_still@3x.png` | `pnpm run logo-assets` at the repo root |
 
 The `postinstall` script in [package.json](package.json) wires this up: cloning the repo and running `pnpm install` (with the WASM bundle already built) is enough to get a working dev environment.

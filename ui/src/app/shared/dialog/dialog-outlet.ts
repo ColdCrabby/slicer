@@ -8,7 +8,7 @@ import {
   inject,
 } from '@angular/core';
 import { Dialog } from '../../services/dialog';
-import { Button, Icon, IconButton } from '@coldcrabby/ui';
+import { Button, Icon, IconButton } from '../../ui/shell-primitives';
 
 @Component({
   selector: 'nexus-dialog-outlet',

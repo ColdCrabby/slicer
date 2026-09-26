@@ -226,11 +226,7 @@
       background-color var(--duration-fast) var(--ease-standard),
       color var(--duration-fast) var(--ease-standard);
 
-    &:hover {
-      background: var(--color-surface-hover);
-      color: var(--color-text-primary);
-    }
-
+    &:hover,
     &:focus-visible {
       outline: none;
       background: var(--color-surface-hover);
@@ -346,10 +342,7 @@
   &.is-selected {
     background: color-mix(in oklab, var(--accent) 12%, transparent);
 
-    .send-menu-label {
-      color: var(--accent);
-    }
-
+    .send-menu-label,
     .send-menu-icon {
       color: var(--accent);
     }

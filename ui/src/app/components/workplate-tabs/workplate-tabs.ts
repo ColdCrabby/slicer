@@ -1,17 +1,17 @@
-import { CdkConnectedOverlay, CdkOverlayOrigin } from '@angular/cdk/overlay';
-import type { ConnectedPosition } from '@angular/cdk/overlay';
 import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
   DestroyRef,
   ElementRef,
+  TemplateRef,
   afterNextRender,
   afterRenderEffect,
   computed,
   effect,
   inject,
   signal,
+  untracked,
   viewChild,
   viewChildren,
 } from '@angular/core';
@@ -29,7 +29,13 @@ import {
 import { isTauriHost } from '../../runtime/domain/runtime-mode.util';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
-import { Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
+import {
+  FloatingService,
+  Icon,
+  IconButton,
+  TooltipDirective,
+  type FloatingRef,
+} from '../../ui/shell-primitives';
 import { TabSearchEntry, WorkplateTabSearch } from './workplate-tab-search';
 
 /**
@@ -41,15 +47,7 @@ import { TabSearchEntry, WorkplateTabSearch } from './workplate-tab-search';
  */
 @Component({
   selector: 'nexus-workplate-tabs',
-  imports: [
-    Icon,
-    IconButton,
-    TooltipDirective,
-    ContextMenuTrigger,
-    CdkOverlayOrigin,
-    CdkConnectedOverlay,
-    WorkplateTabSearch,
-  ],
+  imports: [Icon, IconButton, TooltipDirective, ContextMenuTrigger, WorkplateTabSearch],
   templateUrl: './workplate-tabs.html',
   styleUrl: './workplate-tabs.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -71,6 +69,7 @@ export class WorkplateTabs implements WorkplateTabStrip {
   private readonly contextMenu = inject(ContextMenuService);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly shortcuts = inject(KeyboardShortcuts);
+  private readonly floating = inject(FloatingService);
 
   readonly tabs = this.openWorkplates.tabs;
   readonly activeUuid = this.openWorkplates.activeUuid;
@@ -90,11 +89,14 @@ export class WorkplateTabs implements WorkplateTabStrip {
     }),
   );
 
-  /** Drop below the chevron, right-aligned to it, or above it if there is no room. */
-  protected readonly searchPositions: ConnectedPosition[] = [
-    { originX: 'end', originY: 'bottom', overlayX: 'end', overlayY: 'top', offsetY: 4 },
-    { originX: 'start', originY: 'bottom', overlayX: 'start', overlayY: 'top', offsetY: 4 },
-  ];
+  // `read: ElementRef` because the chevron is an `IconButton` host: a bare
+  // template reference there resolves to the component, not the element.
+  private readonly searchTrigger = viewChild<string, ElementRef<HTMLElement>>('searchTrigger', {
+    read: ElementRef,
+  });
+  private readonly searchPanel = viewChild.required<TemplateRef<unknown>>('searchPanel');
+  /** The open search list, if any. */
+  private searchRef: FloatingRef | null = null;
 
   /** UUID of the tab whose name is currently being edited, if any. */
   readonly editingUuid = signal<string | null>(null);
@@ -151,12 +153,29 @@ export class WorkplateTabs implements WorkplateTabStrip {
     const resize = new ResizeObserver(() => this.revealActiveTab());
     afterNextRender(() => resize.observe(this.tablist().nativeElement));
 
+    // The search list floats through the shared `FloatingService` — the same
+    // one the tooltips and context menu use — rather than the CDK overlay, which
+    // would put a second positioning engine in the initial bundle for this one
+    // popover.
+    effect(() => {
+      const trigger = this.searchTrigger()?.nativeElement;
+      const open = this.searchOpen() && trigger !== undefined;
+      untracked(() => {
+        if (open && !this.searchRef) {
+          this.searchRef = this.openSearchList(trigger);
+        } else if (!open) {
+          this.closeSearchList();
+        }
+      });
+    });
+
     // The tab keys reach the strip through the shortcut registry, the same
     // single-slot idiom the settings search uses for `$mod+f`.
     this.shortcuts.tabStripRef = this;
     const destroyRef = inject(DestroyRef);
     destroyRef.onDestroy(() => {
       resize.disconnect();
+      this.closeSearchList();
       if (this.shortcuts.tabStripRef === this) {
         this.shortcuts.tabStripRef = null;
       }
@@ -265,26 +284,41 @@ export class WorkplateTabs implements WorkplateTabStrip {
     this.searchOpen.update((open) => !open);
   }
 
-  /**
-   * A click anywhere but the list closes it — except on the chevron, whose own
-   * click toggles it. Closing here too would have that click reopen the list.
-   */
-  onSearchOutsideClick(event: MouseEvent, trigger: CdkOverlayOrigin): void {
-    if (!trigger.elementRef.nativeElement.contains(event.target as Node)) {
-      this.searchOpen.set(false);
-    }
-  }
-
   /** Close the list from the keyboard, handing focus back to the chevron. */
-  dismissSearch(trigger: CdkOverlayOrigin): void {
+  dismissSearch(): void {
     this.searchOpen.set(false);
-    (trigger.elementRef.nativeElement as HTMLElement).focus();
+    this.searchTrigger()?.nativeElement.focus();
   }
 
   /** Switch to the workplate picked in the search list. */
   pickFromSearch(uuid: string): void {
     this.searchOpen.set(false);
     this.activate(uuid);
+  }
+
+  /**
+   * Drop the list below the chevron, right-aligned to it, flipping above when
+   * there is no room. A click anywhere but the list closes it — except on the
+   * chevron, whose own click toggles it; closing there too would have that
+   * click reopen the list.
+   */
+  private openSearchList(trigger: HTMLElement): FloatingRef {
+    return this.floating.openTemplate(
+      this.searchPanel(),
+      {},
+      {
+        reference: trigger,
+        interactive: true,
+        originElement: trigger,
+        options: { placement: 'bottom-end', offset: 4, padding: 8 },
+        onOutsidePointer: () => this.searchOpen.set(false),
+      },
+    );
+  }
+
+  private closeSearchList(): void {
+    this.searchRef?.close();
+    this.searchRef = null;
   }
 
   private revealActiveTab(): void {

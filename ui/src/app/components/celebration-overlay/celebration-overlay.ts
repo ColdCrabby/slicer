@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { NotificationService } from '../../services/notifications';
-import { Icon } from '@coldcrabby/ui';
+import { Icon } from '../../ui/shell-primitives';
 
 /**
  * Root-mounted, non-interactive full-page flourish that plays once when a

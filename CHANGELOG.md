@@ -98,6 +98,10 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Changed
 
+- **The app starts faster.** The first screen downloads about a fifth less code
+  (943 kB → 726 kB, 242 kB → 192 kB compressed). The settings schema, unused
+  form controls and a second popover engine no longer load before the home
+  screen.
 - **Settings, regrouped for a glance.** The sidebar splits into **App** and
   **Library**; each library page shows how many you have and which one is the
   default. General's twenty rows move to **3D View** and **Controls** (keyboard

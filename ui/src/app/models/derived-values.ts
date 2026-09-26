@@ -1,18 +1,14 @@
-import globalSettingsSchema from '../../schemas/slicer-engine-global-settings-v1.json';
+import settingsDigest from '../../generated/settings-digest.json';
 
 /**
  * Which setting each proportional setting is a proportion *of*, read out of the
  * schema's `x-derived-from` annotations so the engine's `DERIVED_FROM` stays
- * the only list of them.
+ * the only list of them. Read through `settings-digest.json` rather than the
+ * schema itself, which would put every setting's help text in the initial
+ * bundle.
  */
 const DERIVED_FROM: ReadonlyMap<string, string> = new Map(
-  Object.entries(
-    (globalSettingsSchema.$defs.SlicingParams as { properties: Record<string, unknown> })
-      .properties,
-  ).flatMap(([key, spec]) => {
-    const base = (spec as Record<string, unknown>)['x-derived-from'];
-    return typeof base === 'string' ? [[key, base] as [string, string]] : [];
-  }),
+  Object.entries(settingsDigest.derivedFrom as Record<string, string>),
 );
 
 /** `"110%"` → `1.1`. Anything else — including a plain number — is `null`. */
