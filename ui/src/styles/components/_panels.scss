@@ -1,0 +1,70 @@
+// Panels: the boxes a page is built from.
+//
+// The page is not one surface ruled into regions; each region — a section
+// list, a list of profiles, an editor, the 3D scene, a drawer over it — is its
+// own rounded box on the window's background, `--panel-gap` from its
+// neighbours. `[nexusPanel]` (app/ui/panel) puts these classes on a host; they
+// are emitted once here because a directive carries no styles of its own.
+// Tokens live in theme/_shell.scss.
+
+.nexus-panel {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius);
+  // Clipped, so a scrolling body, a canvas or a sticky header is rounded with
+  // the box rather than squared off under its corners.
+  overflow: clip;
+}
+
+// The page's primary content: the one darker panel on a page. Set on exactly
+// one panel per page.
+.nexus-panel.is-primary {
+  background: var(--panel-bg-primary);
+}
+
+// Over another panel rather than beside it, lifted off busy content with a
+// shadow — flyouts and the like.
+.nexus-panel.is-raised {
+  box-shadow: var(--panel-shadow-raised);
+}
+
+// The grip a panel edge is dragged by: three dots standing in the gap, which
+// is all the gap between two panels has room for. `nexus-panel-resizer` draws
+// it; anything else with a draggable panel edge uses the same class so every
+// resize handle in the app looks alike.
+.panel-grip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 0;
+  border-radius: 999px;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+
+  &::before,
+  &::after,
+  > i {
+    content: '';
+    display: block;
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--color-text-tertiary);
+    transition: background-color var(--duration-fast) var(--ease-standard);
+  }
+}
+
+.panel-grip-host:hover .panel-grip,
+.panel-grip-host.is-dragging .panel-grip,
+.panel-grip-host:focus-visible .panel-grip {
+  background: var(--color-surface-hover);
+
+  &::before,
+  &::after,
+  > i {
+    background: var(--color-text-primary);
+  }
+}

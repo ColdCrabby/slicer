@@ -195,7 +195,10 @@ export function filterOutline(
   return matches;
 }
 
-/** The contents rail's own width, as its stylesheet sets it. */
+/**
+ * The contents rail's narrowest width — `--outline-min-w` in
+ * styles/components/_manage.scss. It grows past this only with room to spare.
+ */
 export const RAIL_WIDTH = 208;
 
 /**
@@ -307,6 +310,10 @@ function smoothstep(t: number): number {
   return t * t * (3 - 2 * t);
 }
 
+function middle(row: RailRow): number {
+  return (row.top + row.bottom) / 2;
+}
+
 function laneOf(depth: number, lanes: readonly number[]): number {
   return lanes[Math.min(Math.max(depth, 0), lanes.length - 1)] ?? 0;
 }
@@ -320,6 +327,10 @@ function laneOf(depth: number, lanes: readonly number[]): number {
  * Straight runs cost two points however many rows they pass, which keeps a
  * folded outline of a dozen sections to a handful of points.
  *
+ * A section row at either end — the ones drawn with a node — ends the line at
+ * its middle, so the line stops in the dot instead of running past it. A
+ * setting row at an end has no dot, and the line runs its full height.
+ *
  * `y` never decreases along the result — {@link sliceLine} depends on it.
  */
 export function graphLine(
@@ -330,7 +341,10 @@ export function graphLine(
   if (rows.length === 0) {
     return [];
   }
-  const points: GraphPoint[] = [{ x: laneOf(rows[0].depth, lanes), y: rows[0].top }];
+  const first = rows[0];
+  const points: GraphPoint[] = [
+    { x: laneOf(first.depth, lanes), y: first.depth === 0 ? middle(first) : first.top },
+  ];
   for (let i = 1; i < rows.length; i++) {
     const prev = rows[i - 1];
     const row = rows[i];
@@ -355,7 +369,7 @@ export function graphLine(
   const last = rows[rows.length - 1];
   points.push({
     x: laneOf(last.depth, lanes),
-    y: Math.max(last.bottom, points[points.length - 1].y),
+    y: Math.max(last.depth === 0 ? middle(last) : last.bottom, points[points.length - 1].y),
   });
   return points;
 }

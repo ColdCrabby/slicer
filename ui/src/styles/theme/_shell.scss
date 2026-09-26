@@ -2,10 +2,12 @@
 /// @group theme
 ///
 /// The titlebar and nav rail have no fill or border of their own — they sit
-/// straight on the window's background. The page they frame is a single
-/// rounded surface floating on that background, held off the window's edges by
-/// a gutter. These tokens are that surface's shape; the shell, and anything
-/// that has to measure the room it leaves, read them rather than a number.
+/// straight on the window's background. The page they frame is not one surface
+/// but a set of panels (`[nexusPanel]`, styles/components/_panels.scss), each a
+/// rounded box floating on that background, held apart by the same gutter that
+/// holds them off the window's edges. These tokens are their shape; the shell,
+/// the panels, and anything that has to measure the room they leave read them
+/// rather than a number.
 
 @use '../breakpoints' as *;
 
@@ -20,6 +22,26 @@
   // rail keeps its items clear of the surface's edge by padding instead, and
   // "Settings" still needs its full width under the icon.
   --nav-rail-width: 64px;
+
+  // A panel: its fill, edge and corner, and the air between two of them. Half
+  // the window gutter: panels on one page belong together, and read as a set
+  // held apart from the window rather than as unrelated boxes.
+  --panel-gap: 5px;
+  --panel-radius: var(--radius-shell);
+  // A panel laid inside another, the panel gap in from its edge. Its corners
+  // follow the outer panel's curve at that inset (about 12 − 5) rather than
+  // repeating the outer radius, which would look fatter than the corner it
+  // sits in.
+  --panel-radius-nested: 8px;
+  // Every panel takes the window's own tone except one: the page's primary
+  // content — the scene, the editor, the page of preferences — is the single
+  // darker panel, so the eye always knows where the work is.
+  --panel-bg: var(--color-bg-secondary);
+  --panel-bg-primary: var(--color-bg-primary);
+  --panel-border: var(--color-border);
+  // A raised panel sits over another one — a flyout, a drawer, the slice
+  // sidebar over the scene — and says so with a shadow instead of a gap.
+  --panel-shadow-raised: var(--shadow-lg);
 
   // The crab: the mascot, big and pinned in the corner rather than squeezed
   // into the titlebar's height. It is deliberately larger than the rail — it

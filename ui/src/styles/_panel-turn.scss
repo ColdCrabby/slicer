@@ -1,0 +1,89 @@
+/// The page turn: how a panel that floats over the scene comes and goes.
+/// @group mixins
+///
+/// Mixins only — `@use 'panel-turn' as *;` from a component stylesheet. The
+/// panel is hinged on one vertical edge, like a page on its spine: put away,
+/// it is turned a little on that spine, set back, lifted slightly, faded and
+/// softened; shown, it settles flat and sharp. Quick enough that it never stands between the user
+/// and the setting they reached for; leaving is quicker than arriving, since a
+/// panel being put away is no longer being looked at.
+///
+/// `$hinge` is the edge the spine is on, in the writing direction:
+/// - `end`   — spine on the right edge; the page swings in from the left.
+/// - `start` — spine on the left edge; the page swings in from the right.
+///
+/// The parent must set a `perspective` for the turn to read as depth — see
+/// `panel-turn-stage`.
+
+$panel-turn-enter: 280ms;
+$panel-turn-leave: 200ms;
+$panel-turn-ease-enter: cubic-bezier(0.22, 1, 0.36, 1);
+$panel-turn-ease-leave: cubic-bezier(0.4, 0, 1, 1);
+// Small on purpose: the page should be felt settling, not seen swinging.
+$panel-turn-angle: 4deg;
+// How far it settles down into place as it turns in.
+$panel-turn-drop: 6px;
+
+@function -panel-turn-origin($hinge) {
+  @if $hinge == start {
+    @return 0 50%;
+  }
+  @return 100% 50%;
+}
+
+@function -panel-turn-away($hinge) {
+  // Turned away from the viewer on its spine: the free edge goes back.
+  $angle: $panel-turn-angle;
+  @if $hinge == start {
+    $angle: -$panel-turn-angle;
+  }
+  @return translateY(-$panel-turn-drop) rotateY($angle) scale(0.97);
+}
+
+/// On the parent: one vanishing point, at the spine.
+@mixin panel-turn-stage($hinge: start) {
+  perspective: 1000px;
+  perspective-origin: -panel-turn-origin($hinge);
+}
+
+/// On the panel, in its shown state. `$origin` overrides the hinge for a piece
+/// that turns with the panel but sits outside it; `$transitions` adds the
+/// element's own (hover colours and the like), which would otherwise be lost.
+@mixin panel-turn($hinge: start, $origin: null, $transitions...) {
+  @if $origin {
+    transform-origin: $origin;
+  } @else {
+    transform-origin: -panel-turn-origin($hinge);
+  }
+  transition:
+    transform $panel-turn-enter $panel-turn-ease-enter,
+    opacity $panel-turn-enter $panel-turn-ease-enter,
+    filter $panel-turn-enter $panel-turn-ease-enter,
+    visibility 0s linear 0s,
+    $transitions;
+
+  @media (prefers-reduced-motion: reduce) {
+    transform: none;
+    filter: none;
+  }
+}
+
+/// On the panel, in its put-away state.
+@mixin panel-turned-away($hinge: start) {
+  transform: -panel-turn-away($hinge);
+  opacity: 0;
+  filter: blur(2px);
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform $panel-turn-leave $panel-turn-ease-leave,
+    opacity $panel-turn-leave $panel-turn-ease-leave,
+    filter $panel-turn-leave $panel-turn-ease-leave,
+    visibility 0s linear $panel-turn-leave;
+
+  // Reduced motion keeps the fade and nothing else.
+  @media (prefers-reduced-motion: reduce) {
+    transform: none;
+    filter: none;
+  }
+}

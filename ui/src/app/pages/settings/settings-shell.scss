@@ -7,23 +7,23 @@
 
 .settings {
   display: flex;
+  gap: var(--panel-gap);
   height: 100%;
 }
 
 // ── Sidebar ─────────────────────────────────────────────────────────────────
 //
-// Separated from the content by surface tone alone — no border — and sized by
+// Its own panel beside the content's, and sized by
 // `NAV_OPEN_WIDTH` / `NAV_FOLDED_WIDTH` in `services/settings-nav.ts`, which the
 // profile editors' room test subtracts. Change one and change the other.
 
 .settings-nav {
   flex: none;
-  width: 200px;
+  width: 240px;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
   padding: var(--spacing-lg) var(--spacing-sm);
-  background: var(--color-bg-secondary);
   overflow-x: hidden;
   overflow-y: auto;
   transition:
@@ -213,13 +213,11 @@
 
 .settings-nav-count {
   flex: none;
-  min-width: 18px;
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-normal);
-  font-variation-settings: 'wght' var(--font-weight-normal);
   font-variant-numeric: tabular-nums;
-  text-align: right;
-  color: var(--color-text-tertiary);
+  // Tiny: a count is a footnote to its label, not a label of its own.
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 15px;
 }
 
 .settings-nav-spinner {
@@ -255,10 +253,24 @@ nexus-settings-nav-footer {
 
 // ── Content ─────────────────────────────────────────────────────────────────
 
+// A page of preferences is one panel, and the page's primary one. The profile pages (`.mgr`) are several —
+// list, editor, outline — so for them this is only the stage they stand on and
+// draws nothing itself. Asked of the content rather than the route, so a new
+// page gets the right frame by what it renders, not by being listed here.
 .settings-content {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
+  background: var(--panel-bg-primary);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius);
+
+  &:has(.mgr) {
+    overflow: visible;
+    background: none;
+    border: none;
+    border-radius: 0;
+  }
 }
 
 // Routed page components default to inline hosts that shrink-wrap their
@@ -287,8 +299,9 @@ nexus-settings-nav-footer {
 .settings.is-nav-collapsed {
   .settings-nav {
     width: 56px;
-    padding-left: var(--spacing-xs);
-    padding-right: var(--spacing-xs);
+    padding-left: 0;
+    padding-right: 0;
+    align-items: center;
   }
 
   .settings-title,
@@ -303,17 +316,32 @@ nexus-settings-nav-footer {
     margin: 0;
   }
 
+  // A short rule under the icons, not one running into the panel's edges.
   .settings-nav-group + .settings-nav-group {
     padding-top: var(--spacing-md);
     border-top: 1px solid var(--color-border-light);
   }
 
-  .settings-nav-text,
-  .settings-nav-count {
+  .settings-nav-list,
+  .settings-nav-group {
+    align-items: center;
+  }
+
+  .settings-nav-group {
+    width: 40px;
+  }
+
+  .settings-nav-text {
     opacity: 0;
     width: 0;
     min-width: 0;
     flex: 0 0 0;
+  }
+
+  // Gone rather than zero-width: a badge keeps its padding at any width, and
+  // that alone pushed the library items' icons off centre.
+  .settings-nav-count {
+    display: none;
   }
 
   // Its second line would still hold the row open at two lines' height.
@@ -325,10 +353,14 @@ nexus-settings-nav-footer {
     margin: 0 auto;
   }
 
+  // A square target centred in the panel, with air on both sides — the full
+  // width of a 56px panel made the active pill touch its edges.
   .settings-nav-item {
+    width: 40px;
+    min-height: 40px;
     gap: 0;
     justify-content: center;
-    padding: 8px 0;
+    padding: 0;
   }
 }
 
@@ -354,7 +386,10 @@ nexus-settings-nav-footer {
     padding: var(--spacing-sm);
     padding-left: calc(var(--spacing-sm) + env(safe-area-inset-left, 0px));
     padding-right: calc(var(--spacing-sm) + env(safe-area-inset-right, 0px));
-    border-bottom: 1px solid var(--color-border);
+    // A strip of chips on the stage, not a box: the panel's frame goes.
+    border: none;
+    border-radius: 0;
+    background: none;
     overflow-x: auto;
     overflow-y: hidden;
     overscroll-behavior-x: contain;

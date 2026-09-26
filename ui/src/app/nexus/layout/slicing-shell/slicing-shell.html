@@ -2,7 +2,7 @@
   <nexus-settings-panel />
 </nexus-sidebar>
 
-<main class="shell-content">
+<main class="shell-content" nexusPanel primary>
   <router-outlet></router-outlet>
 
   <div class="shell-actions-layer">
@@ -28,9 +28,9 @@
   </div>
 </main>
 
-<!-- A sibling of the scene, not an overlay on it: the text is read alongside
-     the toolpath it describes, so it takes width rather than covering the
-     thing the caret is pointing at. -->
+<!-- A panel beside the scene, not an overlay on it: the text is read
+     alongside the toolpath it describes, so it takes width rather than
+     covering the thing the caret is pointing at. -->
 @if (textPanelOpen()) {
-  <nexus-gcode-text-panel class="text-panel" />
+  <nexus-gcode-text-panel class="text-panel" nexusPanel />
 }

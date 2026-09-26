@@ -26,11 +26,13 @@ import { ActiveSelection } from '../../../services/profiles/active-selection';
 import { SceneEngine } from '../../../services/scene-engine';
 import { ViewerControl } from '../../../services/viewer-control';
 import { Sidebar } from '../../sidebar/sidebar';
+import { Panel } from '../../../ui/panel/panel';
 import { SliceControl } from '../../slice-control/slice-control';
 
 @Component({
   selector: 'nexus-slicing-shell',
   imports: [
+    Panel,
     Sidebar,
     SliceControl,
     SliceSegmentBar,
@@ -120,8 +122,7 @@ export class NexusSlicingShell {
           // Border box, not `contentRect`. The toolbar carries its own vertical
           // padding, so the content box is ~24px shorter than the space it
           // actually occupies — and everything keyed to this variable sat that
-          // much too high, which is how the settings drawer's pull tab ended up
-          // underneath the toolbar's own buttons.
+          // much too high, underneath the toolbar's own buttons.
           const h = entries[0]?.borderBoxSize?.[0]?.blockSize ?? el.offsetHeight;
           if (h > 0) document.documentElement.style.setProperty('--main-scene-inset', `${h}px`);
         });

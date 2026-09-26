@@ -29,14 +29,20 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  // 16 px gutters, not 24: four columns share this page, and the contents
-  // rail's room test counts every pixel of padding against it.
-  padding: var(--spacing-lg) var(--spacing-lg) 0;
-  gap: var(--spacing-md);
+  // No padding: the columns are panels standing straight on the stage, which
+  // already holds them off the window's edges. The contents rail's room test
+  // reads this padding, so keep it where it is if it ever comes back.
+  gap: var(--panel-gap);
   // The list column follows the window between a width that still fits a
   // printer's name and one past which it only adds empty space. The resizer's
   // `--mgr-list-w`, once someone drags it, wins over both.
   --mgr-list-default: clamp(240px, 22vw, 320px);
+  // The editor at its full form width: `.mgr__detail-inner`'s cap plus the
+  // detail panel's inline padding and border.
+  --mgr-editor-full: calc(560px + 2 * var(--spacing-lg) + 2px);
+  // The rail's narrowest: `RAIL_WIDTH` in components/profiles/outline.ts, which
+  // the room test budgets. Change one and change the other.
+  --outline-min-w: 208px;
 }
 
 .mgr__body {
@@ -45,7 +51,26 @@
   display: grid;
   // The list column is draggable; `--mgr-list-w` is what the resizer writes.
   grid-template-columns: var(--mgr-list-w, var(--mgr-list-default)) minmax(0, 1fr);
-  gap: var(--spacing-lg);
+  gap: var(--panel-gap);
+  // The resizer is placed against this grid (below), not in its flow.
+  position: relative;
+}
+
+// Taken out of the flow but placed in the list's own grid area, so the
+// resizer's `left: 100%` is the list's right edge and it fills the gap after it.
+.mgr__body > nexus-panel-resizer {
+  // Both lines explicit: an absolutely placed grid item's `auto` line is the
+  // container's edge, not the next track.
+  grid-column: 1 / 2;
+  grid-row: 1 / -1;
+}
+
+// With nothing to list there is only one thing on the page, so the page itself
+// is the panel.
+.mgr:not(:has(> .mgr__body)) {
+  background: var(--panel-bg-primary);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius);
 }
 
 // The contents rail takes a column of its own rather than floating inside the
@@ -53,8 +78,22 @@
 // scrolls a long outline independently of the form it describes. Whether it
 // shows is measured, not queried — see `ProfileOutline.watchRoom` — so there is
 // no width here below which the track is dropped; `.is-off` does that.
+//
+// The rail takes whatever the editor does not need: once the editor has room
+// for its whole form (`--mgr-editor-full`), every further pixel goes to the
+// rail, up to a width past which longer names stop gaining anything. Below
+// that it holds its minimum and the editor gives instead — until the room test
+// takes the rail away.
 .mgr__body:has(nexus-profile-outline:not(.is-off)) {
-  grid-template-columns: var(--mgr-list-w, var(--mgr-list-default)) minmax(0, 1fr) auto;
+  grid-template-columns:
+    var(--mgr-list-w, var(--mgr-list-default))
+    minmax(0, 1fr)
+    clamp(
+      var(--outline-min-w),
+      100% - var(--mgr-list-w, var(--mgr-list-default)) - var(--mgr-editor-full) - 2 *
+        var(--panel-gap),
+      320px
+    );
 }
 
 // The list column's own start content, in place of the page-wide header.
@@ -91,11 +130,11 @@
 // ── List column ─────────────────────────────────────────────────────────────
 
 .mgr__list {
-  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
   gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-md) 0;
 }
 
 .mgr__tools {
@@ -189,7 +228,7 @@
   align-items: baseline;
   gap: var(--spacing-sm);
   padding: var(--spacing-xs) var(--spacing-sm) var(--spacing-xs);
-  background: var(--color-bg-primary);
+  background: var(--panel-bg);
 
   h3 {
     margin: 0;
@@ -201,9 +240,11 @@
   }
 
   .mgr__group-count {
-    font-size: var(--font-size-xs);
-    color: var(--color-text-tertiary);
     font-variant-numeric: tabular-nums;
+    // Tiny: a count is a footnote to its label, not a label of its own.
+    padding: 0 5px;
+    font-size: 10px;
+    line-height: 15px;
   }
 }
 
@@ -316,14 +357,11 @@
   // An outline jump aims at `block: start`; a bare scroll would park the target
   // under the section title pinned above it.
   scroll-padding-top: var(--spacing-xl);
-  border-left: 1px solid var(--color-border-light);
   // Both sides. With a gutter on the left only, a form at its full width ended
   // hard against whatever the next column was — and the rail is only ever shown
   // when there is room for this padding too (`EDITOR_MIN_WIDTH` counts it), so
   // it is never what squeezes it.
   padding-inline: var(--spacing-lg);
-  // Concrete surface source so sticky group titles can `inherit` a backing.
-  background: var(--color-bg-primary);
 }
 
 .mgr__detail-inner {
@@ -331,6 +369,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
+  padding-top: var(--spacing-md);
   padding-bottom: var(--spacing-2xl);
   background: inherit;
 }
@@ -375,17 +414,10 @@
 // whole lower half is given back when nothing is selected — which is exactly
 // what `.mgr__detail-inner` existing tells us.
 @include handheld {
-  .mgr {
-    padding: var(--spacing-md) var(--spacing-md) 0;
-    padding-left: calc(var(--spacing-md) + env(safe-area-inset-left, 0px));
-    padding-right: calc(var(--spacing-md) + env(safe-area-inset-right, 0px));
-  }
-
   .mgr__body,
   .mgr__body:has(nexus-profile-outline) {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 2fr) minmax(0, 3fr);
-    gap: var(--spacing-md);
   }
 
   .mgr__body:not(:has(.mgr__detail-inner)) {
@@ -397,10 +429,7 @@
   }
 
   .mgr__detail {
-    border-left: none;
-    border-top: 1px solid var(--color-border-light);
-    padding-left: 0;
-    padding-top: var(--spacing-md);
+    padding-inline: var(--spacing-md);
   }
 
   .mgr__detail-inner {

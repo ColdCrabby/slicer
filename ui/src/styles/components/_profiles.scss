@@ -149,7 +149,7 @@
   background: inherit;
 }
 
-// Brief accent ring wherever a hand-off drops the user — a wizard's "Add &
+// Brief neutral wash wherever a hand-off drops the user — a wizard's "Add &
 // configure", a field notice's link, an outline jump, a Settings search result
 // — so what they were sent to is easy to spot once the scroll settles among
 // rows that all look alike.
@@ -164,13 +164,15 @@
   }
 }
 
+// A background that fades out, not a ring: enough to find the row, quiet
+// enough not to read as an error or a selection.
 @keyframes configure-flash {
   0%,
   25% {
-    box-shadow: 0 0 0 2px var(--accent);
+    background-color: var(--color-surface-alt);
   }
   100% {
-    box-shadow: 0 0 0 2px transparent;
+    background-color: transparent;
   }
 }
 

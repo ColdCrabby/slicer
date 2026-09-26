@@ -13,13 +13,13 @@ import {
   viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Icon } from '@coldcrabby/ui';
+import { Badge, Icon } from '@coldcrabby/ui';
+import { Panel } from '../../ui/panel/panel';
 import { Viewport } from '../../services/viewport';
 import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
 import { NAV_FOLDED_WIDTH, NAV_OPEN_WIDTH, SettingsNav } from '../../services/settings-nav';
 import {
   GRAPH_LANES,
-  RAIL_WIDTH,
   filterOutline,
   graphLine,
   hasRoomForRail,
@@ -87,18 +87,18 @@ interface GraphNode {
 @Component({
   selector: 'nexus-profile-outline',
   standalone: true,
-  imports: [FormsModule, Icon],
+  imports: [FormsModule, Badge, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './profile-outline.html',
   styleUrl: './profile-outline.scss',
+  // A panel of its own beside the editor it maps.
+  hostDirectives: [Panel],
   host: {
     // Drives both its own `display` and the grid track the page reserves for
     // it, so a hidden rail costs no column.
     '[class.is-off]': '!visible()',
     // The stylesheet indents rows against the same lanes the line is drawn on,
-    // and sizes the rail to the width the room test assumes — both from here,
-    // so neither can drift from the numbers the geometry uses.
-    '[style.--outline-width.px]': 'railWidth',
+    // from here, so they cannot drift from the numbers the geometry uses.
     '[style.--outline-lane-0.px]': 'lanes[0]',
     '[style.--outline-lane-1.px]': 'lanes[1]',
   },
@@ -109,7 +109,6 @@ export class ProfileOutline {
   private readonly viewport = inject(Viewport);
   private readonly nav = inject(SettingsNav);
 
-  protected readonly railWidth = RAIL_WIDTH;
   protected readonly lanes = GRAPH_LANES;
   /** The SVG only needs to span the lanes, plus a node's radius past the last. */
   protected readonly graphWidth = GRAPH_LANES[GRAPH_LANES.length - 1] + 6;
@@ -395,7 +394,13 @@ export class ProfileOutline {
         return;
       }
       const style = getComputedStyle(page);
-      const padding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+      // The page's own padding, plus the gap between the section list's panel
+      // and the page's — both come out of the shell's width before the body
+      // gets any of it.
+      const padding =
+        (parseFloat(style.paddingLeft) || 0) +
+        (parseFloat(style.paddingRight) || 0) +
+        (parseFloat(getComputedStyle(shell).columnGap) || 0);
       const shellWidth = shell.getBoundingClientRect().width;
       const whenOpen = shellWidth - NAV_OPEN_WIDTH - padding;
       const whenFolded = shellWidth - NAV_FOLDED_WIDTH - padding;

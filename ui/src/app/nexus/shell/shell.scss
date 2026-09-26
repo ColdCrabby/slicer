@@ -16,12 +16,10 @@
   display: flex;
 }
 
-// The page is one rounded surface floating on the window, rather than a region
-// ruled off from the chrome with hairlines. It keeps the page's own tone, and
-// its border is the one the titlebar and rail used to draw between themselves
-// and it. Clipped, so the 3D scene and the settings drawer — which slides out
-// from this surface's left edge — are rounded with it rather than squared off
-// underneath its corners.
+// The stage the page's panels stand on. It has no fill, edge or corner of its
+// own — each region of a page is its own `[nexusPanel]` box — and only holds
+// them the gutter off the window's right and bottom edges. Not clipped: a
+// raised panel's shadow and a drawer's slide both reach into the gutter.
 .shell-content-area {
   flex: 1 1 auto;
   min-width: 0;
@@ -29,15 +27,11 @@
   position: relative;
   display: flex;
   margin: 0 var(--shell-gutter) var(--shell-gutter) 0;
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-shell);
-  overflow: clip;
   // Above the titlebar, so the brand mark hanging from it tucks behind the
-  // surface's corner rather than over it.
+  // panels' corners rather than over them.
   z-index: 2;
-  // Also anchors the route-progress hairline, which runs along this surface's
-  // top edge without taking a row of its own.
+  // Also anchors the route-progress hairline, which runs along the stage's top
+  // edge without taking a row of its own.
 }
 
 // Phones put navigation under the thumb, not down the side: a 60px rail costs
@@ -46,7 +40,7 @@
 // the row into a column moves the same rail there without the nav needing to
 // know where it lives.
 //
-// Nothing flanks the surface on the left there any more, so it takes the gutter
+// Nothing flanks the stage on the left there any more, so it takes the gutter
 // on both sides; the tab bar underneath already holds it off the bottom edge.
 @include handheld {
   .shell-body {

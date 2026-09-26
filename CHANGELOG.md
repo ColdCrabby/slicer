@@ -98,6 +98,17 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Changed
 
+- **A calmer, floating layout.** The title bar and side rail lose their fills
+  and rules, and each part of a page is its own rounded panel, 5px apart, with
+  only the main content in the darker tone. Workplate tabs are borderless, and
+  the crab sits whole in the corner.
+- **Print settings float over the plate.** Hidden, a slim bar marks the plate's
+  left edge: rest the pointer there and the panel turns in. Docked, the plate
+  moves over with it instead of being squeezed, and a three-dot grip resizes it
+  — the same grip as between Settings columns.
+- **Settings are steadier.** Preference help opens as the usual tooltip, counts
+  are small badges, *Saving… / Saved* and **Restore defaults** no longer shift
+  the line, and a jump to a setting marks it with a soft background.
 - **The app starts faster.** The first screen downloads about a fifth less code
   (943 kB → 726 kB, 242 kB → 192 kB compressed). The settings schema, unused
   form controls and a second popover engine no longer load before the home

@@ -27,9 +27,11 @@ import {
   IconButton,
   Segmented,
   TooltipDirective,
+  Badge,
 } from '@coldcrabby/ui';
 import { ParamField } from '../../components/profiles/param-field';
-import { ColumnResizer } from '../../components/profiles/column-resizer';
+import { Panel } from '../../ui/panel/panel';
+import { PanelResizer } from '../../ui/panel/panel-resizer';
 import { ProfileOutline } from '../../components/profiles/profile-outline';
 import { ProfileHead } from '../../components/profiles/profile-head';
 import { profileSaveState } from '../../components/profiles/profile-save-state';
@@ -42,6 +44,7 @@ import { LabelPickerPanel } from '../../components/labels/label-picker-panel';
 @Component({
   selector: 'nexus-settings-profiles',
   imports: [
+    Badge,
     EmptyState,
     Button,
     IconButton,
@@ -56,7 +59,8 @@ import { LabelPickerPanel } from '../../components/labels/label-picker-panel';
     LabelPicker,
     ContextMenuTrigger,
     ProfileOutline,
-    ColumnResizer,
+    Panel,
+    PanelResizer,
   ],
   templateUrl: './profiles.html',
   styleUrl: './profiles.scss',

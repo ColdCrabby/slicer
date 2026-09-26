@@ -291,15 +291,16 @@
 
 // ── Phone ─────────────────────────────────────────────────────────────────
 //
-// The overlay is centred in a scene that now also carries a drawer tab on its
+// The overlay is centred in a scene that now also carries a drawer handle on its
 // left edge and a slice sheet along its bottom. Insetting the card off both
 // keeps the whole invitation readable instead of running under them.
 @include handheld {
   // Centre the card in the band that is actually free — between the toolbar
   // above and the slice sheet below — rather than in the whole scene, where it
-  // would sit under both. The left inset clears the drawer's pull tab.
+  // would sit under both. The left inset clears the drawer's handle.
   .launch-overlay {
-    padding: calc(var(--main-scene-inset, 48px) + var(--spacing-sm)) var(--spacing-sm) 100px 44px;
+    padding: calc(var(--main-scene-inset, 48px) + var(--spacing-sm)) var(--spacing-sm) 100px
+      var(--spacing-lg);
     align-items: center;
   }
 
@@ -325,7 +326,8 @@
 // than that. Everything but the invitation and the button gives way.
 @include handheld-landscape {
   .launch-overlay {
-    padding: calc(var(--main-scene-inset, 46px) + var(--spacing-xs)) var(--spacing-sm) 92px 44px;
+    padding: calc(var(--main-scene-inset, 46px) + var(--spacing-xs)) var(--spacing-sm) 92px
+      var(--spacing-lg);
   }
 
   .launch-card {

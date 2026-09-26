@@ -4,7 +4,7 @@ import { BrowserStorage } from './browser-storage';
 const PINNED_KEY = 'settings-nav.pinned';
 
 /** The Settings section list's width when open, in px. Its stylesheet reads this. */
-export const NAV_OPEN_WIDTH = 200;
+export const NAV_OPEN_WIDTH = 240;
 
 /** Its width folded to an icon rail, in px. */
 export const NAV_FOLDED_WIDTH = 56;
