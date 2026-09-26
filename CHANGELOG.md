@@ -129,7 +129,7 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   left the plate's name two letters wide.
 - **Recent plates come first on Home**, and each printer card opens that printer.
 - **Debug overlays and the thumbnail animation are off by default** — turn them
-  on in Settings → General.
+  on in Settings → 3D View.
 - **The browser build's performance note is a one-time notice** with a link to
   the desktop app, not a dialog in front of the model you just opened.
 - **"Save to profiles"** replaces "Sync", and the app says **plate** throughout.

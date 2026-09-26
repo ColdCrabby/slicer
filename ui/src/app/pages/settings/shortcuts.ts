@@ -54,16 +54,33 @@ export class ShortcutReference {
       },
       {
         title: 'Object mode',
+        rows: [
+          ...pick([
+            'object-mode-translate',
+            'object-mode-rotate',
+            'object-mode-scale',
+            'object-mode-pull-to-floor',
+            'object-mode-paint',
+            'leave-tool',
+            'brush-quick-adjust',
+          ]),
+          // Eight bindings, one idea: listed once rather than per arrow.
+          {
+            actionId: 'nudge',
+            displayText: '← ↑ → ↓',
+            displayDescription: `Nudge the selection 1 mm, as seen from the camera (Shift 10 mm, ${alt} 0.1 mm)`,
+          },
+        ],
+      },
+      {
+        title: 'View',
         rows: pick([
-          'object-mode-translate',
-          'object-mode-rotate',
-          'object-mode-scale',
-          'object-mode-pull-to-floor',
-          'object-mode-paint',
-          'brush-quick-adjust',
+          'zoom-to-selection',
+          'toggle-gravity',
+          'toggle-view-mode',
+          'toggle-projection',
         ]),
       },
-      { title: 'View', rows: pick(['toggle-gravity', 'toggle-view-mode', 'toggle-projection']) },
       {
         title: 'Number fields',
         rows: [
