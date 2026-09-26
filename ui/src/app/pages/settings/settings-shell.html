@@ -14,71 +14,9 @@
       </button>
     </div>
 
-    <div class="settings-search" role="search">
-      <nexus-icon name="search" aria-hidden="true" />
-      <input
-        #searchInput
-        type="search"
-        role="combobox"
-        autocomplete="off"
-        spellcheck="false"
-        aria-label="Search settings"
-        aria-autocomplete="list"
-        aria-controls="settings-search-results"
-        [attr.aria-expanded]="!!query()"
-        [attr.aria-activedescendant]="activeOptionId()"
-        [placeholder]="searchPlaceholder()"
-        [value]="query()"
-        (focus)="warmSearch()"
-        (input)="setQuery($event)"
-        (keydown)="onSearchKey($event)"
-      />
-      @if (query()) {
-        <button
-          type="button"
-          class="settings-search-clear"
-          aria-label="Clear search"
-          (click)="clearQuery()"
-        >
-          <nexus-icon name="xmark" aria-hidden="true" />
-        </button>
-      }
-    </div>
+    <nexus-settings-search #search />
 
-    @if (query()) {
-      <!--
-        Results take the list's place rather than floating over it, the way the
-        system's own settings search does: the sidebar is where you were looking,
-        so it is where the answer appears.
-      -->
-      <div
-        class="settings-results"
-        id="settings-search-results"
-        role="listbox"
-        aria-label="Search results"
-      >
-        @for (hit of results(); track hit.id; let i = $index) {
-          <button
-            type="button"
-            role="option"
-            class="settings-result"
-            [id]="'settings-result-' + i"
-            [class.is-active]="i === activeIndex()"
-            [attr.aria-selected]="i === activeIndex()"
-            (click)="open(hit)"
-            (pointerenter)="activeIndex.set(i)"
-          >
-            <nexus-icon class="settings-result-icon" [name]="hit.icon" aria-hidden="true" />
-            <span class="settings-result-text">
-              <span class="settings-result-title">{{ hit.title }}</span>
-              <span class="settings-result-where">{{ hit.where }}</span>
-            </span>
-          </button>
-        } @empty {
-          <p class="settings-results-empty">Nothing matches “{{ query() }}”</p>
-        }
-      </div>
-    } @else {
+    @if (!search.active() || nav.collapsed()) {
       <nav class="settings-nav-list" aria-label="Settings sections">
         @for (group of groups; track group.id) {
           <div
@@ -130,33 +68,7 @@
       </nav>
     }
 
-    <div class="settings-nav-footer">
-      @if (syncVisible()) {
-        <p
-          class="settings-sync"
-          [class.is-error]="syncIsError()"
-          role="status"
-          aria-live="polite"
-          animate.enter="settings-sync-enter"
-          animate.leave="settings-sync-leave"
-        >
-          <span class="settings-sync-dot"></span>
-          <span>{{ syncLabel() }}</span>
-        </p>
-      }
-
-      <!-- One line here; the sentence behind it is on General → Your library,
-           where the export that answers it lives too. -->
-      <a
-        class="settings-storage"
-        [attr.data-mode]="storage.mode"
-        routerLink="general"
-        fragment="pref-library-storage"
-      >
-        <nexus-icon class="settings-storage-icon" [name]="storage.icon" aria-hidden="true" />
-        <span>{{ storage.title }}</span>
-      </a>
-    </div>
+    <nexus-settings-nav-footer />
   </aside>
 
   <div class="settings-content">

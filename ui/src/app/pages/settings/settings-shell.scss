@@ -85,146 +85,6 @@
   -webkit-user-select: none;
 }
 
-// ── Search ──────────────────────────────────────────────────────────────────
-
-.settings-search {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  height: 32px;
-  margin: 0 var(--spacing-xs) var(--spacing-xs);
-  padding: 0 var(--spacing-xs) 0 var(--spacing-sm);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  color: var(--color-text-tertiary);
-  --icon-size: 14px;
-  transition:
-    border-color var(--duration-fast) var(--ease-standard),
-    box-shadow var(--duration-fast) var(--ease-standard);
-
-  &:focus-within {
-    border-color: var(--color-focus-ring);
-    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
-  }
-
-  input {
-    flex: 1;
-    min-width: 0;
-    height: 100%;
-    padding: 0;
-    border: none;
-    background: none;
-    color: var(--color-text-primary);
-    font-family: inherit;
-    font-size: var(--font-size-sm);
-
-    &:focus,
-    &:focus-visible {
-      outline: none;
-      box-shadow: none;
-    }
-
-    &::placeholder {
-      color: var(--color-text-tertiary);
-    }
-
-    &::-webkit-search-cancel-button {
-      display: none;
-    }
-  }
-}
-
-.settings-search-clear {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: inherit;
-  cursor: pointer;
-
-  &:hover {
-    color: var(--color-text-primary);
-    background: var(--color-surface-hover);
-  }
-}
-
-.settings-results {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-height: 0;
-}
-
-.settings-result {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  width: 100%;
-  padding: 6px var(--spacing-sm);
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-  --icon-size: 16px;
-
-  // Hover and the keyboard's current option share one look: there is only
-  // ever one result Enter would open, and it should be the one that is lit.
-  &.is-active {
-    background: var(--color-surface-hover);
-    color: var(--color-text-primary);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: -2px;
-  }
-}
-
-.settings-result-icon {
-  flex: none;
-  color: var(--color-text-tertiary);
-}
-
-.settings-result-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.settings-result-title,
-.settings-result-where {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.settings-result-title {
-  font-size: var(--font-size-sm);
-  color: inherit;
-}
-
-.settings-result-where {
-  font-size: var(--font-size-2xs);
-  color: var(--color-text-tertiary);
-}
-
-.settings-results-empty {
-  margin: 0;
-  padding: var(--spacing-sm);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-tertiary);
-}
-
 // ── Sections ────────────────────────────────────────────────────────────────
 
 .settings-nav-list {
@@ -384,119 +244,13 @@
 }
 
 // ── Footer ──────────────────────────────────────────────────────────────────
+//
+// The save indicator and the storage line are `nexus-settings-nav-footer`,
+// which styles its own; the shell only places it.
 
-.settings-nav-footer {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
+nexus-settings-nav-footer {
   margin-top: auto;
   padding-top: var(--spacing-md);
-}
-
-// Where the library lives, in one line that links to the sentence behind it.
-.settings-storage {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-xs) var(--spacing-md);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-  text-decoration: none;
-  white-space: nowrap;
-  user-select: none;
-  -webkit-user-select: none;
-  --icon-size: 14px;
-
-  &:hover {
-    background: var(--color-surface-hover);
-    color: var(--color-text-secondary);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: -2px;
-  }
-
-  // Kept only in this browser — worth a second look, not an alarm.
-  &[data-mode='browser'] .settings-storage-icon {
-    color: var(--color-warning);
-  }
-}
-
-.settings-storage-icon {
-  flex: none;
-  color: var(--accent);
-}
-
-.settings-sync {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  margin: 0;
-  padding: 0 var(--spacing-md);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-  user-select: none;
-  -webkit-user-select: none;
-
-  &.is-error {
-    color: var(--color-danger);
-  }
-}
-
-.settings-sync-enter {
-  animation: settings-sync-in var(--duration-normal) var(--ease-standard) both;
-}
-
-.settings-sync-leave {
-  animation: settings-sync-out var(--duration-normal) var(--ease-standard) forwards;
-}
-
-.settings-sync-dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: settings-sync-pulse 1.4s ease-in-out infinite;
-
-  .settings-sync.is-error & {
-    background: var(--color-danger);
-    animation: none;
-  }
-}
-
-@keyframes settings-sync-pulse {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-@keyframes settings-sync-in {
-  from {
-    opacity: 0;
-    transform: translateY(2px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes settings-sync-out {
-  from {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(2px);
-  }
 }
 
 // ── Content ─────────────────────────────────────────────────────────────────
@@ -538,9 +292,8 @@
   }
 
   .settings-title,
-  .settings-search,
-  .settings-results,
-  .settings-nav-footer {
+  nexus-settings-search,
+  nexus-settings-nav-footer {
     display: none;
   }
 
@@ -618,8 +371,7 @@
   // simply ignored at this width rather than being reset, so it is still there
   // when the same user opens the same app on a desktop.
   .settings-nav-head,
-  .settings-search,
-  .settings-results,
+  nexus-settings-search,
   .settings-nav-group-title,
   .settings-nav-summary,
   .settings-nav-count {
@@ -655,17 +407,11 @@
     flex: 1;
   }
 
-  // Where the library is stored is a footnote, not a third of the screen; it
-  // belongs on the pages that can act on it rather than in the chrome.
-  .settings-storage {
-    display: none;
-  }
-
-  // "Saving…" must survive the fold, though — it is the only confirmation an
-  // edit was persisted. Pinned to the trailing edge so it stays visible however
-  // far the chip strip is scrolled.
-  .settings-nav-footer,
-  .settings.is-nav-collapsed .settings-nav-footer {
+  // "Saving…" must survive the fold — it is the only confirmation an edit was
+  // persisted. Pinned to the trailing edge so it stays visible however far the
+  // chip strip is scrolled; the footer drops its storage line at this width.
+  nexus-settings-nav-footer,
+  .settings.is-nav-collapsed nexus-settings-nav-footer {
     display: flex;
     margin-top: 0;
     margin-left: auto;
@@ -674,10 +420,6 @@
     right: 0;
     flex: none;
     background: var(--color-bg-secondary);
-  }
-
-  .settings-sync {
-    padding: 0;
   }
 
   .settings-content {
