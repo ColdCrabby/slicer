@@ -4,24 +4,36 @@ import {
   DestroyRef,
   ElementRef,
   afterNextRender,
+  afterRenderEffect,
   computed,
   effect,
   inject,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Icon } from '@coldcrabby/ui';
 import { Viewport } from '../../services/viewport';
 import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
+import { NAV_FOLDED_WIDTH, NAV_OPEN_WIDTH, SettingsNav } from '../../services/settings-nav';
 import {
+  GRAPH_LANES,
+  RAIL_WIDTH,
   filterOutline,
+  graphLine,
   hasRoomForRail,
   idsInView,
   measureOutline,
+  pathData,
+  railAnchors,
+  railNeedsFold,
   scanOutline,
+  sliceLine,
+  toRail,
   type OutlineSection,
   type OutlineSpan,
+  type RailRow,
 } from './outline';
 
 /** How long the landing mark on a jumped-to row lasts; matches `configure-flash`. */
@@ -39,6 +51,24 @@ const FLASH_MS = 1600;
 const RESCAN_QUIET_MS = 200;
 
 /**
+ * How long after the user touches the rail itself it stops following the
+ * editor. Long enough to finish reading what they scrolled to; a follow that
+ * yanked the list out from under a finger would make the rail unusable.
+ */
+const HANDS_OFF_MS = 1500;
+
+/** Room kept between the marked window and the edge of the rail when following. */
+const FOLLOW_MARGIN = 24;
+
+/** A section's node on the line. */
+interface GraphNode {
+  id: string;
+  cy: number;
+  inWindow: boolean;
+  current: boolean;
+}
+
+/**
  * The contents rail beside a profile editor: every section of the page, and
  * under each one every setting by name, with a filter box above it.
  *
@@ -46,6 +76,13 @@ const RESCAN_QUIET_MS = 200;
  * `./outline.ts` for why — which is what lets one component serve the printer,
  * filament and print-profile pages without any of them describing themselves
  * twice. Drop it in as a sibling of `.mgr__detail` and it wires itself up.
+ *
+ * Down its left edge runs one continuous line, drawn the way a git client draws
+ * a branch: through a node at each section, swinging in under an open section's
+ * settings and back out below them. A thicker stroke on that line marks the
+ * part of the editor on screen — mapped pixel for pixel, so it slides as the
+ * editor scrolls rather than stepping from row to row. The geometry is in
+ * `./outline.ts`; this component only measures and draws.
  */
 @Component({
   selector: 'nexus-profile-outline',
@@ -58,27 +95,31 @@ const RESCAN_QUIET_MS = 200;
     // Drives both its own `display` and the grid track the page reserves for
     // it, so a hidden rail costs no column.
     '[class.is-off]': '!visible()',
+    // The stylesheet indents rows against the same lanes the line is drawn on,
+    // and sizes the rail to the width the room test assumes — both from here,
+    // so neither can drift from the numbers the geometry uses.
+    '[style.--outline-width.px]': 'railWidth',
+    '[style.--outline-lane-0.px]': 'lanes[0]',
+    '[style.--outline-lane-1.px]': 'lanes[1]',
   },
 })
 export class ProfileOutline {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly shortcuts = inject(KeyboardShortcuts);
   private readonly viewport = inject(Viewport);
+  private readonly nav = inject(SettingsNav);
+
+  protected readonly railWidth = RAIL_WIDTH;
+  protected readonly lanes = GRAPH_LANES;
+  /** The SVG only needs to span the lanes, plus a node's radius past the last. */
+  protected readonly graphWidth = GRAPH_LANES[GRAPH_LANES.length - 1] + 6;
 
   /**
    * The rail appears when there is genuinely room for it.
    *
-   * It used to be tied to folding the Settings section list — a trade the user
-   * made deliberately, because a fourth column at once made the page feel
-   * crowded. The page has since given a column back, so the trade is no longer
-   * the real question; the room is. Asking it directly also answers something
-   * neither a viewport media query nor a folded-nav flag could: the nav, the
-   * window and the dragged list width all take from the same budget, and only a
-   * measurement of what is left knows about all three.
-   *
-   * Measured on [`.mgr__body`], whose own width does not depend on whether the
-   * rail is showing — so revealing the rail can never be what takes the room
-   * away that revealed it.
+   * The nav, the window and the dragged list width all take from the same
+   * budget, and only a measurement of what is left knows about all three — a
+   * viewport media query cannot see the other two. See {@link watchRoom}.
    */
   protected readonly visible = computed(() => this.roomForRail());
   private readonly roomForRail = signal(false);
@@ -152,38 +193,100 @@ export class ProfileOutline {
   protected readonly currentId = signal<string | null>(null);
 
   /**
-   * Every row whose target is on screen right now — not just the one at the
-   * top.
-   *
-   * A contents list that marks a single active heading tells you where you are
-   * and nothing about how much you can see; on an editor where a short section
-   * fits entirely in the window, it also keeps pointing at the heading above
-   * the thing you are reading. Lighting the whole visible span turns the rail
-   * into a map of the page with your window drawn on it, which is what a reader
-   * actually wants from one.
-   *
-   * A row half-cut by the edge of the editor does not count — see `idsInView`.
+   * Every row whose target is wholly on screen. Brightens those rows' text — a
+   * reading aid; the window drawn on the line is what says how much is showing.
    */
   protected readonly inView = signal<ReadonlySet<string>>(new Set());
 
-  private scroller: HTMLElement | null = null;
+  // --- Graph state -------------------------------------------------------
 
-  /** Row geometry, measured per scan; see `measureOutline`. */
-  private spans: ReadonlyMap<string, OutlineSpan> = new Map();
+  /** Where each row's target sits in the editor, measured per scan. */
+  private readonly spans = signal<ReadonlyMap<string, OutlineSpan>>(new Map());
+
+  /** Where each listed row sits in the rail, measured after every render. */
+  private readonly railRows = signal<ReadonlyMap<string, RailRow>>(new Map());
+
+  /** Height of the rail's content, which the SVG must span. */
+  protected readonly railHeight = signal(0);
+
+  /** The editor's visible band, in its own content coordinates. */
+  private readonly editorWindow = signal({ top: 0, bottom: 0 });
+
+  /** Listed rows in the order they are drawn, as far as they have been measured. */
+  private readonly orderedRows = computed<RailRow[]>(() => {
+    const measured = this.railRows();
+    const ordered: RailRow[] = [];
+    for (const section of this.rows()) {
+      const row = measured.get(section.id);
+      if (row) {
+        ordered.push(row);
+      }
+      if (this.isExpanded(section.id)) {
+        for (const entry of section.entries) {
+          const entryRow = measured.get(entry.id);
+          if (entryRow) {
+            ordered.push(entryRow);
+          }
+        }
+      }
+    }
+    return ordered;
+  });
+
+  private readonly line = computed(() => graphLine(this.orderedRows()));
+
+  protected readonly trackPath = computed(() => pathData(this.line()));
+
+  private readonly anchors = computed(() =>
+    railAnchors(this.rows(), (id) => this.isExpanded(id), this.spans(), this.railRows()),
+  );
+
+  /** The editor's visible band, carried onto the rail. */
+  private readonly windowOnRail = computed(() => {
+    const anchors = this.anchors();
+    const { top, bottom } = this.editorWindow();
+    return { top: toRail(anchors, top), bottom: toRail(anchors, bottom) };
+  });
+
+  protected readonly windowPath = computed(() => {
+    const { top, bottom } = this.windowOnRail();
+    return pathData(sliceLine(this.line(), top, bottom));
+  });
+
+  protected readonly nodes = computed<GraphNode[]>(() => {
+    const { top, bottom } = this.windowOnRail();
+    const current = this.currentId();
+    return this.orderedRows()
+      .filter((row) => row.depth === 0)
+      .map((row) => {
+        const cy = (row.top + row.bottom) / 2;
+        return { id: row.id, cy, inWindow: cy >= top && cy <= bottom, current: row.id === current };
+      });
+  });
+
+  private scroller: HTMLElement | null = null;
 
   /** Content height the spans were measured against, to notice a reflow. */
   private measuredHeight = 0;
 
+  /** Until when the rail stops following the editor, after the user touched it. */
+  private handsOffUntil = 0;
+
   private readonly searchInputRef = viewChild<ElementRef<HTMLInputElement>>('searchInput');
+  private readonly railBodyRef = viewChild<ElementRef<HTMLElement>>('railBody');
+  private readonly railListRef = viewChild<ElementRef<HTMLElement>>('railList');
 
   constructor() {
     // The same `$mod+f` the slice sidebar's settings search claims. The two are
     // never on screen together — one is the slice page, the other the settings
-    // pages — so whichever is mounted answers it.
+    // pages — so whichever is mounted answers it. Inside Settings the outline
+    // borrows the key from the sidebar's search while it is up, and gives it
+    // back when it goes: on a profile editor, "find" means find in this editor.
+    const previous = this.shortcuts.settingsSearchRef;
     this.shortcuts.settingsSearchRef = this;
     inject(DestroyRef).onDestroy(() => {
       if (this.shortcuts.settingsSearchRef === this) {
-        this.shortcuts.settingsSearchRef = null;
+        this.shortcuts.settingsSearchRef = previous;
       }
     });
     afterNextRender(() => this.attach());
@@ -193,6 +296,23 @@ export class ProfileOutline {
         this.scheduleRescan();
       }
     });
+    // Pressing the fold button changes which of the two widths applies.
+    effect(() => {
+      this.nav.collapsed();
+      untracked(() => this.scheduleRoom?.());
+    });
+    // The rail's own rows move whenever what it lists changes — a section
+    // opens, the filter narrows, the editor is rescanned — so it re-measures
+    // after every such render, before the next paint.
+    afterRenderEffect({
+      read: () => {
+        this.rows();
+        this.expanded();
+        this.query();
+        this.visible();
+        untracked(() => this.measureRail());
+      },
+    });
     inject(DestroyRef).onDestroy(() => this.detach());
   }
 
@@ -200,10 +320,13 @@ export class ProfileOutline {
 
   private observer: MutationObserver | null = null;
   private roomObserver: ResizeObserver | null = null;
+  private railObserver: ResizeObserver | null = null;
   private roomTimer: ReturnType<typeof setTimeout> | null = null;
   private scrollHandler: (() => void) | null = null;
   private rescanTimer: ReturnType<typeof setTimeout> | null = null;
   private spyFrame = 0;
+  /** Re-run the room test; set once {@link watchRoom} has something to measure. */
+  private scheduleRoom: (() => void) | null = null;
 
   private attach(): void {
     const body = this.host.nativeElement.closest<HTMLElement>('.mgr__body');
@@ -228,35 +351,68 @@ export class ProfileOutline {
 
     this.scrollHandler = () => this.scheduleSpy();
     scroller.addEventListener('scroll', this.scrollHandler, { passive: true });
+
+    // Row heights can change without anything the effect above tracks — the
+    // web font arriving, a coarse pointer's taller rows — and the SVG has to
+    // follow them.
+    const list = this.railListRef()?.nativeElement;
+    if (list) {
+      this.railObserver = new ResizeObserver(() => this.measureRail());
+      this.railObserver.observe(list);
+    }
   }
 
   /**
-   * Keep {@link roomForRail} in step with the space the page actually has.
+   * Keep {@link roomForRail} in step with the space the page actually has, and
+   * fold the Settings section list when that is what makes the room.
    *
-   * The rule itself is [`hasRoomForRail`]; both of its inputs are read from the
-   * live layout rather than assumed, because the list column is draggable and
-   * the gap is a token.
+   * The rule itself is [`hasRoomForRail`]; every input is read from the live
+   * layout rather than assumed, because the list column is draggable and the
+   * gaps are tokens.
+   *
+   * Inside the Settings shell the widths are worked out from the shell rather
+   * than read off the body, because the body is exactly what the section list
+   * resizes when it folds: measured mid-animation it would say whatever the
+   * animation had reached. The shell's own width does not move, so the body
+   * each state *would* give is a subtraction, and the answer is the same
+   * before, during and after the fold.
    */
   private watchRoom(body: HTMLElement): void {
+    const shell = body.closest<HTMLElement>('.settings');
+    const page = body.closest<HTMLElement>('.mgr');
+    const list = body.querySelector<HTMLElement>('.mgr__list');
+
     const measure = () => {
-      const list = body.querySelector<HTMLElement>('.mgr__list');
       const gap = parseFloat(getComputedStyle(body).columnGap) || 0;
       const listWidth = list?.getBoundingClientRect().width ?? 0;
-      this.roomForRail.set(hasRoomForRail(body.getBoundingClientRect().width, listWidth, gap));
+      if (this.viewport.isHandheld()) {
+        this.nav.requestFold(false);
+        this.roomForRail.set(false);
+        return;
+      }
+      if (!shell || !page) {
+        this.roomForRail.set(hasRoomForRail(body.getBoundingClientRect().width, listWidth, gap));
+        return;
+      }
+      const style = getComputedStyle(page);
+      const padding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+      const shellWidth = shell.getBoundingClientRect().width;
+      const whenOpen = shellWidth - NAV_OPEN_WIDTH - padding;
+      const whenFolded = shellWidth - NAV_FOLDED_WIDTH - padding;
+      this.nav.requestFold(railNeedsFold(whenOpen, whenFolded, listWidth, gap));
+      const folded = untracked(() => this.nav.collapsed());
+      this.roomForRail.set(hasRoomForRail(folded ? whenFolded : whenOpen, listWidth, gap));
     };
-    measure();
-
-    // Answered after the callback returns, not inside it. The answer adds or
-    // removes a grid track, so writing it synchronously resizes the observed
-    // subtree from within its own delivery — which the browser cuts short
-    // ("ResizeObserver loop completed with undelivered notifications"), dropping
-    // the very notification that would have corrected the result. That left the
-    // rail showing at widths it had already outgrown.
-    //
-    // A timeout rather than a frame: `requestAnimationFrame` does not run in a
-    // hidden tab, so a window resized while Settings sat in the background
-    // stayed wrong until something painted.
-    this.roomObserver = new ResizeObserver(() => {
+    const schedule = () => {
+      // Answered after the callback returns, not inside it. The answer adds or
+      // removes a grid track, so writing it synchronously resizes the observed
+      // subtree from within its own delivery — which the browser cuts short
+      // ("ResizeObserver loop completed with undelivered notifications"),
+      // dropping the very notification that would have corrected the result.
+      //
+      // A timeout rather than a frame: `requestAnimationFrame` does not run in
+      // a hidden tab, so a window resized while Settings sat in the background
+      // stayed wrong until something painted.
       if (this.roomTimer !== null) {
         return;
       }
@@ -264,15 +420,28 @@ export class ProfileOutline {
         this.roomTimer = null;
         measure();
       });
-    });
-    this.roomObserver.observe(body);
+    };
+    measure();
+
+    // The body for the window, the list for its resize handle — dragging the
+    // list wider changes the budget without changing the body at all.
+    this.roomObserver = new ResizeObserver(schedule);
+    this.roomObserver.observe(shell ?? body);
+    if (list) {
+      this.roomObserver.observe(list);
+    }
+    this.scheduleRoom = schedule;
   }
 
   private detach(): void {
+    this.nav.requestFold(false);
+    this.scheduleRoom = null;
     this.observer?.disconnect();
     this.observer = null;
     this.roomObserver?.disconnect();
     this.roomObserver = null;
+    this.railObserver?.disconnect();
+    this.railObserver = null;
     if (this.roomTimer !== null) {
       clearTimeout(this.roomTimer);
       this.roomTimer = null;
@@ -317,6 +486,7 @@ export class ProfileOutline {
     this.spyFrame = requestAnimationFrame(() => {
       this.spyFrame = 0;
       this.spy();
+      this.follow();
     });
   }
 
@@ -336,8 +506,38 @@ export class ProfileOutline {
     if (!scroller) {
       return;
     }
-    this.spans = measureOutline(sections, scroller);
+    this.spans.set(measureOutline(sections, scroller));
     this.measuredHeight = scroller.scrollHeight;
+  }
+
+  /**
+   * Where every listed row sits in the rail's own content.
+   *
+   * Read off the rendered rows by their `data-row` id; a row inside a folded
+   * section has no box and is simply not drawn.
+   */
+  private measureRail(): void {
+    const list = this.railListRef()?.nativeElement;
+    if (!list || !this.visible()) {
+      return;
+    }
+    const origin = list.getBoundingClientRect().top;
+    const rows = new Map<string, RailRow>();
+    for (const el of Array.from(list.querySelectorAll<HTMLElement>('[data-row]'))) {
+      const rect = el.getBoundingClientRect();
+      if (rect.height === 0) {
+        continue;
+      }
+      const id = el.dataset['row']!;
+      rows.set(id, {
+        id,
+        depth: el.dataset['depth'] === '1' ? 1 : 0,
+        top: rect.top - origin,
+        bottom: rect.bottom - origin,
+      });
+    }
+    this.railRows.set(rows);
+    this.railHeight.set(list.scrollHeight);
   }
 
   /** What is on screen, and which section owns the top of it. */
@@ -356,16 +556,54 @@ export class ProfileOutline {
 
     const top = scroller.scrollTop;
     const bottom = top + scroller.clientHeight;
-    this.inView.set(idsInView(this.spans, top, bottom));
+    const spans = this.spans();
+    this.editorWindow.set({ top, bottom });
+    this.inView.set(idsInView(spans, top, bottom));
 
     let current = sections[0].id;
     for (const section of sections) {
-      const span = this.spans.get(section.id);
+      const span = spans.get(section.id);
       if (span && span.top <= top + 1) {
         current = section.id;
       }
     }
     this.currentId.set(current);
+  }
+
+  /**
+   * Keep the marked window inside the rail as the editor scrolls.
+   *
+   * A long outline scrolls on its own, and a window drawn below the fold of the
+   * rail is a map with the "you are here" pin off the edge. Only the editor's
+   * scrolling drives it, and never within a moment of the user touching the
+   * rail — they are reading it.
+   */
+  private follow(): void {
+    const body = this.railBodyRef()?.nativeElement;
+    if (!body || performance.now() < this.handsOffUntil) {
+      return;
+    }
+    const { top, bottom } = this.windowOnRail();
+    if (bottom <= top) {
+      return;
+    }
+    const viewTop = body.scrollTop;
+    const viewHeight = body.clientHeight;
+    let next = viewTop;
+    if (bottom - top > viewHeight - FOLLOW_MARGIN * 2 || top < viewTop + FOLLOW_MARGIN) {
+      next = top - FOLLOW_MARGIN;
+    } else if (bottom > viewTop + viewHeight - FOLLOW_MARGIN) {
+      next = bottom - viewHeight + FOLLOW_MARGIN;
+    }
+    next = Math.max(0, Math.round(next));
+    if (next !== Math.round(viewTop)) {
+      body.scrollTop = next;
+    }
+  }
+
+  /** The user is working the rail directly; stop following for a moment. */
+  protected handsOn(): void {
+    this.handsOffUntil = performance.now() + HANDS_OFF_MS;
   }
 
   // --- Navigation --------------------------------------------------------

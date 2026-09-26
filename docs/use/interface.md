@@ -40,7 +40,7 @@ The bed, the print volume, and your models. Navigate it the way you'd expect:
   the honest one when you're checking whether something is square.
 
 On a trackpad or tablet, a two-finger swipe orbits by default. If you'd rather
-it panned, change it in **Settings → General → Controls**. Palm rejection is on
+it panned, change it in **Settings → Controls**. Palm rejection is on
 by default for pen input.
 
 On a touchscreen, two fingers pinch to zoom and slide to pan — both at once, as
@@ -291,22 +291,35 @@ belongs to that field, so it undoes your typing rather than the plate.
 On a touch device without a keyboard, undo and redo buttons appear in the 3D
 view toolbar so you can step through history without a shortcut. They show up
 automatically on touch tablets and phones; force them on or off any device in
-**Settings → General → Controls**.
+**Settings → Controls**.
 
 Settings and profile edits are **not** undoable. They're saved deliberately, and
 changing a value back is the undo.
 
 ## Making it yours
 
-**Settings → Appearance** has light / dark / system, and an accent colour: the
-default molten amber, five other presets, a custom colour, or — on macOS and
-Windows — whatever your system accent is set to.
+Settings is split in two down its sidebar. **App** is how this app behaves on
+this device — General, Appearance, 3D View and Controls. **Library** is what you
+slice with — your printers, filaments, processes and labels, each with a count,
+and the three that slice name the one that is the default. The box at the top
+searches all of it: a preference, one of your profiles by name, or any printer,
+filament or process setting, and picking a result takes you to it.
 
-**Settings → General** has the graphics knobs: field of view, anti-aliasing,
-render resolution and preview detail. Turn them down on a weak GPU, up on a good
-one. It also holds **Re-slice after a change**, the app-wide setting behind the
-flash button — the same three choices, plus a line telling you what your last
-slice took and what Automatic is doing about it.
+Every preference is one line of what it does; the ⓘ beside its name opens the
+longer explanation in place, which works on a tablet where a tooltip would not.
+
+**Settings → Appearance** has light / dark / system, and an accent colour: the
+default molten amber, five other presets, or — on macOS and Windows — whatever
+your system accent is set to.
+
+**Settings → 3D View** has the graphics knobs, grouped by what they are about:
+how models look, the camera's field of view, what the view costs (anti-aliasing,
+render resolution, preview detail) and the thumbnail. Turn the performance ones
+down on a weak GPU, up on a good one.
+
+**Settings → General** holds **Re-slice after a change**, the app-wide setting
+behind the flash button — the same three choices, with a line telling you what
+your last slice took and what Automatic is doing about it.
 
 Two of them are about the thumbnail embedded in sliced G-code, which is shot in
 the 3D view rather than by the slicer. The **screenshot animation** is the flash
@@ -364,7 +377,7 @@ narrow window on a desktop.
   are drawn larger so a fingertip can pick one axis rather than all three.
 - **Palm rejection** is on by default. While a pen is in use, the hand resting on
   the glass is ignored, so the view doesn't lurch mid-stroke. Turn it off in
-  **Settings → General → Controls** if you never use a stylus.
+  **Settings → Controls** if you never use a stylus.
 - **The sidebar's edge resizes at the same width as on a desktop.** It's a thin
   line on purpose: a fat invisible grab zone hanging over the plate turned taps
   near the panel into accidental resizes, and resizing is a slow, deliberate drag

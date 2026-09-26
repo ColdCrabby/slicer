@@ -1,0 +1,50 @@
+<div class="search" role="search">
+  <nexus-icon name="search" aria-hidden="true" />
+  <input
+    #searchInput
+    type="search"
+    role="combobox"
+    autocomplete="off"
+    spellcheck="false"
+    aria-label="Search settings"
+    aria-autocomplete="list"
+    aria-controls="settings-search-results"
+    [attr.aria-expanded]="active()"
+    [attr.aria-activedescendant]="activeOptionId()"
+    [placeholder]="placeholder()"
+    [value]="query()"
+    (focus)="warm()"
+    (input)="setQuery($event)"
+    (keydown)="onKey($event)"
+  />
+  @if (query()) {
+    <button type="button" class="search-clear" aria-label="Clear search" (click)="clear()">
+      <nexus-icon name="xmark" aria-hidden="true" />
+    </button>
+  }
+</div>
+
+@if (active()) {
+  <div class="results" id="settings-search-results" role="listbox" aria-label="Search results">
+    @for (hit of results(); track hit.id; let i = $index) {
+      <button
+        type="button"
+        role="option"
+        class="result"
+        [id]="'settings-result-' + i"
+        [class.is-active]="i === activeIndex()"
+        [attr.aria-selected]="i === activeIndex()"
+        (click)="open(hit)"
+        (pointerenter)="activeIndex.set(i)"
+      >
+        <nexus-icon class="result-icon" [name]="hit.icon" aria-hidden="true" />
+        <span class="result-text">
+          <span class="result-title">{{ hit.title }}</span>
+          <span class="result-where">{{ hit.where }}</span>
+        </span>
+      </button>
+    } @empty {
+      <p class="results-empty">Nothing matches “{{ query() }}”</p>
+    }
+  </div>
+}

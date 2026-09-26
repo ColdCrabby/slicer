@@ -5,89 +5,70 @@
       <button
         type="button"
         class="settings-nav-collapse"
-        [attr.aria-label]="nav.collapsed() ? 'Expand section list' : 'Collapse section list'"
+        [attr.aria-label]="foldLabel()"
         [attr.aria-expanded]="!nav.collapsed()"
-        [tooltip]="nav.collapsed() ? 'Expand section list' : 'Collapse section list'"
+        [tooltip]="foldLabel()"
         (click)="nav.toggle()"
       >
         <nexus-icon [name]="nav.collapsed() ? 'sidebar-expand' : 'sidebar-collapse'" />
       </button>
     </div>
-    <nav class="settings-nav-list" aria-label="Settings sections">
-      @for (item of sections; track item.path) {
-        @let pending = isPending(item.path);
-        <a
-          class="settings-nav-item"
-          [class.is-pending]="pending"
-          [routerLink]="item.path"
-          routerLinkActive="is-active"
-          [routerLinkActiveOptions]="{ exact: true }"
-          ariaCurrentWhenActive="page"
-          [attr.aria-busy]="pending ? 'true' : null"
-          [tooltip]="nav.collapsed() ? item.label : ''"
-        >
-          <span class="settings-nav-icon">
-            <nexus-icon [name]="item.icon" />
-            @if (pending) {
-              <span class="settings-nav-spinner" aria-hidden="true"></span>
+
+    <nexus-settings-search #search />
+
+    @if (!search.active() || nav.collapsed()) {
+      <nav class="settings-nav-list" aria-label="Settings sections">
+        @for (group of groups; track group.id) {
+          <div
+            class="settings-nav-group"
+            role="group"
+            [attr.aria-labelledby]="group.title ? 'settings-group-' + group.id : null"
+          >
+            @if (group.title) {
+              <h2 class="settings-nav-group-title" [id]="'settings-group-' + group.id">
+                {{ group.title }}
+              </h2>
             }
-          </span>
-          <span class="settings-nav-label">{{ item.label }}</span>
-        </a>
-      }
-    </nav>
-
-    <div class="settings-nav-footer">
-      @if (syncVisible()) {
-        <p
-          class="settings-sync"
-          [class.is-error]="syncIsError()"
-          role="status"
-          aria-live="polite"
-          animate.enter="settings-sync-enter"
-          animate.leave="settings-sync-leave"
-        >
-          <span class="settings-sync-dot"></span>
-          <span>{{ syncLabel() }}</span>
-        </p>
-      }
-
-      <aside class="settings-storage-note" role="note">
-        @switch (storageMode) {
-          @case ('device') {
-            <p class="settings-storage-note-title">
-              <nexus-icon class="settings-storage-note-icon" name="hard-drive" />
-              <span>Saved on this device</span>
-            </p>
-            <p class="settings-storage-note-text">
-              Your printers, filaments, and profiles are saved on this computer, next to the slicer.
-              Appearance and view preferences stay in this browser view.
-            </p>
-          }
-          @case ('server') {
-            <p class="settings-storage-note-title">
-              <nexus-icon class="settings-storage-note-icon" name="cloud-check" />
-              <span>Saved on the slicer</span>
-            </p>
-            <p class="settings-storage-note-text">
-              Your printers, filaments, and profiles are saved on the slicer server, so they're safe
-              if you clear this browser. Only appearance and view preferences live here.
-            </p>
-          }
-          @default {
-            <p class="settings-storage-note-title">
-              <nexus-icon class="settings-storage-note-icon" name="database" />
-              <span>Stored in this browser</span>
-            </p>
-            <p class="settings-storage-note-text">
-              Everything — including your profiles, filaments, and printers — is kept in this
-              browser only. Clearing your cache or site data, resetting settings, or reinstalling
-              the browser will erase it.
-            </p>
-          }
+            @for (item of group.sections; track item.path) {
+              @let pending = isPending(item.path);
+              @let count = countFor(item.path);
+              @let summary = summaryFor(item.path);
+              <a
+                class="settings-nav-item"
+                [class.is-pending]="pending"
+                [class.is-danger]="item.path === 'danger-zone'"
+                [routerLink]="item.path"
+                routerLinkActive="is-active"
+                [routerLinkActiveOptions]="{ exact: false }"
+                ariaCurrentWhenActive="page"
+                [attr.aria-busy]="pending ? 'true' : null"
+                [tooltip]="nav.collapsed() ? item.label : ''"
+              >
+                <span class="settings-nav-icon">
+                  <nexus-icon [name]="item.icon" />
+                  @if (pending) {
+                    <span class="settings-nav-spinner" aria-hidden="true"></span>
+                  }
+                </span>
+                <span class="settings-nav-text">
+                  <span class="settings-nav-label">{{ item.label }}</span>
+                  @if (summary) {
+                    <span class="settings-nav-summary">{{ summary }}</span>
+                  }
+                </span>
+                @if (count !== null) {
+                  <span class="settings-nav-count" [attr.aria-label]="count + ' items'">
+                    {{ count }}
+                  </span>
+                }
+              </a>
+            }
+          </div>
         }
-      </aside>
-    </div>
+      </nav>
+    }
+
+    <nexus-settings-nav-footer />
   </aside>
 
   <div class="settings-content">

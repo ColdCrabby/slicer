@@ -10,22 +10,38 @@
   height: 100%;
 }
 
+// ── Sidebar ─────────────────────────────────────────────────────────────────
+//
+// Separated from the content by surface tone alone — no border — and sized by
+// `NAV_OPEN_WIDTH` / `NAV_FOLDED_WIDTH` in `services/settings-nav.ts`, which the
+// profile editors' room test subtracts. Change one and change the other.
+
 .settings-nav {
   flex: none;
-  width: 220px;
+  width: 200px;
   display: flex;
   flex-direction: column;
-  padding: var(--spacing-lg) var(--spacing-md);
-  border-right: 1px solid var(--color-border);
+  gap: var(--spacing-sm);
+  padding: var(--spacing-lg) var(--spacing-sm);
   background: var(--color-bg-secondary);
+  overflow-x: hidden;
   overflow-y: auto;
+  transition:
+    width var(--duration-normal) var(--ease-standard),
+    padding var(--duration-normal) var(--ease-standard);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-nav {
+    transition: none;
+  }
 }
 
 .settings-nav-head {
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
-  margin-bottom: var(--spacing-lg);
+  min-height: 32px;
 }
 
 .settings-nav-collapse {
@@ -59,30 +75,49 @@
 }
 
 .settings-title {
-  margin: var(--spacing-sm) 0 var(--spacing-sm) var(--spacing-sm);
+  margin: 0 0 0 var(--spacing-sm);
   font-size: var(--font-size-xl);
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.01em;
   color: var(--color-text-primary);
+  white-space: nowrap;
   user-select: none;
   -webkit-user-select: none;
 }
 
+// ── Sections ────────────────────────────────────────────────────────────────
+
 .settings-nav-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--spacing-md);
+}
+
+.settings-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.settings-nav-group-title {
+  margin: 0 0 2px;
+  padding: 0 var(--spacing-md);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .settings-nav-item {
-  &:active {
-    background: var(--color-surface-active);
-  }
-
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
-  padding: 8px 12px;
+  min-height: 34px;
+  padding: 5px var(--spacing-sm) 5px var(--spacing-md);
   border-radius: var(--radius-md);
   color: var(--color-text-secondary);
   text-decoration: none;
@@ -96,14 +131,15 @@
   transition:
     background-color var(--duration-fast) var(--ease-standard),
     color var(--duration-fast) var(--ease-standard),
-    font-weight var(--duration-fast) var(--ease-standard),
-    font-variation-settings var(--duration-fast) var(--ease-standard);
+    padding var(--duration-normal) var(--ease-standard);
 
   &:hover {
     background: var(--color-surface-hover);
     color: var(--color-text-primary);
-    font-weight: var(--font-weight-active);
-    font-variation-settings: 'wght' var(--font-weight-active);
+  }
+
+  &:active {
+    background: var(--color-surface-active);
   }
 
   &:focus-visible {
@@ -117,6 +153,17 @@
     color: var(--accent);
     font-weight: var(--font-weight-active);
     font-variation-settings: 'wght' var(--font-weight-active);
+
+    .settings-nav-summary,
+    .settings-nav-count {
+      color: var(--color-text-secondary);
+    }
+  }
+
+  // The resets keep their warning icon's colour at rest, so the one page that
+  // can erase everything never passes for another preference.
+  &.is-danger:not(.is-active) .settings-nav-icon {
+    color: var(--color-danger);
   }
 
   // Overlays the icon rather than replacing it, so the row never changes size
@@ -137,6 +184,42 @@
   flex: none;
   inline-size: var(--icon-size);
   block-size: var(--icon-size);
+}
+
+.settings-nav-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.settings-nav-label,
+.settings-nav-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// Which one is the default, under the page that holds it — what a slice would
+// use, without opening anything.
+.settings-nav-summary {
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-normal);
+  font-variation-settings: 'wght' var(--font-weight-normal);
+  line-height: 1.35;
+  color: var(--color-text-tertiary);
+}
+
+.settings-nav-count {
+  flex: none;
+  min-width: 18px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-normal);
+  font-variation-settings: 'wght' var(--font-weight-normal);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--color-text-tertiary);
 }
 
 .settings-nav-spinner {
@@ -160,109 +243,17 @@
   }
 }
 
-.settings-storage-note {
-  margin: var(--spacing-lg) var(--spacing-sm) var(--spacing-xs);
-  padding: var(--spacing-md) var(--spacing-sm) 0;
-  border-top: 1px solid var(--color-border);
-  user-select: none;
-  -webkit-user-select: none;
-}
+// ── Footer ──────────────────────────────────────────────────────────────────
+//
+// The save indicator and the storage line are `nexus-settings-nav-footer`,
+// which styles its own; the shell only places it.
 
-.settings-storage-note-title {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  margin: 0 0 var(--spacing-xs);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-secondary);
-}
-
-.settings-storage-note-icon {
-  flex: none;
-  --icon-size: 14px;
-  color: var(--accent);
-}
-
-.settings-storage-note-text {
-  margin: 0;
-  font-size: var(--font-size-xs);
-  line-height: 1.5;
-  color: var(--color-text-tertiary);
-}
-
-.settings-nav-footer {
+nexus-settings-nav-footer {
   margin-top: auto;
+  padding-top: var(--spacing-md);
 }
 
-.settings-sync {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  margin: 0 var(--spacing-sm) var(--spacing-sm);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-  user-select: none;
-  -webkit-user-select: none;
-
-  &.is-error {
-    color: var(--color-danger);
-  }
-}
-
-.settings-sync-enter {
-  animation: settings-sync-in var(--duration-normal) var(--ease-standard) both;
-}
-
-.settings-sync-leave {
-  animation: settings-sync-out var(--duration-normal) var(--ease-standard) forwards;
-}
-
-.settings-sync-dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: settings-sync-pulse 1.4s ease-in-out infinite;
-
-  .settings-sync.is-error & {
-    background: var(--color-danger);
-    animation: none;
-  }
-}
-
-@keyframes settings-sync-pulse {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-@keyframes settings-sync-in {
-  from {
-    opacity: 0;
-    transform: translateY(2px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes settings-sync-out {
-  from {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(2px);
-  }
-}
+// ── Content ─────────────────────────────────────────────────────────────────
 
 .settings-content {
   flex: 1;
@@ -283,18 +274,78 @@
   max-width: 720px;
 }
 
+/**
+ * Folded to an icon rail.
+ *
+ * Settings is three columns before anything else asks for room — sections,
+ * list, editor — so folding the first is what pays for the contents outline on
+ * the profile pages. Everything but the icons goes: labels become tooltips, and
+ * the search, the group headings and the footer are words that cannot be
+ * usefully narrowed. The text fades as the column narrows rather than wrapping
+ * inside it.
+ */
+.settings.is-nav-collapsed {
+  .settings-nav {
+    width: 56px;
+    padding-left: var(--spacing-xs);
+    padding-right: var(--spacing-xs);
+  }
+
+  .settings-title,
+  nexus-settings-search,
+  nexus-settings-nav-footer {
+    display: none;
+  }
+
+  .settings-nav-group-title {
+    visibility: hidden;
+    height: 0;
+    margin: 0;
+  }
+
+  .settings-nav-group + .settings-nav-group {
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--color-border-light);
+  }
+
+  .settings-nav-text,
+  .settings-nav-count {
+    opacity: 0;
+    width: 0;
+    min-width: 0;
+    flex: 0 0 0;
+  }
+
+  // Its second line would still hold the row open at two lines' height.
+  .settings-nav-summary {
+    display: none;
+  }
+
+  .settings-nav-collapse {
+    margin: 0 auto;
+  }
+
+  .settings-nav-item {
+    gap: 0;
+    justify-content: center;
+    padding: 8px 0;
+  }
+}
+
 // ── Phone ─────────────────────────────────────────────────────────────────
 //
-// A 220px section column beside a 390px screen leaves 170px for the settings
+// A 200px section column beside a 390px screen leaves 190px for the settings
 // themselves. The same navigation works laid on its side: the sections become a
 // scrollable strip of chips above the content, which keeps every page one tap
-// away — no master/detail push, no back button to learn.
+// away — no master/detail push, no back button to learn. Search, group headings
+// and the library facts are left to the wide layout; a chip is a label.
 @include handheld {
   .settings {
     flex-direction: column;
   }
 
-  .settings-nav {
+  .settings-nav,
+  .settings.is-nav-collapsed .settings-nav {
     width: 100%;
     flex: none;
     flex-direction: row;
@@ -303,31 +354,44 @@
     padding: var(--spacing-sm);
     padding-left: calc(var(--spacing-sm) + env(safe-area-inset-left, 0px));
     padding-right: calc(var(--spacing-sm) + env(safe-area-inset-right, 0px));
-    border-right: none;
     border-bottom: 1px solid var(--color-border);
     overflow-x: auto;
     overflow-y: hidden;
     overscroll-behavior-x: contain;
     scrollbar-width: none;
+    transition: none;
 
     &::-webkit-scrollbar {
       display: none;
     }
   }
 
-  // The page title is redundant next to the nav rail's own "Settings" tab, and
-  // it is the only thing here wide enough to push the chips off-screen.
-  .settings-title {
+  // A phone already shows the sections as a horizontal strip, so there is no
+  // column to fold and nothing the control could do. The stored preference is
+  // simply ignored at this width rather than being reset, so it is still there
+  // when the same user opens the same app on a desktop.
+  .settings-nav-head,
+  nexus-settings-search,
+  .settings-nav-group-title,
+  .settings-nav-summary,
+  .settings-nav-count {
     display: none;
   }
 
-  .settings-nav-list {
+  .settings-nav-list,
+  .settings-nav-group {
     flex: none;
     flex-direction: row;
     gap: var(--spacing-xs);
   }
 
-  .settings-nav-item {
+  .settings.is-nav-collapsed .settings-nav-group + .settings-nav-group {
+    padding-top: 0;
+    border-top: none;
+  }
+
+  .settings-nav-item,
+  .settings.is-nav-collapsed .settings-nav-item {
     flex: none;
     gap: var(--spacing-xs);
     min-height: 38px;
@@ -337,26 +401,25 @@
     background: var(--color-surface);
   }
 
-  // Where the library is stored is a footnote, not a third of the screen; it
-  // belongs on the pages that can act on it rather than in the chrome.
-  .settings-storage-note {
-    display: none;
+  .settings.is-nav-collapsed .settings-nav-text {
+    opacity: 1;
+    width: auto;
+    flex: 1;
   }
 
-  // "Saving…" must survive the fold, though — it is the only confirmation an
-  // edit was persisted. Pinned to the trailing edge so it stays visible however
-  // far the chip strip is scrolled.
-  .settings-nav-footer {
+  // "Saving…" must survive the fold — it is the only confirmation an edit was
+  // persisted. Pinned to the trailing edge so it stays visible however far the
+  // chip strip is scrolled; the footer drops its storage line at this width.
+  nexus-settings-nav-footer,
+  .settings.is-nav-collapsed nexus-settings-nav-footer {
+    display: flex;
     margin-top: 0;
     margin-left: auto;
+    padding-top: 0;
     position: sticky;
     right: 0;
     flex: none;
     background: var(--color-bg-secondary);
-  }
-
-  .settings-sync {
-    margin: 0;
   }
 
   .settings-content {
@@ -365,60 +428,5 @@
 
   :host ::ng-deep .settings-page {
     max-width: none;
-  }
-}
-
-/**
- * Folded to an icon rail.
- *
- * Settings is three columns before anything else asks for room — sections,
- * list, editor — so folding the first is what pays for the contents outline on
- * the profile pages. Everything but the icons goes: the labels become tooltips,
- * and the storage note is prose that cannot be usefully narrowed.
- */
-.settings.is-nav-collapsed {
-  .settings-nav {
-    width: 56px;
-    padding-left: var(--spacing-xs);
-    padding-right: var(--spacing-xs);
-    overflow: visible;
-  }
-
-  .settings-title,
-  .settings-nav-label,
-  .settings-nav-footer {
-    display: none;
-  }
-
-  .settings-nav-collapse {
-    margin: 0 auto;
-  }
-
-  .settings-nav-item {
-    justify-content: center;
-    padding: 8px 0;
-  }
-}
-
-// A phone already shows the sections as a horizontal chip strip, so there is no
-// column to fold and nothing the control could do. The stored preference is
-// simply ignored at this width rather than being reset, so it is still there
-// when the same user opens the same app on a desktop.
-@include handheld {
-  .settings-nav-head {
-    display: none;
-  }
-
-  .settings.is-nav-collapsed .settings-nav {
-    width: 100%;
-    padding: var(--spacing-sm);
-  }
-
-  .settings.is-nav-collapsed .settings-nav-label {
-    display: initial;
-  }
-
-  .settings.is-nav-collapsed .settings-nav-item {
-    padding: 8px 12px;
   }
 }
