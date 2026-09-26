@@ -1,5 +1,7 @@
 ---
 layout: home
+title: 3D printer slicer for browser, desktop and iPad
+description: "Cold Crabby turns STL, OBJ and 3MF models into print-ready G-code in your browser, on the desktop, on an iPad or on your own server — one engine everywhere."
 
 hero:
   name: Cold Crabby

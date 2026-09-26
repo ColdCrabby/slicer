@@ -1,3 +1,7 @@
+---
+description: "Read Cold Crabby's G-code preview: the real toolpaths layer by layer, coloured by role, speed, flow, line width or temperature, and what to check before printing."
+---
+
 # Reading the preview
 
 The G-code preview shows exactly what the nozzle will do — not a render of your

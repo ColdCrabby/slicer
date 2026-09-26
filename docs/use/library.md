@@ -1,3 +1,7 @@
+---
+description: "The Cold Crabby library keeps every model you have put on a plate, once, with a picture — so you can build a new plate without hunting for the files again."
+---
+
 # The library
 
 Every model you put on a plate is kept in the **Library**, once, with a picture

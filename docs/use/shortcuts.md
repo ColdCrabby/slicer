@@ -1,3 +1,7 @@
+---
+description: "Every keyboard shortcut, mouse control and touch or pen gesture in Cold Crabby, for editing the plate, moving the camera and stepping through the G-code preview."
+---
+
 # Keyboard and gestures
 
 All of this is also in the app under **Settings → Controls → Keyboard shortcuts**.

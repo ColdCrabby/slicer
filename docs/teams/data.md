@@ -1,3 +1,7 @@
+---
+description: "Where your models and profiles go in each version of Cold Crabby, what a self-hosted server stores, when it connects to the network, and how it is licensed."
+---
+
 # Data, privacy and licensing
 
 ## Where your models go

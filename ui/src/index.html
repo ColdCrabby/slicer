@@ -17,9 +17,15 @@
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
+    <!--
+      True of every build that serves this file — the desktop app, a
+      self-hosted server, the public site — so nothing here claims a runtime's
+      particulars. The public site's build swaps in its own title and
+      description for search results (scripts/seo/apply.mjs).
+    -->
     <meta
       name="description"
-      content="Cold Crabby is a fast, open-source 3D printing slicer. Drop in an STL, OBJ or 3MF and slice it right in your browser — no account, no install, nothing uploaded."
+      content="Cold Crabby is a 3D printer slicer. Drop in an STL, OBJ or 3MF model and get print-ready G-code."
     />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />

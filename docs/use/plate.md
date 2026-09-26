@@ -1,3 +1,7 @@
+---
+description: "Build plates in Cold Crabby: add STL, OBJ and 3MF models, move and rotate them, arrange a plate automatically, paint supports, and export the plate as 3MF."
+---
+
 # The build plate
 
 A plate is a **build plate, not a file**. It starts with one model and takes as

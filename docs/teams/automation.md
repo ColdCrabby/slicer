@@ -1,3 +1,7 @@
+---
+description: "Slice from scripts and CI with the Cold Crabby command line: whole plates in one command, JSON output to gate a pipeline on, and the flags worth knowing."
+---
+
 # Automation and the CLI
 
 The same engine that runs behind the interface is a single binary you can call

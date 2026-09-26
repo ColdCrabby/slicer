@@ -1,3 +1,7 @@
+---
+description: "Run Cold Crabby for a team, workshop or print farm: desktop apps, a self-hosted server with shared profiles and history, or the command line in a pipeline."
+---
+
 # For teams and businesses
 
 Cold Crabby is one engine you can put wherever your work happens: on each

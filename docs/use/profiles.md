@@ -1,3 +1,7 @@
+---
+description: "Add a 3D printer to Cold Crabby — detect a Klipper machine from its address and its setup fills itself in — then manage filament and print profiles."
+---
+
 # Printers, filaments and profiles
 
 A profile is a saved set of settings you can pick from a dropdown instead of

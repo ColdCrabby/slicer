@@ -1,3 +1,7 @@
+---
+description: "Cold Crabby's print settings explained: printer, filament and process presets, the five settings that matter most, infill patterns, vase mode and ironing."
+---
+
 # Print settings
 
 Cold Crabby splits settings three ways, the same way established slicers do.

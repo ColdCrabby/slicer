@@ -29,8 +29,9 @@ export const APP_ROUTES: Routes = [
     component: AppShell,
     children: [
       {
+        // No `title`: the home screen keeps the document's own, which on the
+        // public site is the one search results show (see NexusTitleStrategy).
         path: '',
-        title: 'Home',
         loadComponent: async () => import('./pages/home/home').then((m) => m.HomeDashboard),
       },
       {

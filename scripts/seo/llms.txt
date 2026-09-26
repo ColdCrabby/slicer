@@ -1,0 +1,35 @@
+# Cold Crabby
+
+> Cold Crabby is a 3D printer slicer: it turns STL, OBJ and 3MF models into G-code for FDM printers. The web version at {{SITE_URL}}/ runs the whole slicer in the browser through WebAssembly, with nothing to install, no account, and no upload — the model never leaves the device. The same Rust engine ships as a desktop app for macOS, Windows and Linux, an iPad app, a self-hostable server and a command-line tool, and gives the same G-code in each.
+
+- Free to use in the browser. The source is on GitHub under the PolyForm Noncommercial License 1.0.0: source-available, not open source.
+- Slicing: multi-object build plates with automatic arrangement, variable-width (Arachne) or classic walls, rectilinear, grid, honeycomb, gyroid and TPMS-D infill, supports (including hand-painted ones), brims, rafts, ironing, spiral vase mode, sequential printing, Marlin and Klipper G-code with custom start and end scripts, and a toolpath preview.
+- Printers: the desktop app and a self-hosted server upload to Klipper printers through Moonraker (Mainsail, Fluidd) and can start the print. The browser version downloads the G-code instead, because browsers cannot reach most printers directly. OctoPrint, PrusaLink and Bambu Lab uploads are not supported yet.
+- No telemetry, no analytics, no accounts. Pre-1.0.
+
+## Use it
+
+- [Web slicer]({{SITE_URL}}/): the slicer itself, in the browser
+- [Getting started]({{SITE_URL}}/docs/use/): from a model to G-code, and which version to run
+- [The interface]({{SITE_URL}}/docs/use/interface): the layout on a computer, a tablet with touch and pen, and a phone
+- [The build plate]({{SITE_URL}}/docs/use/plate): adding, arranging and placing models
+- [Print settings]({{SITE_URL}}/docs/use/settings): printer, filament and process settings explained
+- [Printers and profiles]({{SITE_URL}}/docs/use/profiles): adding a printer, filaments and print profiles
+- [Reading the preview]({{SITE_URL}}/docs/use/preview): the G-code toolpath preview
+- [Sending to your printer]({{SITE_URL}}/docs/use/printing): downloading G-code, and uploading to Klipper
+- [Keyboard and gestures]({{SITE_URL}}/docs/use/shortcuts): every shortcut and touch gesture
+- [Troubleshooting]({{SITE_URL}}/docs/use/troubleshooting): common problems and their fixes
+
+## Run it for a team
+
+- [For teams and businesses]({{SITE_URL}}/docs/teams/): which setup fits
+- [Self-hosting]({{SITE_URL}}/docs/teams/self-host): building, running and updating the server
+- [Configuration]({{SITE_URL}}/docs/teams/configuration): `slicer.toml` for the command line and the server
+- [Automation and the CLI]({{SITE_URL}}/docs/teams/automation): slicing from scripts and CI
+- [Data, privacy and licensing]({{SITE_URL}}/docs/teams/data): where models and profiles are stored
+
+## Optional
+
+- [Source code](https://github.com/ColdCrabby/slicer): the Rust engine, the web interface and the desktop shell
+- [Architecture]({{SITE_URL}}/docs/guide/architecture): how the engine is put together
+- [What's new]({{SITE_URL}}/docs/guide/changelog): release notes

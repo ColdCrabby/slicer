@@ -1,3 +1,7 @@
+---
+description: "A tour of Cold Crabby's interface: the 3D build plate, the settings and objects panels, the G-code inspector, and how it adapts to tablets, pens and phones."
+---
+
 # The interface
 
 One screen does the work: a 3D view of your build plate, with panels around it.

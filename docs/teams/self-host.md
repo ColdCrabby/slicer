@@ -1,3 +1,7 @@
+---
+description: "Self-host Cold Crabby: build and run the slicer server, expose it on your network or behind a reverse proxy, run it as a service, and keep it updated."
+---
+
 # Self-hosting
 
 Run the server, and everyone on your network gets the same slicer at the same

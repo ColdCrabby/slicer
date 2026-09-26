@@ -217,6 +217,15 @@ publishes them to GitHub Pages after every merge to `main` that touches them.
 The custom domain comes from [`ui/public/CNAME`](ui/public/CNAME), which the
 UI build copies into the site — delete it and the domain goes with it.
 
+This is the only build that asks to be found. The workflow sets
+`SLICER_SITE_URL`, and [`scripts/seo/`](scripts/seo/) adds what search engines
+and link previews read: a descriptive title, canonical URLs, social cards,
+schema.org data, `robots.txt`, one `sitemap.xml` for the app and the docs,
+`llms.txt`, and readable HTML on the home page for crawlers that don't run the
+app. Every other build — a preview, a fork, a self-hosted server — leaves the
+variable unset and ships the neutral app shell, so none of them claims to be
+this site.
+
 ## PR previews
 
 [`.github/workflows/pr-preview.yml`](.github/workflows/pr-preview.yml) gives
@@ -225,8 +234,9 @@ root, the docs under `/docs/` — so a change can be tried in a browser before i
 merges.
 
 - **The same build as GitHub Pages.** Both call
-  [`scripts/build-site.sh`](scripts/build-site.sh); only the host differs. The
-  web slicer runs entirely in the browser, so a static host is all it needs.
+  [`scripts/build-site.sh`](scripts/build-site.sh); only the host differs, and
+  the search-engine layer above, which a preview never gets. The web slicer
+  runs entirely in the browser, so a static host is all it needs.
 - **One address per pull request**, `https://pr-<n>.<project>.pages.dev`,
   updated in place on every push. It is posted as a single comment on the pull
   request (edited, never repeated) and shown as its deployment.

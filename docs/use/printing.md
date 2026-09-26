@@ -1,3 +1,7 @@
+---
+description: "Download your G-code, or upload it to a Klipper printer through Moonraker (Mainsail, Fluidd) and start the print. What works today, and how to connect a printer."
+---
+
 # Sending to your printer
 
 Once a slice succeeds, the result button bottom-right offers three things:
