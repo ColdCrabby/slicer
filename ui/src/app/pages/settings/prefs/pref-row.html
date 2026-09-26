@@ -3,26 +3,17 @@
     <div class="pref-row__title">
       <span>{{ def().title }}</span>
       @if (def().detail) {
-        <button
-          type="button"
-          class="pref-row__info"
-          [class.is-open]="open()"
-          [attr.aria-expanded]="open()"
-          [attr.aria-controls]="anchor() + '-detail'"
-          [attr.aria-label]="'More about ' + def().title"
-          (click)="open.set(!open())"
-        >
-          <nexus-icon name="info-circle" aria-hidden="true" />
-        </button>
+        <nexus-icon-button
+          icon="help-circle"
+          [label]="'More about ' + def().title"
+          [tooltip]="def().detail!"
+          tooltipMode="block"
+          [tooltipClickToggle]="true"
+        />
       }
     </div>
     @if (line()) {
       <p class="pref-row__hint">{{ line() }}</p>
-    }
-    @if (def().detail) {
-      <p class="pref-row__detail" [id]="anchor() + '-detail'" [hidden]="!open()">
-        {{ def().detail }}
-      </p>
     }
   </div>
   <div class="pref-row__control">

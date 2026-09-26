@@ -1,25 +1,24 @@
 @use 'breakpoints' as *;
 
 :host {
-  // A tab is shorter than the bar and sits on its bottom edge, so the active
-  // one can run straight into the page below it the way a folder tab does.
-  --wp-tab-height: 32px;
-  // What the active tab has to match to read as part of the page under it —
-  // the shell's own background.
-  --wp-tab-active-bg: var(--color-bg-primary);
+  // Tabs float in the titlebar as small pills rather than hanging off its edge:
+  // the page below is a rounded surface of its own, and a folder tab has no
+  // straight edge left to open into.
+  --wp-tab-height: 26px;
 
   display: flex;
-  align-items: stretch;
+  align-items: center;
   align-self: stretch;
   min-width: 0;
   gap: var(--spacing-xs);
-  padding-top: calc(var(--titlebar-height) - var(--wp-tab-height));
 }
 
 .wp-tablist {
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  gap: 2px;
   min-width: 0;
+  height: 100%;
   overflow-x: auto;
   // Without this the other axis computes to `auto`, not `visible` — so the
   // strip scrolls vertically the moment anything inside exceeds its height
@@ -35,48 +34,25 @@
 }
 
 .wp-tab {
-  position: relative;
   display: flex;
   align-items: center;
+  // Sized to the name, capped so a long one ellipsises; the strip scrolls, so a
+  // wide tab costs its neighbours nothing.
+  flex: none;
+  max-width: 220px;
+  height: var(--wp-tab-height);
   gap: 2px;
-  // Tabs are shaped like tabs, not sized like chips: every tab starts at the
-  // same width whatever its name, and they shrink together as more open, the
-  // way a browser's do. Only past the floor does the strip start to scroll.
-  flex: 0 1 200px;
-  min-width: 96px;
   // The close button contributes the right-hand room; a tab without one gets it
   // back below, rather than sitting on 2px and looking clipped.
-  padding: 0 4px 0 12px;
-  border: 1px solid transparent;
-  border-bottom: none;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: 0 2px 0 10px;
+  border: none;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
   transition:
     background-color var(--duration-fast) var(--ease-standard),
     color var(--duration-fast) var(--ease-standard);
-
-  // Hairline between two resting tabs, as a browser draws it. It steps aside
-  // wherever a tab is showing a shape of its own, so it never cuts into one.
-  & + &::before {
-    content: '';
-    position: absolute;
-    left: -1px;
-    top: 50%;
-    width: 1px;
-    height: 16px;
-    translate: 0 -50%;
-    background: var(--color-border);
-    transition: opacity var(--duration-fast) var(--ease-standard);
-  }
-
-  &:hover::before,
-  &:hover + .wp-tab::before,
-  &.active::before,
-  &.active + .wp-tab::before {
-    opacity: 0;
-  }
 
   &:hover {
     background: var(--color-surface-hover);
@@ -85,17 +61,14 @@
 
   &:focus-visible {
     outline: 2px solid var(--color-focus-ring);
-    outline-offset: -2px;
+    outline-offset: -1px;
   }
 
-  // Drawn in the page's own colour, with the titlebar's rule running under
-  // every other tab and stopping at this one — so the workplate on screen reads as
-  // the tab the page hangs from.
+  // A faint tint and full-strength text, no outline: enough to say which plate
+  // is on screen without a shape competing with the scene for attention.
   &.active {
-    background: var(--wp-tab-active-bg);
-    border-color: var(--color-border);
+    background: var(--color-surface-alt);
     color: var(--color-text-primary);
-    z-index: 1;
     cursor: default;
   }
 }
@@ -104,7 +77,7 @@
 // the strip can say which plate is on screen — and with no close button to fill
 // the gap it needs its own right-hand padding to match the left.
 .wp-tab--draft {
-  padding-right: 12px;
+  padding-right: 10px;
   cursor: default;
 }
 
@@ -112,9 +85,9 @@
   flex: 1 1 auto;
   min-width: 0;
   font-family: var(--font-family-ui);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
-  height: 20px;
+  height: 18px;
   padding: 0 2px;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -129,9 +102,9 @@
   flex: 1 1 auto;
   min-width: 0;
   font-family: var(--font-family-ui);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
-  height: 20px;
+  height: 18px;
   padding: 0 2px;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -154,7 +127,7 @@
     background: transparent;
     // The shared `input:focus` rule in base/forms paints a border plus an inset
     // ring on every field; clearing only the outline left that ring behind,
-    // nested inside the tab's own active border.
+    // nested inside the tab.
     outline: none;
     border-color: transparent;
     box-shadow: none;
@@ -182,6 +155,16 @@
   transition:
     opacity var(--duration-fast) var(--ease-standard),
     visibility var(--duration-fast) var(--ease-standard);
+}
+
+// Smaller than the shared `sm` size so it sits inside the pill rather than
+// filling it; qualified by the tab so it outranks that size whatever order the
+// two stylesheets land in. Touch restores a full target via min-size in
+// styles/base/_touch.scss.
+.wp-tab .wp-tab-close {
+  width: 20px;
+  height: 20px;
+  --icon-size: 12px;
 }
 
 .wp-tab:hover .wp-tab-close,
@@ -213,8 +196,7 @@
 // name and was truncating to 120px for no reason.
 @media (max-width: 640px) {
   .wp-tab {
-    flex-basis: 120px;
-    min-width: 88px;
+    max-width: 120px;
   }
 }
 
@@ -232,27 +214,29 @@
 // attribute, so the rule silently never matches.
 @include coarse-pointer {
   :host {
+    // The bar grows to 46px under a finger, which still leaves the pill a few
+    // pixels of air above and below a full-size target.
     --wp-tab-height: var(--touch-target);
   }
 
   .wp-tab {
-    padding: 0 4px 0 14px;
-    // Roomier than the cursor size: the text is larger here and a fingertip has
+    padding: 0 4px 0 12px;
+    // Roomier than the cursor cap: the text is larger here and a fingertip has
     // no tooltip to fall back on when a name is cut off.
-    flex-basis: 240px;
+    max-width: 280px;
   }
 
   // Re-stated inside this block: the rule above resets the padding shorthand
   // and, being later in the file, would otherwise drop the draft tab — which
   // has no close button to fill the gap — back to 4px on the right.
   .wp-tab--draft {
-    padding-right: 14px;
+    padding-right: 12px;
   }
 
   .wp-tab-label,
   .wp-tab-name {
     height: auto;
-    font-size: var(--font-size-lg);
+    font-size: var(--font-size-md);
   }
 
   // There is no hover to reveal it, so it is simply always there — for a stylus

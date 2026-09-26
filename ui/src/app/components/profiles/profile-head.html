@@ -29,32 +29,51 @@
           <nexus-icon name="edit-pencil" aria-hidden="true" />
           <span>Built-in — edit anything here; it saves as you go.</span>
         </span>
-        @if (canRestore()) {
-          <button
-            type="button"
-            class="profile-head__link"
-            [class.is-armed]="restoreArmed()"
-            (click)="pressRestore()"
-            (blur)="disarm()"
+        <!-- Always laid out, hidden until there is something to restore, and
+             sized to the longer of its two labels — so neither appearing nor
+             arming it moves the line. -->
+        <button
+          type="button"
+          class="profile-head__link"
+          [class.is-armed]="restoreArmed()"
+          [class.is-idle]="!canRestore()"
+          [disabled]="!canRestore()"
+          [attr.aria-hidden]="canRestore() ? null : 'true'"
+          (click)="pressRestore()"
+          (blur)="disarm()"
+        >
+          <span [class.is-shown]="!restoreArmed()" [attr.aria-hidden]="restoreArmed() || null"
+            >Restore defaults</span
           >
-            {{ restoreArmed() ? 'Restore shipped values?' : 'Restore defaults' }}
-          </button>
-        }
+          <span [class.is-shown]="restoreArmed()" [attr.aria-hidden]="!restoreArmed() || null"
+            >Restore shipped values?</span
+          >
+        </button>
       }
-      @switch (saveState()) {
-        @case ('saving') {
-          <span class="profile-head__save">Saving…</span>
-        }
-        @case ('saved') {
-          <span class="profile-head__save is-saved">
-            <nexus-icon name="check" aria-hidden="true" />
-            Saved
-          </span>
-        }
-        @case ('error') {
-          <span class="profile-head__save is-error">Couldn't save</span>
-        }
-      }
+      <!-- One fixed slot for every save state, each stacked on the others, so
+           Saving… turning into Saved never reflows the line. -->
+      <span class="profile-head__save">
+        <span
+          class="is-saving"
+          [class.is-shown]="saveState() === 'saving'"
+          [attr.aria-hidden]="saveState() === 'saving' ? null : 'true'"
+          >Saving…</span
+        >
+        <span
+          class="is-saved"
+          [class.is-shown]="saveState() === 'saved'"
+          [attr.aria-hidden]="saveState() === 'saved' ? null : 'true'"
+        >
+          <nexus-icon name="check" aria-hidden="true" />
+          Saved
+        </span>
+        <span
+          class="is-error"
+          [class.is-shown]="saveState() === 'error'"
+          [attr.aria-hidden]="saveState() === 'error' ? null : 'true'"
+          >Couldn't save</span
+        >
+      </span>
     </p>
   </div>
 

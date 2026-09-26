@@ -2,7 +2,7 @@
   @if (store.items().length > 0) {
     <div class="mgr__body">
       <!-- ── List column ──────────────────────────────────────────────────── -->
-      <div class="mgr__list">
+      <div class="mgr__list" nexusPanel>
         <header class="mgr__heading">
           <div class="mgr__heading-text">
             <h2>Printers</h2>
@@ -64,7 +64,7 @@
               @if (group.title) {
                 <div class="mgr__group-header">
                   <h3>{{ group.title }}</h3>
-                  <span class="mgr__group-count">{{ group.items.length }}</span>
+                  <nexus-badge class="mgr__group-count">{{ group.items.length }}</nexus-badge>
                 </div>
               }
               <div class="mgr__group-items">
@@ -103,12 +103,17 @@
             <p class="mgr__empty">No printers match your filters.</p>
           }
         </div>
-
-        <nexus-column-resizer />
       </div>
+      <nexus-panel-resizer
+        property="--mgr-list-w"
+        storageKey="manage.listWidth"
+        label="Resize the list column"
+        [min]="240"
+        [max]="560"
+      />
 
       <!-- ── Detail column ────────────────────────────────────────────────── -->
-      <div class="mgr__detail">
+      <div class="mgr__detail" nexusPanel primary>
         @if (selected(); as printer) {
           <div class="mgr__detail-inner">
             <nexus-profile-head

@@ -1,94 +1,69 @@
 @use 'breakpoints' as *;
+@use 'panel-turn' as *;
 
-$transition-duration: 200ms;
-$transition-easing: ease;
+// Which spine the panel turns on (`panel-turn`). The left panel is hinged on
+// its right edge, so it swings in from the window's edge towards the scene; a
+// right-hand panel would take `start` and mirror it.
+$hinge: end;
 
-// Both edge controls — the dock nub and the "Print settings" tab — hang at this
-// height rather than at 50%. Centred, they float over the middle of the plate,
-// which is exactly where the model is and the last place a permanent affordance
-// belongs. Anchoring both to the same offset also means toggling the panel
-// changes the control's *form* without moving it.
+// The dock nub hangs at this height rather than at 50%: centred, it would float
+// over the middle of the plate, where the model is.
 $edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
 
+// Always an overlay on the scene, docked or not: the host is a click-through
+// layer over the scene panel's left edge and never takes layout width. Docked,
+// the scene pads its own content clear of it (slicing-shell.scss) — the scene's
+// dark surface still runs underneath, and nothing is squeezed.
+//
+// `--sidebar-w` is written on the parent by the component, so the scene can
+// read the same number it pads by.
 :host {
-  position: relative;
-  flex-shrink: 0;
-
-  width: var(--sidebar-w, 280px);
+  position: absolute;
+  inset: 0 auto 0 0;
   z-index: 25;
+  width: calc(var(--sidebar-w, 280px) + 2 * var(--panel-gap) + 30px);
+  pointer-events: none;
+  // One vanishing point for the page and its nub.
+  @include panel-turn-stage($hinge);
+}
 
-  display: flex;
-  flex-direction: column;
-  overflow: visible;
-  background: transparent;
+// The sheet: the panel and its dock nub, as one piece. It is what is placed —
+// nudged the panel gap in from the scene's edge and held off its top and
+// bottom by the same, so it reads as laid on the scene — and it is what turns,
+// so the nub is carried by the page instead of animating beside it.
+.sidebar-sheet {
+  position: absolute;
+  inset: var(--panel-gap) auto var(--panel-gap) var(--panel-gap);
+  width: var(--sidebar-w, 280px);
 
-  transition: width $transition-duration $transition-easing;
+  // Pivots on the middle of its left edge, the side it docks to.
+  @include panel-turn($hinge, 0 50%);
 
-  // Collapsed always floats as an overlay: the host reserves zero width and the
-  // panel slides over the scene. Only a docked (expanded, not collapsed) sidebar
-  // reserves horizontal space. This keeps a peek from ever reflowing the gcode
-  // viewport — the whole point of "peek to tweak, dismiss to view".
-  &.is-collapsed {
-    width: 0;
-  }
-
-  &.is-collapsed:not(.is-expanded) {
-    pointer-events: none;
-  }
-
-  // Disable width transition while dragging so resize feels instant.
-  &.is-dragging {
-    transition: none;
+  :host.is-collapsed:not(.is-expanded) & {
+    @include panel-turned-away($hinge);
   }
 }
 
-// The panel is a fixed-width absolute layer. Because it slides via transform
-// (not host width), its content never reflows while the host width animates or
-// is dragged, and it can travel fully back behind the nav rail when hidden.
 .sidebar-panel {
-  position: absolute;
-  inset: 0;
-  width: var(--sidebar-w, 280px);
-
+  z-index: 1;
+  // Inset the panel gap inside the scene's corner, so it follows that curve.
+  border-radius: var(--panel-radius-nested);
+  height: 100%;
   display: flex;
   flex-direction: column;
   min-height: 0;
-
-  background: var(--color-bg-secondary);
-  border-right: 1px solid var(--color-border-light);
-  box-shadow: var(--shadow-sm);
-
-  transform: translateX(0);
-  transition:
-    transform $transition-duration $transition-easing,
-    visibility 0s linear 0s;
-
-  // Slide fully behind the nav rail (which masks it via a higher z-index) so
-  // the reveal always originates at the rail edge, never from mid-panel.
-  :host.is-collapsed:not(.is-expanded) & {
-    transform: translateX(-100%);
-    visibility: hidden;
-    pointer-events: none;
-    transition:
-      transform $transition-duration $transition-easing,
-      visibility 0s linear $transition-duration;
-  }
-
-  // A floating peek reads as a raised drawer, not a docked column.
-  :host.is-overlay & {
-    box-shadow: var(--shadow-lg);
-  }
+  pointer-events: auto;
 }
 
-// Dock/undock affordance rendered as a tab that sits *behind* the panel: its
-// inner edge tucks under the panel so the panel masks the seam and any shadow
-// bleed, leaving only a rounded nub peeking out on the right.
+// Dock/undock nub, glued to the panel's right edge. Drawn over the panel and
+// overlapping its border by a pixel, so its fill covers the border where they
+// meet and the two read as one shape.
 .sidebar-pin {
   position: absolute;
+  z-index: 2;
   top: $edge-control-top;
-  left: var(--sidebar-w, 280px);
-  // Flat left edge flush against the panel's right edge so it reads as glued.
-  transform: translateX(0);
+  left: calc(100% - 1px);
+  pointer-events: auto;
 
   display: inline-flex;
   align-items: center;
@@ -97,50 +72,51 @@ $edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
   height: 46px;
   --icon-size: 15px;
 
-  border: 1px solid var(--color-border-light);
+  border: 1px solid var(--panel-border);
   border-left: none;
   border-radius: 0 var(--radius-md) var(--radius-md) 0;
-  background: var(--color-bg-secondary);
+  background: var(--panel-bg);
   color: var(--color-text-secondary);
   cursor: pointer;
-  box-shadow: var(--shadow-sm);
   user-select: none;
   -webkit-user-select: none;
   touch-action: manipulation;
-  transition:
-    transform $transition-duration $transition-easing,
-    color $transition-duration $transition-easing,
-    background-color $transition-duration $transition-easing,
-    opacity $transition-duration $transition-easing;
+  transition: color var(--duration-fast) var(--ease-standard);
+
+  // The hover highlight is strongest at the nub's outer edge and fades out
+  // towards the panel, so the nub lights up without a seam where it meets the
+  // panel. A gradient cannot transition, so it sits on its own layer and fades
+  // in by opacity.
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(to left, var(--color-surface-hover), transparent);
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease-standard);
+    pointer-events: none;
+  }
+
+  > nexus-icon {
+    position: relative;
+  }
 
   &:hover {
     color: var(--color-text-primary);
-    background: var(--color-surface-hover);
+
+    &::before {
+      opacity: 1;
+    }
   }
 
   &:focus-visible {
-    outline: none;
-    box-shadow:
-      var(--shadow-sm),
-      0 0 0 2px var(--color-focus-ring);
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
   }
 
   &.is-pinned {
     color: var(--color-text-primary);
-  }
-
-  // Travel with the panel edge (same distance + timing) so the tab stays glued
-  // to the sidebar as it slides out, instead of fading in place. The opacity
-  // fade only cleans up the residual nub once it reaches the rail.
-  :host.is-collapsed:not(.is-expanded) & {
-    transform: translateX(calc(-1 * var(--sidebar-w, 280px)));
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transition:
-      transform $transition-duration $transition-easing,
-      opacity $transition-duration $transition-easing,
-      visibility 0s linear $transition-duration;
   }
 }
 
@@ -237,155 +213,113 @@ $edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
   }
 }
 
+// The reveal handle: a slim bar on the scene's edge, the whole of the hint.
+// Resting the pointer anywhere along that edge opens the panel (`armEdgeHover`),
+// so the bar only has to say *where* — it is a button for keyboards and
+// fingers, and not something a mouse needs to aim at.
 .sidebar-reveal-hint {
   position: absolute;
+  top: 50%;
   left: 0;
-  top: $edge-control-top;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  min-height: 34px;
-  padding: 0 var(--spacing-sm) 0 10px;
-  border: 1px solid transparent;
-  // Tucked against the rail it emerges from: square on the left, rounded on the
-  // right. Reads as a drawer pull rather than a button dropped on the scene.
-  border-radius: 0 999px 999px 0;
-  background: var(--color-surface);
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  letter-spacing: 0.01em;
+  translate: 0 -50%;
+  display: grid;
+  place-items: center;
+  // The target is wider than the mark: the bar itself is 4px.
+  width: calc(var(--panel-gap) + 14px);
+  height: 88px;
+  padding: 0;
+  border: none;
+  background: none;
   cursor: pointer;
   pointer-events: auto;
-  white-space: nowrap;
-  box-shadow: var(--shadow-xs);
-  transition:
-    color var(--duration-fast) var(--ease-standard),
-    background-color var(--duration-fast) var(--ease-standard),
-    box-shadow var(--duration-fast) var(--ease-standard);
 
-  // Tone and elevation only — never a transform. The tab's left edge is flush
-  // against the nav rail, so nudging it right on hover tears a gap open between
-  // the two and makes a docked control look detached.
-  &:hover {
-    color: var(--color-text-primary);
-    background: var(--color-surface-hover);
-    box-shadow: var(--shadow-sm);
+  &::before {
+    content: '';
+    width: 4px;
+    height: 48px;
+    border-radius: 999px;
+    background: var(--color-text-tertiary);
+    opacity: 0.45;
+    transition:
+      opacity var(--duration-fast) var(--ease-standard),
+      height var(--duration-normal) var(--ease-standard),
+      background-color var(--duration-fast) var(--ease-standard);
+  }
+
+  &:hover::before,
+  &:focus-visible::before,
+  :host.is-edge-armed &::before {
+    height: 64px;
+    opacity: 1;
+    background: var(--color-text-secondary);
   }
 
   &:focus-visible {
     outline: none;
-    box-shadow:
-      var(--shadow-sm),
-      0 0 0 2px var(--color-focus-ring);
   }
 }
 
-// Edge affordances with nothing around them to hit by mistake, and no hover
-// state to fall back on, so both take the isolated target size. The pin is
-// already 46px tall — only its narrow axis needs the nudge.
+// A finger has no hover to open the panel with, so the handle is its door: a
+// full-size target, and a mark that is easier to see.
 @include coarse-pointer {
   .sidebar-reveal-hint {
-    min-height: var(--touch-target);
-    padding-right: var(--spacing-md);
-  }
+    width: var(--touch-target);
+    height: 120px;
 
-  .sidebar-pin {
-    width: 30px;
+    &::before {
+      width: 5px;
+      height: 56px;
+      opacity: 0.7;
+    }
   }
 }
 
-// Drag handle — thin invisible strip at the right edge of the sidebar.
-// Only interactive when the sidebar is not collapsed.
+// Drag handle — the shared three-dot grip (styles/components/_panels.scss),
+// standing just outside the panel's right edge, over the scene's. Only while
+// docked. Below the dock nub, which shares that edge.
 .resize-handle {
   position: absolute;
   top: 0;
-  right: 0;
   bottom: 0;
-  width: 4px;
+  left: 100%;
+  width: 12px;
+  pointer-events: auto;
+  display: grid;
+  place-items: center;
   cursor: col-resize;
-  z-index: 200;
+  z-index: 1;
 
-  // No touch enlargement, deliberately. Widening the strip and hanging it over
-  // the panel edge put an invisible drag zone on top of the scene, so a tap
-  // aimed just outside the sidebar started a resize instead — and resizing is a
-  // slow, deliberate gesture nobody performs by accident at any width. The one
-  // control where growing the target cost more than it bought.
+  // Not enlarged for touch, deliberately: this strip lies over the scene's
+  // edge, and a wider one turned taps aimed at the plate into resizes.
 
-  background: transparent;
-  transition: background 120ms ease;
-
-  // Resizing only applies to a docked sidebar; hide the handle whenever the
-  // panel is collapsed (hidden or overlay peek).
   :host.is-collapsed & {
     display: none;
   }
-
-  &:hover {
-    background: var(--accent);
-  }
-
-  :host.is-dragging & {
-    background: var(--accent);
-  }
 }
 
-// ── Phone: a drawer, never a column ───────────────────────────────────────
+// ── Phone: a drawer, never docked ─────────────────────────────────────────
 //
-// Docking a 280px settings column beside the scene leaves ~50px of 3D on a
-// 390px screen, so on a phone the panel is only ever an overlay. The component
-// still tracks a docked/hidden preference for when the same browser is later
-// resized — the layout simply refuses to honour it at this width.
+// Docking a 280px column beside a 390px scene leaves nothing to see, so on a
+// phone the panel is only ever the drawer. The component still keeps the
+// docked/hidden preference for when the same browser is later widened.
 @include handheld {
   :host {
-    width: 0;
+    width: calc(min(86vw, 360px) + 2 * var(--panel-gap));
+  }
+
+  .sidebar-sheet {
+    width: min(86vw, 360px);
   }
 
   .sidebar-panel {
-    // Stop just short of the edge so the scene stays visible behind the drawer
-    // and its purpose — "you are covering something" — reads at a glance.
-    width: min(86vw, 360px);
     padding-left: env(safe-area-inset-left, 0px);
-    border-right: none;
-    box-shadow: var(--shadow-lg);
   }
 
-  // A docked panel would otherwise sit permanently open with nothing to
-  // dismiss it; forcing the hidden transform makes the reveal hint the only
-  // way in and the scrim the only way out.
-  :host:not(.is-expanded) .sidebar-panel {
-    transform: translateX(-100%);
-    visibility: hidden;
-    pointer-events: none;
-  }
-
-  // Pinning and dragging are pointer affordances with nothing to act on here:
-  // there is no docked state to pin to, and no spare width to drag into.
+  // Pinning and dragging have nothing to act on: no docked state, no spare
+  // width.
   .sidebar-pin,
   .resize-handle {
     display: none;
-  }
-
-  // The label does not fit beside a full-width launch card or a bottom sheet,
-  // so the tab drops to its glyph alone. Position and shape are already the
-  // base ones — the desktop tab moved to this anchor rather than the phone
-  // having to correct for a centred one.
-  .sidebar-reveal-hint {
-    width: 44px;
-    min-height: 60px;
-    padding: 0;
-    justify-content: center;
-    border-radius: 0 var(--radius-md) var(--radius-md) 0;
-    box-shadow: var(--shadow-md);
-
-    --icon-size: 18px;
-
-    // Only the leading glyph survives; the words and the chevron are what did
-    // not fit. The button keeps its aria-label, so nothing is lost to a reader.
-    span,
-    nexus-icon:last-child {
-      display: none;
-    }
   }
 }
 
@@ -394,7 +328,6 @@ $edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
   flex: none;
   padding: var(--spacing-sm);
   padding-bottom: calc(var(--spacing-sm) + env(safe-area-inset-bottom, 0px));
-  background: var(--color-bg-secondary);
 }
 
 .sidebar-done {

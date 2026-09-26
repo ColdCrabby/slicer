@@ -1,0 +1,78 @@
+/// The floating work surface: the geometry of the page inside the app chrome.
+/// @group theme
+///
+/// The titlebar and nav rail have no fill or border of their own — they sit
+/// straight on the window's background. The page they frame is not one surface
+/// but a set of panels (`[nexusPanel]`, styles/components/_panels.scss), each a
+/// rounded box floating on that background, held apart by the same gutter that
+/// holds them off the window's edges. These tokens are their shape; the shell,
+/// the panels, and anything that has to measure the room they leave read them
+/// rather than a number.
+
+@use '../breakpoints' as *;
+
+:root {
+  // Room between the work surface and the window's right and bottom edges. The
+  // titlebar and rail already give it space on the other two sides.
+  --shell-gutter: 10px;
+  // One step rounder than `--radius-lg`: the surface is the largest shape on
+  // screen, and the cards floating inside it must read as nested within it.
+  --radius-shell: 12px;
+  // Four pixels wider than the shared default: with no rule of its own, the
+  // rail keeps its items clear of the surface's edge by padding instead, and
+  // "Settings" still needs its full width under the icon.
+  --nav-rail-width: 64px;
+
+  // A panel: its fill, edge and corner, and the air between two of them. Half
+  // the window gutter: panels on one page belong together, and read as a set
+  // held apart from the window rather than as unrelated boxes.
+  --panel-gap: 5px;
+  --panel-radius: var(--radius-shell);
+  // A panel laid inside another, the panel gap in from its edge. Its corners
+  // follow the outer panel's curve at that inset (about 12 − 5) rather than
+  // repeating the outer radius, which would look fatter than the corner it
+  // sits in.
+  --panel-radius-nested: 8px;
+  // Every panel takes the window's own tone except one: the page's primary
+  // content — the scene, the editor, the page of preferences — is the single
+  // darker panel, so the eye always knows where the work is.
+  --panel-bg: var(--color-bg-secondary);
+  --panel-bg-primary: var(--color-bg-primary);
+  // Softer than the shared hairline: a panel is told apart by its tone and the
+  // gap around it, and the edge only has to confirm it.
+  --panel-border: color-mix(in oklab, var(--color-border) 60%, transparent);
+  // A raised panel sits over another one — a flyout, a drawer, the slice
+  // sidebar over the scene — and says so with a shadow instead of a gap.
+  --panel-shadow-raised: var(--shadow-lg);
+
+  // The crab: the mascot, big and pinned in the corner rather than squeezed
+  // into the titlebar's height. It is deliberately larger than the rail — it
+  // hangs below the bar and peeks over the work surface's corner — and the
+  // rail and the wordmark pad themselves clear of it.
+  --brand-mark-size: 84px;
+  // From the top of the bar (below any notch), not the window.
+  --brand-mark-top: -6px;
+  --brand-mark-left: 9px;
+  --brand-mark-overhang: max(
+    0px,
+    calc(var(--brand-mark-top) + var(--brand-mark-size) - var(--titlebar-height))
+  );
+}
+
+// macOS desktop: the traffic lights occupy the top-left corner, so the mark
+// drops beneath them and comes down a size to keep the rail from sinking.
+:root:has(.nexus-titlebar.is-mac.is-desktop) {
+  --brand-mark-size: 68px;
+  --brand-mark-top: 28px;
+}
+
+// A phone has no width to spend on air around its one surface.
+@include handheld {
+  :root {
+    --shell-gutter: 6px;
+    // The rail is a bottom tab bar here; the mark sits inside the titlebar.
+    --brand-mark-size: 28px;
+    --brand-mark-left: 0px;
+    --brand-mark-overhang: 0px;
+  }
+}

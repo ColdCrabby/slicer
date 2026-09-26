@@ -2,7 +2,7 @@
   <nexus-settings-panel />
 </nexus-sidebar>
 
-<main class="shell-content">
+<main class="shell-content" nexusPanel primary>
   <router-outlet></router-outlet>
 
   <div class="shell-actions-layer">
@@ -28,19 +28,29 @@
   </div>
 </main>
 
-<!-- Beside the plate rather than over it: models are picked while looking at
-     where they will go. On the right because the left edge belongs to the
-     settings drawer, whose dock tab and slide-out peek both reach past it.
-     Loaded on first open — most plates never ask. -->
+<!-- The library opens from the rail, so it comes out of the rail's side: over
+     the plate's left edge, and over the print settings while it is open. It is
+     never docked — it is opened to put a model down and closed again.
+     Resizable from its right edge, and loaded on first open, since most plates
+     never ask. -->
 @if (libraryFlyout.open()) {
   @defer (on immediate) {
-    <nexus-library-flyout class="library-flyout" />
+    <div class="library-sheet" animate.enter="library-turn-in" animate.leave="library-turn-out">
+      <nexus-library-flyout class="library-flyout" nexusPanel />
+      <nexus-panel-resizer
+        property="--library-w"
+        storageKey="library.flyoutWidth"
+        label="Resize the library"
+        [min]="260"
+        [max]="560"
+      />
+    </div>
   }
 }
 
-<!-- A sibling of the scene, not an overlay on it: the text is read alongside
-     the toolpath it describes, so it takes width rather than covering the
-     thing the caret is pointing at. -->
+<!-- A panel beside the scene, not an overlay on it: the text is read
+     alongside the toolpath it describes, so it takes width rather than
+     covering the thing the caret is pointing at. -->
 @if (textPanelOpen()) {
-  <nexus-gcode-text-panel class="text-panel" />
+  <nexus-gcode-text-panel class="text-panel" nexusPanel />
 }

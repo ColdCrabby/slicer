@@ -17,6 +17,7 @@ import { Icon } from '@coldcrabby/ui';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
+import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
 import { ObjectLibrary, type LibraryEntry } from '../../services/library';
 import { LibraryActions } from '../../services/library/library-actions';
 import { LibraryCard } from './library-card';
@@ -67,6 +68,8 @@ export class LibraryBrowser {
   protected readonly actions = inject(LibraryActions);
   readonly #menu = inject(ContextMenuService);
   readonly #router = inject(Router);
+  readonly #shortcuts = inject(KeyboardShortcuts);
+  private readonly searchInput = viewChild.required<ElementRef<HTMLInputElement>>('search');
 
   /** `page` selects on click; `flyout` sits beside a plate and is narrower. */
   readonly variant = input<'page' | 'flyout'>('page');
@@ -114,6 +117,15 @@ export class LibraryBrowser {
   private readonly sentinel = viewChild<ElementRef<HTMLElement>>('sentinel');
 
   constructor() {
+    // ⌘F / Ctrl+F lands in this grid's search while it is on screen.
+    const searchRef = { focusSearch: () => this.searchInput().nativeElement.select() };
+    this.#shortcuts.librarySearchRef = searchRef;
+    inject(DestroyRef).onDestroy(() => {
+      if (this.#shortcuts.librarySearchRef === searchRef) {
+        this.#shortcuts.librarySearchRef = null;
+      }
+    });
+
     if (typeof IntersectionObserver === 'undefined') {
       return;
     }
@@ -137,6 +149,42 @@ export class LibraryBrowser {
       }
     });
     inject(DestroyRef).onDestroy(() => observer.disconnect());
+  }
+
+  /**
+   * Arrow keys walk the grid as it is laid out — left and right along a row,
+   * up and down by however many columns the width allows — with Home and End
+   * for the ends. Moving is not choosing: Space selects and Enter adds, as the
+   * card says, so walking through a flyout never puts anything on the plate.
+   * The grid is a listbox, which the plate's nudge keys already leave alone.
+   */
+  protected onGridKey(event: KeyboardEvent, grid: HTMLElement): void {
+    const cards = Array.from(grid.querySelectorAll<HTMLElement>('nexus-library-card'));
+    const at = cards.indexOf(document.activeElement as HTMLElement);
+    if (at < 0 || cards.length === 0) {
+      return;
+    }
+    const columns = getComputedStyle(grid).gridTemplateColumns.split(' ').length || 1;
+    const step: Record<string, number> = {
+      ArrowLeft: -1,
+      ArrowRight: 1,
+      ArrowUp: -columns,
+      ArrowDown: columns,
+      Home: -at,
+      End: cards.length - 1 - at,
+    };
+    if (!(event.key in step)) {
+      return;
+    }
+    event.preventDefault();
+    const next = Math.min(cards.length - 1, Math.max(0, at + step[event.key]));
+    cards[next].focus();
+    cards[next].scrollIntoView({ block: 'nearest' });
+  }
+
+  /** Down from the search field drops into the results, as in any finder. */
+  protected focusFirstCard(grid: HTMLElement): void {
+    grid.querySelector<HTMLElement>('nexus-library-card')?.focus();
   }
 
   protected clearQuery(input: HTMLInputElement): void {
@@ -177,23 +225,32 @@ export class LibraryBrowser {
 
   #cardMenu(entry: LibraryEntry): ContextMenuItem[] {
     const available = entry.locations?.some((l) => !l.missing) ?? false;
-    const plate = this.actions.openPlate();
-    const items: ContextMenuItem[] = [
-      {
-        label: plate ? 'Add to plate' : 'Put on a new plate',
-        icon: 'plus',
-        disabled: !available,
-        action: () => void this.actions.addToPlate(entry),
-      },
-    ];
-    if (plate) {
-      items.push({
-        label: 'Put on a new plate',
-        icon: 'page-plus',
-        disabled: !available,
-        action: () => void this.actions.openAsPlate(entry),
-      });
-    }
+    // Beside a plate the flyout knows which workplate is meant; on the page the
+    // user chooses one.
+    const items: ContextMenuItem[] =
+      this.variant() === 'flyout'
+        ? [
+            {
+              label: 'Add to workplate',
+              icon: 'plus',
+              disabled: !available,
+              action: () => void this.actions.addToPlate(entry),
+            },
+          ]
+        : [
+            {
+              label: 'Add to workplate',
+              icon: 'plus',
+              disabled: !available || this.actions.workplates().length === 0,
+              submenu: this.actions.workplateMenu(entry, { withNew: false }),
+            },
+          ];
+    items.push({
+      label: 'New workplate',
+      icon: 'page-plus',
+      disabled: !available,
+      action: () => void this.actions.openAsPlate(entry),
+    });
     items.push({ label: '', separator: true });
     if (this.variant() === 'page') {
       items.push({ label: 'Rename', icon: 'edit-pencil', action: () => this.rename.emit(entry) });

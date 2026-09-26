@@ -6,7 +6,7 @@
   (dragleave)="onDragLeave($event)"
   (drop)="onDrop($event)"
 >
-  <div class="library-main">
+  <div class="library-main" nexusPanel primary>
     <nexus-section-header heading="Library" [description]="description()">
       @if (library.capabilities.visibleFolder || library.capabilities.watchFolders) {
         <button
@@ -56,7 +56,16 @@
     }
   </div>
 
+  <nexus-panel-resizer
+    sizes="after"
+    property="--library-side-w"
+    storageKey="library.sideWidth"
+    label="Resize the model panel"
+    [min]="280"
+    [max]="560"
+  />
   <aside
+    nexusPanel
     class="library-side"
     [class.has-selection]="selected() !== null"
     [attr.aria-label]="selected() ? 'Selected model' : 'About this library'"

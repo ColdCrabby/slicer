@@ -18,8 +18,8 @@ All of this is also in the app under **Settings → Controls → Keyboard shortc
 | Slice the plate | `⌘/Ctrl + Enter` |
 | Put away a card, clear the selection, or put the tool down | `Esc` |
 
-`Esc` closes whatever floats over the plate — the placement card, the brush
-popout, the print-settings drawer — then works back one step at a time: it
+`Esc` closes whatever floats over the plate — the library, the placement card,
+the brush popout, the print-settings drawer — then works back one step at a time: it
 puts down the brush, pull-to-floor or Place objects straight away; with Rotate
 or Scale it clears the selection first, and the next `Esc` goes back to Select &
 move.
@@ -93,8 +93,27 @@ run the same way.
 
 | Action | Key |
 | --- | --- |
-| Focus settings search | `⌘/Ctrl + F` |
+| Focus the search on screen — the library's when it is open, settings otherwise | `⌘/Ctrl + F` |
 | Search open workplates | `⌘/Ctrl + Shift + A` |
+
+## Library and panels
+
+| Action | Key |
+| --- | --- |
+| Open or close the library | `L` — over the plate when one is open |
+| Close the library | `Esc` |
+| Dock or hide the print settings | `⌘/Ctrl + \` |
+| Move between models | `←` `→` `↑` `↓`, `Home`, `End` — `↓` from the search box drops into the results |
+| Select a model / add it | `Space` / `Enter` |
+
+On the full library page:
+
+| Action | Key |
+| --- | --- |
+| Add models from files | `⌘/Ctrl + O` |
+| Rename the selected model | `F2` |
+| Remove the selected model | `Delete` or `Backspace`, twice |
+| Clear the selection | `Esc` |
 
 ## Workplates
 

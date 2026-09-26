@@ -5,14 +5,16 @@
   align-items: center;
   flex: none;
   height: var(--titlebar-height);
-  // Center the logo icon over the nav-rail column below it (24px logo box).
+  // Raised so the brand mark, which hangs below the bar, paints over the rail
+  // (but under the work surface, which sits one level higher).
+  position: relative;
+  z-index: 1;
+  // The mark is pinned in the corner, so the wordmark starts just past it.
   padding: 0 var(--spacing-xs);
-  padding-left: calc((var(--nav-rail-width) - 24px) / 2);
-  background: var(--color-bg-secondary);
-  // An inset shadow rather than a border: it paints *under* the children, so
-  // the active workplate tab — which reaches the bar's bottom edge — covers the
-  // rule and opens straight into the page. A border would cut across it.
-  box-shadow: inset 0 -1px 0 var(--color-border);
+  padding-left: calc(var(--brand-mark-left) + var(--brand-mark-size) + var(--spacing-sm));
+  // No fill and no rule: the bar sits on the window's own background, and the
+  // work surface's rounded top edge below is the only line between them.
+  background: transparent;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -34,7 +36,10 @@
 :host(.is-mobile) {
   height: calc(var(--titlebar-height) + env(safe-area-inset-top, 0px));
   padding-top: env(safe-area-inset-top, 0px);
-  padding-left: calc(var(--spacing-xs) + env(safe-area-inset-left, 0px));
+  padding-left: calc(
+    var(--brand-mark-left) + var(--brand-mark-size) + var(--spacing-sm) +
+      env(safe-area-inset-left, 0px)
+  );
   padding-right: calc(var(--spacing-xs) + env(safe-area-inset-right, 0px));
 }
 
@@ -53,12 +58,41 @@
   display: inline-flex;
   align-items: center;
   flex: none;
-  overflow: hidden;
   --icon-size: 18px;
+  // The way home, from anywhere: the crab and the name are one link.
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  -webkit-user-drag: none;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 4px;
+    border-radius: var(--radius-sm);
+  }
 }
 
-// Open workplate tabs, sitting next to the brand. Full height, so the tabs can
-// stand on the bar's bottom edge; hidden when no workplate is open.
+// The mascot, taken out of the bar's flow and pinned in the corner, big enough
+// to be a character rather than an icon. It hangs over the rail and tucks behind
+// the work surface's corner.
+.tb-brand ::ng-deep .nexus-logo {
+  position: absolute;
+  left: calc(env(safe-area-inset-left, 0px) + var(--brand-mark-left));
+  top: calc(env(safe-area-inset-top, 0px) + var(--brand-mark-top));
+  filter: drop-shadow(0 6px 10px rgb(0 0 0 / 0.3));
+}
+
+// The wordmark matches the mascot's weight instead of whispering beside it.
+.tb-brand ::ng-deep .nexus-product-name {
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+  color: var(--color-text-primary);
+}
+
+// Open workplate tabs, sitting next to the brand; hidden when no workplate is
+// open.
 .tb-workplate {
   min-width: 0;
   margin-left: var(--spacing-md);
@@ -109,16 +143,11 @@ button.tb-close:hover {
     flex: none;
   }
 
-  // The logo asset is a square crab; the desktop bar renders it as a wide, short
-  // crop (86×40 with a -8px vertical offset) so it sits beside the wordmark.
-  // With the wordmark gone that crop has nothing to justify it, and keeping the
-  // offset against a narrow box slices the crab's bottom off. Show the whole
-  // mark in a square box instead.
+  // The rail is a bottom tab bar here, so there is no column to hang the mark
+  // over: it goes back into the bar's flow at the bar's own size.
   .tb-brand ::ng-deep .nexus-logo {
-    width: 28px;
-    height: 28px;
-    object-fit: contain;
-    object-position: center;
+    position: static;
+    filter: none;
   }
 
   .tb-brand ::ng-deep .nexus-product-name {

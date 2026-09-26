@@ -55,12 +55,14 @@ import {
   Segmented,
   Select,
   Switch,
+  Badge,
 } from '@coldcrabby/ui';
 import type { FanConfig } from '../../../generated/slicer-engine-global-settings-v1';
 import { FanConfigsEditor } from '../../components/profiles/fan-configs-editor';
 import { FieldShell } from '../../components/profiles/field-shell';
 import { ParamField } from '../../components/profiles/param-field';
-import { ColumnResizer } from '../../components/profiles/column-resizer';
+import { Panel } from '../../ui/panel/panel';
+import { PanelResizer } from '../../ui/panel/panel-resizer';
 import { ProfileOutline } from '../../components/profiles/profile-outline';
 import { ProfileHead } from '../../components/profiles/profile-head';
 import { profileSaveState } from '../../components/profiles/profile-save-state';
@@ -92,6 +94,7 @@ const REMOVE_CONFIRM_MS = 4000;
 @Component({
   selector: 'nexus-settings-printers',
   imports: [
+    Badge,
     EmptyState,
     Button,
     IconButton,
@@ -112,7 +115,8 @@ const REMOVE_CONFIRM_MS = 4000;
     LabelPicker,
     ContextMenuTrigger,
     ProfileOutline,
-    ColumnResizer,
+    Panel,
+    PanelResizer,
   ],
   templateUrl: './printers.html',
   styleUrl: './printers.scss',

@@ -24,8 +24,10 @@ export interface TabSearchEntry {
 /**
  * The "search tabs" list: every open workplate, filtered as you type.
  *
- * Presentational only — the tab strip owns the list, switching and closing,
- * and this renders what it is given. The keyboard never leaves the search box:
+ * Presentational only — the caller owns the list and what picking does, and
+ * this renders what it is given. The tab strip switches to the pick (and lets
+ * rows close their tab); the library's **Add to workplate** puts a model on it,
+ * so it drops the close buttons and says what it is for. The keyboard never leaves the search box:
  * the arrows move a highlight through the list and `Enter` takes it, the way a
  * browser's own tab search behaves, so the list rows need no focus of their own.
  */
@@ -39,6 +41,10 @@ export interface TabSearchEntry {
 export class WorkplateTabSearch {
   readonly entries = input.required<readonly TabSearchEntry[]>();
   readonly activeUuid = input<string | null>(null);
+  /** Rows carry a close button for their tab. */
+  readonly closable = input(true);
+  readonly placeholder = input('Search open workplates');
+  readonly heading = input('Open workplates');
 
   readonly pick = output<string>();
   readonly closeTab = output<string>();

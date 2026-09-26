@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   computed,
   inject,
@@ -14,10 +15,13 @@ import { Button, EmptyState, Icon, IconButton, SectionHeader } from '@coldcrabby
 import { LibraryBrowser } from '../../components/library/library-browser';
 import { LibraryInspector } from '../../components/library/library-inspector';
 import { LibraryOverview } from '../../components/library/library-overview';
+import { Panel } from '../../ui/panel/panel';
+import { PanelResizer } from '../../ui/panel/panel-resizer';
 import { isTauriMobile } from '../../runtime/domain/runtime-mode.util';
 import { ObjectLibrary, type LibraryEntry } from '../../services/library';
 import { LibraryActions } from '../../services/library/library-actions';
 import { MODEL_FILE_ACCEPT, isSupportedModelFile } from '../../services/model-source';
+import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
 import { NotificationService } from '../../services/notifications';
 
 /**
@@ -43,12 +47,13 @@ import { NotificationService } from '../../services/notifications';
     LibraryBrowser,
     LibraryInspector,
     LibraryOverview,
+    Panel,
+    PanelResizer,
     SectionHeader,
   ],
   templateUrl: './library.html',
   styleUrl: './library.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { '(keydown.escape)': 'deselect()' },
 })
 export class LibraryPage {
   protected readonly library = inject(ObjectLibrary);
@@ -86,6 +91,24 @@ export class LibraryPage {
 
   constructor() {
     void this.library.refresh();
+
+    // The keyboard's way into the page: Escape, F2, Delete and ⌘O. Registered
+    // with the app's shortcuts rather than listened for here, so they work
+    // wherever focus is and are listed with the rest in Settings.
+    const shortcuts = inject(KeyboardShortcuts);
+    shortcuts.libraryPageRef = {
+      hasSelection: () => this.selected() !== null,
+      deselect: () => this.deselect(),
+      rename: () => {
+        const entry = this.selected();
+        if (entry) {
+          this.rename(entry);
+        }
+      },
+      remove: () => this.inspector()?.requestRemove(),
+      addModels: () => this.pickFiles(),
+    };
+    inject(DestroyRef).onDestroy(() => (shortcuts.libraryPageRef = null));
   }
 
   protected select(entry: LibraryEntry | null): void {

@@ -2,24 +2,25 @@
 
 :host {
   position: relative;
-  // Sit above the sidebar so its panel can slide out from behind the rail edge.
-  z-index: 30;
-
   display: flex;
   flex-direction: column;
   align-items: stretch;
   width: var(--nav-rail-width);
   flex: none;
-  padding: var(--spacing-sm) var(--spacing-xs);
-  background: var(--color-bg-secondary);
-  border-right: 1px solid var(--color-border);
-  gap: 2px;
+  // No fill and no rule: the rail sits on the window's background beside the
+  // work surface, and the surface's own edge is what separates them. The top
+  // clears the brand mark hanging down from the titlebar (theme/_shell.scss);
+  // the sides hold the items clear of both the window and the surface.
+  padding: calc(var(--brand-mark-overhang) + var(--spacing-md)) var(--spacing-sm) 0;
+  background: transparent;
 }
 
 .rail-nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  // Room enough that each item reads as its own target rather than one cell of
+  // a packed column.
+  gap: var(--spacing-xs);
 }
 
 .rail-spacer {
@@ -68,11 +69,31 @@
     box-shadow: 0 0 0 2px var(--color-focus-ring);
   }
 
+  // The page on screen. Filled: there is only ever one.
   &.is-active {
     color: var(--accent);
     background: var(--accent-soft);
     font-weight: var(--font-weight-active);
     font-variation-settings: 'wght' var(--font-weight-active);
+  }
+
+  // Open alongside the page, not instead of it — the library beside a plate.
+  // Outlined and unfilled, with a dot where a fill would be, so it can never be
+  // mistaken for a second page on screen.
+  &.is-open {
+    color: var(--color-text-primary);
+    box-shadow: inset 0 0 0 1px var(--color-border);
+
+    .rail-icon::after {
+      content: '';
+      position: absolute;
+      top: -2px;
+      right: -4px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
   }
 }
 
@@ -139,8 +160,6 @@
       calc(var(--spacing-xs) + env(safe-area-inset-bottom, 0px));
     padding-left: calc(var(--spacing-xs) + env(safe-area-inset-left, 0px));
     padding-right: calc(var(--spacing-xs) + env(safe-area-inset-right, 0px));
-    border-right: none;
-    border-top: 1px solid var(--color-border);
   }
 
   .rail-nav {

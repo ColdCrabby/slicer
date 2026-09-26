@@ -3,6 +3,13 @@
 :host {
   display: block;
   min-height: 0;
+  // Fills its track, which is at least `RAIL_WIDTH` (the width the room test
+  // budgets) and grows when the editor beside it is not using the room.
+  width: 100%;
+  // Borderless: it is a map of the editor next to it, not a region of its own
+  // that needs fencing off — its tone alone sets it apart.
+  border: none;
+  padding: var(--spacing-sm) var(--spacing-xs) 0 var(--spacing-sm);
 }
 
 // Hidden because the page has not got the room for it — see `roomForRail`. The
@@ -20,8 +27,7 @@
   height: 100%;
   min-height: 0;
   gap: var(--spacing-xs);
-  // Written by the component from `RAIL_WIDTH`, the number the room test uses.
-  width: var(--outline-width);
+  width: 100%;
   // The line's own tone. The border tokens are tuned for hairlines between
   // surfaces and vanish as a 1.5 px stroke on the page background.
   --outline-track: color-mix(in oklab, var(--color-text-tertiary) 55%, transparent);
@@ -121,16 +127,7 @@
   stroke-linejoin: round;
 }
 
-// The part of the line the editor is showing. A soft wide lens under a crisp
-// core, so it reads as a window laid on the line rather than a second line.
-.profile-outline__lens {
-  fill: none;
-  stroke: var(--accent-softer);
-  stroke-width: 9;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
+// The part of the line the editor is showing.
 .profile-outline__window {
   fill: none;
   stroke: var(--accent);
@@ -142,7 +139,7 @@
 // A section's node — the commit dot, in git-graph terms. Hollow until the
 // window passes over it; the section the editor is scrolled to gets a ring.
 .profile-outline__node {
-  fill: var(--color-bg-primary);
+  fill: var(--panel-bg);
   stroke: var(--outline-track);
   stroke-width: 1.5;
   transition:
@@ -235,21 +232,11 @@
 
 .profile-outline__count {
   flex: none;
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
-}
-
-// Trailing, so the leading edge belongs to the line and its nodes.
-.profile-outline__twisty {
-  flex: none;
-  color: var(--color-text-tertiary);
-  --icon-size: 12px;
-  transition: transform var(--duration-fast) var(--ease-standard);
-
-  &.is-open {
-    transform: rotate(90deg);
-  }
+  // Tiny: a count is a footnote to its label, not a label of its own.
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 15px;
 }
 
 .profile-outline__entries {
