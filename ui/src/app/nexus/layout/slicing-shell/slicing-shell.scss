@@ -33,22 +33,44 @@ $default-inset: 40px;
   }
 }
 
+// The fade the plate runs out through, laid over the canvas's first two gaps
+// in the scene's own surface colour, and moving with the inset.
+//
+// Painted over the canvas, never a `mask-image` on the page that holds it:
+// WebKit — the desktop and iPad shells, and Safari — stops compositing a WebGL
+// canvas under a masked ancestor, and the whole plate goes blank.
+.shell-content::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--scene-canvas-inset, 0px);
+  width: calc(2 * var(--panel-gap));
+  background: linear-gradient(to right, var(--panel-bg-primary), transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: left $panel-turn-enter $panel-turn-ease-enter;
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
 :host:has(> nexus-sidebar:not(.is-collapsed)) {
   --scene-canvas-inset: var(--sidebar-w, 280px);
   // Past the panel, and past the lane its dock nub and resize grip stand in on
   // its right edge (24px, the nub's width), so neither sits over a control.
   --scene-chrome-inset: calc(var(--sidebar-w, 280px) + var(--panel-gap) + 24px);
 
-  // The routed page — the canvas and what is drawn on it. Router-inserted, so
-  // it carries none of this component's attributes.
-  .shell-content > ::ng-deep :not(router-outlet, .shell-actions-layer) {
-    mask-image: linear-gradient(to right, transparent, #000 calc(2 * var(--panel-gap)));
+  .shell-content::after {
+    opacity: 1;
   }
 }
 
 // A drag is followed exactly, not eased after.
 :host:has(> nexus-sidebar.is-dragging) {
   .shell-content,
+  .shell-content::after,
   .shell-actions-layer {
     transition: none;
   }
@@ -328,8 +350,8 @@ $default-inset: 40px;
     --scene-canvas-inset: 0px;
     --scene-chrome-inset: 0px;
 
-    .shell-content > ::ng-deep :not(router-outlet, .shell-actions-layer) {
-      mask-image: none;
+    .shell-content::after {
+      opacity: 0;
     }
   }
 

@@ -41,6 +41,8 @@ See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 
 ### Fixed
 
+- **Links open in your browser from the desktop and iPad apps.** Help, the
+  docs and every link in the app's own text did nothing there.
 - **The same model now slices to the same G-code.** Simplifying a region before
   Arachne's medial fill could leave two of its edges crossing, and the Voronoi
   diagram of crossing edges is undefined — so two runs of one file could print
