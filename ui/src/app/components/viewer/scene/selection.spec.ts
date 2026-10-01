@@ -125,6 +125,7 @@ describe('SceneSelection', () => {
   afterEach(() => {
     selection.dispose();
     canvas.remove();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
@@ -493,8 +494,17 @@ describe('SceneSelection', () => {
   });
 
   describe('paint', () => {
-    it("erases with a pen's eraser end, whatever the brush is set to", () => {
-      const gizmoHandlers = {
+    let gizmoHandlers: {
+      delta: Mock;
+      end: Mock;
+      facePicked: Mock;
+      paintDab: Mock;
+      paintEnd: Mock;
+      paintRadiusChange: Mock;
+    };
+
+    beforeEach(() => {
+      gizmoHandlers = {
         delta: vi.fn(),
         end: vi.fn(),
         facePicked: vi.fn(),
@@ -502,16 +512,84 @@ describe('SceneSelection', () => {
         paintEnd: vi.fn(),
         paintRadiusChange: vi.fn(),
       };
-      selection.gizmoHandlers = gizmoHandlers;
+      selection.gizmoHandlers = gizmoHandlers as unknown as typeof selection.gizmoHandlers;
       selection.setObjectMode('paint');
       selection.setPaintBrush('enforcer', 2);
+      // `flushPaint` samples on the next frame; running the callback straight
+      // away keeps the tests synchronous while still going through the RAF path.
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+        cb(0);
+        return 1;
+      });
+      vi.stubGlobal('cancelAnimationFrame', () => undefined);
+    });
 
+    it("erases with a pen's eraser end, whatever the brush is set to", () => {
       dispatch('pointerdown', { pointerType: 'pen', button: 5 });
       dispatch('pointerup', { pointerType: 'pen', button: 5 });
       dispatch('pointerdown', { pointerType: 'pen', button: 0 });
 
       const modes = gizmoHandlers.paintDab.mock.calls.map((call) => call[4]);
       expect(modes).toEqual(['erase', 'enforcer']);
+    });
+
+    // The regression behind keying a stroke to the pointer that started it: a
+    // camera press lands on empty bed, so it is an orbit rather than a stroke —
+    // and as the camera turns, the pointer sweeps across the model, which used
+    // to drizzle paint over every facet it crossed.
+    it('does not paint when a camera drag sweeps across the model', () => {
+      // Press well outside the box, then drag over and past its centre.
+      dispatch('pointerdown', { clientX: 4, clientY: 4 });
+      dispatch('pointermove', { clientX: CENTRE, clientY: CENTRE });
+      dispatch('pointermove', { clientX: CENTRE + 10, clientY: CENTRE });
+      dispatch('pointerup', { clientX: CENTRE + 10, clientY: CENTRE });
+
+      // The camera really did have the whole gesture — and painted nothing.
+      expect(cameraListener).toHaveBeenCalled();
+      expect(cameraLiftListener).toHaveBeenCalled();
+      expect(gizmoHandlers.paintDab).toHaveBeenCalledTimes(0);
+      expect(gizmoHandlers.paintEnd).toHaveBeenCalledTimes(0);
+    });
+
+    it('paints a stroke that begins on the model, and hides it from the camera', () => {
+      dispatch('pointerdown', { clientX: CENTRE, clientY: CENTRE });
+      dispatch('pointermove', { clientX: CENTRE + 5, clientY: CENTRE });
+      dispatch('pointerup', { clientX: CENTRE + 5, clientY: CENTRE });
+
+      // One dab on contact, one per sampled move.
+      expect(gizmoHandlers.paintDab.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(gizmoHandlers.paintEnd).toHaveBeenCalledTimes(1);
+      // The press was withheld from the camera, so the stroke owns the gesture.
+      expect(cameraListener).toHaveBeenCalledTimes(0);
+    });
+
+    // Once the camera claims the gesture (a second contact starting a pinch or
+    // pan), the stroke is dropped: its remaining moves are navigation, not dabs.
+    it('aborts a live stroke when a second contact takes over', () => {
+      dispatch('pointerdown', { pointerType: 'touch', pointerId: 1 });
+      dispatch('pointermove', {
+        pointerType: 'touch',
+        pointerId: 1,
+        clientX: CENTRE + 5,
+        clientY: CENTRE,
+      });
+      const dabsBefore = gizmoHandlers.paintDab.mock.calls.length;
+      expect(dabsBefore).toBeGreaterThanOrEqual(2);
+
+      // A second finger lands on empty bed, handing the gesture to the camera,
+      // then sweeps across the model.
+      dispatch('pointerdown', { pointerType: 'touch', pointerId: 2, clientX: 20, clientY: CENTRE });
+      dispatch('pointermove', {
+        pointerType: 'touch',
+        pointerId: 2,
+        clientX: CENTRE,
+        clientY: CENTRE,
+      });
+
+      expect(gizmoHandlers.paintDab.mock.calls.length).toBe(dabsBefore);
+      // Dropped, not committed: a stroke the camera interrupted opens no
+      // history entry.
+      expect(gizmoHandlers.paintEnd).toHaveBeenCalledTimes(0);
     });
   });
 
