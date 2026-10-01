@@ -125,8 +125,13 @@ One or two sentences on the biggest change.
 git add CHANGELOG.md
 git commit -m "docs: changelog for 0.6.0"
 git tag v0.6.0-rc.1
+gh release create v0.6.0-rc.1 --draft --title v0.6.0-rc.1 --notes "Building…"
 git push origin main v0.6.0-rc.1
 ```
+
+The draft makes the release yours. A GitHub Release is authored by whoever
+creates it, so without one the workflow creates it as github-actions; with one,
+it fills your draft in and publishes it.
 
 The candidate is published as a GitHub **pre-release** with every platform's
 build and the `0.6.0` notes under a "release candidate" banner.
@@ -149,6 +154,7 @@ you tested** (plus any tiny fix):
 
 ```bash
 git tag v0.6.0
+gh release create v0.6.0 --draft --title v0.6.0 --notes "Building…"
 git push origin main v0.6.0
 ```
 
@@ -161,8 +167,8 @@ Pushing either kind of tag triggers
 
 1. Extracts the version's section from `CHANGELOG.md`
    (via [`scripts/extract-changelog.sh`](scripts/extract-changelog.sh)), adds
-   the folded commit list, and **creates the GitHub Release** — a pre-release
-   for a candidate.
+   the folded commit list, and **publishes the GitHub Release** — your draft
+   if there is one, a new release otherwise, and a pre-release for a candidate.
 2. Builds the **CLI/server binary** for Linux, macOS (x86-64 + arm64), and
    Windows, and attaches each as a `.tar.gz` / `.zip`.
 3. Builds the **Tauri desktop app** for each platform and attaches the
