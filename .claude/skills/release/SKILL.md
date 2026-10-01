@@ -204,16 +204,19 @@ repository's Conventional Commits style.
 git add CHANGELOG.md
 git commit -m "docs: changelog for <version>"
 git tag "v<version>-rc.1"
-gh release create "v<version>-rc.1" --draft --title "v<version>-rc.1" --notes "Building…"
+gh release create "v<version>-rc.1" --draft --target main --title "v<version>-rc.1" --notes "Building…"
 git push origin main "v<version>-rc.1"
 ```
 
 The draft is what makes the release the user's: a GitHub Release is authored by
 whoever creates it, and without one the workflow creates it as github-actions.
+`--target` is required, because `gh` refuses to draft a release for a tag that
+exists only locally; the pushed tag still decides the commit.
+
 Pushing the tag triggers the release workflow, which fills the draft in and
-publishes it as a GitHub **pre-release** with every platform's build. Point the user at it, then hand
-over the test sweep: offer the [`test-changes`](../test-changes/SKILL.md)
-checklist for what the notes promise.
+publishes it as a GitHub **pre-release** with every platform's build. Point the
+user at it, then hand over the test sweep: offer the
+[`test-changes`](../test-changes/SKILL.md) checklist for what the notes promise.
 
 ## Between the passes — the test sweep
 
@@ -251,7 +254,7 @@ in it. Show the final section once more and get a yes.
 git add CHANGELOG.md
 git commit -m "docs: date the <version> release"   # only if something changed
 git tag "v<version>"
-gh release create "v<version>" --draft --title "v<version>" --notes "Building…"
+gh release create "v<version>" --draft --target <branch> --title "v<version>" --notes "Building…"
 git push origin <branch> "v<version>"
 ```
 

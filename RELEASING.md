@@ -125,13 +125,15 @@ One or two sentences on the biggest change.
 git add CHANGELOG.md
 git commit -m "docs: changelog for 0.6.0"
 git tag v0.6.0-rc.1
-gh release create v0.6.0-rc.1 --draft --title v0.6.0-rc.1 --notes "Building…"
+gh release create v0.6.0-rc.1 --draft --target main --title v0.6.0-rc.1 --notes "Building…"
 git push origin main v0.6.0-rc.1
 ```
 
 The draft makes the release yours. A GitHub Release is authored by whoever
 creates it, so without one the workflow creates it as github-actions; with one,
-it fills your draft in and publishes it.
+it fills your draft in and publishes it. `--target` is required — `gh` refuses
+to draft a release for a tag that exists only locally — but the pushed tag
+decides the commit, so the branch name is enough.
 
 The candidate is published as a GitHub **pre-release** with every platform's
 build and the `0.6.0` notes under a "release candidate" banner.
@@ -154,7 +156,7 @@ you tested** (plus any tiny fix):
 
 ```bash
 git tag v0.6.0
-gh release create v0.6.0 --draft --title v0.6.0 --notes "Building…"
+gh release create v0.6.0 --draft --target main --title v0.6.0 --notes "Building…"
 git push origin main v0.6.0
 ```
 
