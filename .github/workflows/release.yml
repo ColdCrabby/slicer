@@ -94,10 +94,16 @@ jobs:
           if [[ "${{ steps.meta.outputs.prerelease }}" == "true" ]]; then
             prerelease_flag="--prerelease"
           fi
+          # A release is authored by whoever creates it. The maintainer creates
+          # a draft for the tag before pushing it, so the release is theirs
+          # rather than github-actions'; fill that draft in and publish it.
+          # Without a draft, the workflow creates the release itself.
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             gh release edit "${GITHUB_REF_NAME}" \
               --title "${GITHUB_REF_NAME}" \
-              --notes-file RELEASE_NOTES.md ${prerelease_flag}
+              --notes-file RELEASE_NOTES.md \
+              --prerelease="${{ steps.meta.outputs.prerelease }}" \
+              --draft=false
           else
             gh release create "${GITHUB_REF_NAME}" \
               --title "${GITHUB_REF_NAME}" \
