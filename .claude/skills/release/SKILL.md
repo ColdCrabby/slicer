@@ -18,8 +18,8 @@ own — nothing in this skill touches it.
 
 **A git tag is the single source of truth.** You produce a curated
 `CHANGELOG.md` section and two tags. Everything else — the baked-in version, the
-GitHub Release body, the in-app "What's New" — is derived from those. The full
-commit list is added to the GitHub Release automatically; never paste it into
+GitHub Release body, the in-app "What's New" — is derived from those. The
+GitHub Release links every commit automatically; never paste commits into
 `CHANGELOG.md`. See [RELEASING.md](../../../RELEASING.md) for the whole system.
 
 ## Guardrails
@@ -55,7 +55,6 @@ skip ahead.
 ```bash
 scripts/gen-changelog-draft.sh           # categorised commit draft since last tag
 scripts/release-contributors.sh          # contributors + first-timers since last tag
-scripts/release-commits.sh               # the commit list GitHub will show
 ```
 
 Read the actual commits too when a subject is terse:
@@ -96,7 +95,7 @@ Write for a person who prints things, not for a person who reads the code:
   plate"); a measurement from a debugging session is not.
 - **No technicalities.** No algorithm names unless users already know them
   (Arachne, yes; Voronoi, no), no hash orders, no internal type or file names,
-  no pipeline stages. Those live in the module READMEs and the commit list.
+  no pipeline stages. Those live in the module READMEs and the commits.
 - **Keep the draft as raw material only.** `gen-changelog-draft.sh` and the
   existing `Unreleased` entries tell you what happened; the notes you write say
   why it matters.
@@ -153,9 +152,9 @@ change here. Thank you, and welcome aboard.
   rationale (why an algorithm works, measured bead deltas, pipeline ordering)
   belongs in `AGENTS.md` and the module READMEs, **not** here. If a bullet grows
   into a paragraph of justification, you're writing the wrong document.
-- **The nerds are already covered.** Every commit since the last release is
-  appended to the GitHub Release in a folded list, automatically. That is what
-  frees these notes to leave the small stuff out — never paste it in by hand.
+- **The nerds are already covered.** The GitHub Release opens with a link to
+  every commit since the last release, automatically. That is what frees these
+  notes to leave the small stuff out — never list commits by hand.
 - **Group a long category under `####` subheadings by theme.** One flat run of 25
   bullets is unscannable; a handful of themed groups (e.g. *Infill & surfaces*,
   *Multi-object build plates*, *Printer & firmware output*, *App, platform &
@@ -259,7 +258,7 @@ git push origin <branch> "v<version>"
 ### 3. Verify
 
 ```bash
-scripts/extract-changelog.sh <version>   # exactly what the Release body starts with
+scripts/extract-changelog.sh <version>   # the curated notes, as the Release shows them
 ```
 
 Confirm it matches the curated section. On a clean checkout of the tag,
@@ -318,5 +317,5 @@ the new Library. Fantastic start, and thank you.
 
 Notice: the fix went from five lines of mechanism to one line of what the user
 gets; the headline says why to update; the new contributor gets a real, specific
-spotlight. The Voronoi detail isn't lost — it is in the commit, and the commit
-is in the folded list on the GitHub Release.
+spotlight. The Voronoi detail isn't lost — it is in the commit, one click from
+the Full changelog link on the GitHub Release.

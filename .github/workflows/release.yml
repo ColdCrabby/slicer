@@ -2,9 +2,9 @@ name: Release
 
 # Tagging `vX.Y.Z` is the single trigger for a release, and `vX.Y.Z-rc.N` for a
 # release candidate ahead of it. This workflow turns the tag into a published
-# GitHub Release whose notes come straight from CHANGELOG.md — plus the full
-# commit list, folded away — then builds and attaches artifacts for every
-# target. See RELEASING.md for the full process.
+# GitHub Release whose notes come straight from CHANGELOG.md, under one link to
+# every commit in it, then builds and attaches artifacts for every target. See
+# RELEASING.md for the full process.
 on:
   push:
     tags:
@@ -46,7 +46,8 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           version="${{ steps.meta.outputs.version }}"
-          : > RELEASE_NOTES.md
+          # One link to every commit in the release, ahead of the curated notes.
+          { bash scripts/full-changelog-link.sh "${GITHUB_REF_NAME}"; echo ""; } > RELEASE_NOTES.md
           # A release candidate carries the notes of the release it is a
           # candidate for (extract-changelog.sh falls back to that section),
           # under a banner saying what it is for.
@@ -77,12 +78,6 @@ jobs:
               echo 'xattr -cr "/Applications/Cold Crabby Desktop.app"'
               echo '```'
             } >> RELEASE_NOTES.md
-          fi
-          # The curated notes tell the story; the full commit list is folded
-          # away underneath for anyone who wants every detail.
-          commits="$(bash scripts/release-commits.sh "${GITHUB_REF_NAME}")"
-          if [[ -n "${commits}" ]]; then
-            printf '\n---\n\n%s\n' "${commits}" >> RELEASE_NOTES.md
           fi
           cat RELEASE_NOTES.md
 

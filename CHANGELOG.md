@@ -21,8 +21,8 @@ release") runs the whole flow, and RELEASING.md describes it.
 
 Style: one or two tight lines per entry with a bold **Feature name** lead,
 biggest change first, `#### Theme` groups when a category runs long, and never
-issue/PR numbers or repo links. The full commit list is added to each GitHub
-Release automatically — never paste it here; this file ships inside the app.
+issue/PR numbers or repo links. Each GitHub Release links every commit
+automatically — never list them here; this file ships inside the app.
 See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 -->
 
