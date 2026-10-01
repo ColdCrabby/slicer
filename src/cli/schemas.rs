@@ -215,6 +215,16 @@ pub fn all_schemas() -> Vec<SchemaDefinition> {
             schema: serde_json::to_value(schemars::schema_for!(crate::profiles::PrinterProfile))
                 .expect("failed to serialize PrinterProfile"),
         },
+        SchemaDefinition {
+            schema_id: "slicer-engine/workplate-setup-v1",
+            schema: serde_json::to_value(schemars::schema_for!(crate::workplate::WorkplateSetup))
+                .expect("failed to serialize WorkplateSetup"),
+        },
+        SchemaDefinition {
+            schema_id: "slicer-engine/library-v1",
+            schema: serde_json::to_value(schemars::schema_for!(LibraryDocument))
+                .expect("failed to serialize Library"),
+        },
     ];
 
     // Graft each plugin's settings fragment onto every schema that carries a
