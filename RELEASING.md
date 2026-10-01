@@ -78,11 +78,11 @@ could not before, in a few short lines each. It is not a record of every commit.
   [`release` skill](.claude/skills/release/SKILL.md) holds the voice.
 - **A release candidate uses its release's section.** `0.6.0-rc.1` has no
   heading of its own; it shows the `## [0.6.0]` notes, in the app and on GitHub.
-- **The full commit list is for the nerds**, and lives only on the GitHub
-  Release, folded away under the curated notes —
-  [`scripts/release-commits.sh`](scripts/release-commits.sh) writes it from the
-  commits since the previous stable release. It never goes into `CHANGELOG.md`,
-  which ships inside the app.
+- **Every commit is one link away.** The GitHub Release opens with a **Full
+  changelog** link to the compare view since the previous stable release —
+  [`scripts/full-changelog-link.sh`](scripts/full-changelog-link.sh) writes it.
+  Commits are never listed in the notes or in `CHANGELOG.md`, which ships
+  inside the app.
 
 ## Cutting a release — the easy way
 
@@ -103,7 +103,7 @@ The manual steps below are what that skill performs.
 ```bash
 scripts/gen-changelog-draft.sh          # commits since the last v* tag, by category
 scripts/release-contributors.sh         # contributors + first-timers
-scripts/release-commits.sh              # the full list, as it will appear on GitHub
+scripts/full-changelog-link.sh          # the link the GitHub Release opens with
 ```
 
 None of these write anything. Rewrite `## [Unreleased]` into the release's
@@ -166,8 +166,8 @@ Pushing either kind of tag triggers
 [`.github/workflows/release.yml`](.github/workflows/release.yml), which:
 
 1. Extracts the version's section from `CHANGELOG.md`
-   (via [`scripts/extract-changelog.sh`](scripts/extract-changelog.sh)), adds
-   the folded commit list, and **publishes the GitHub Release** — your draft
+   (via [`scripts/extract-changelog.sh`](scripts/extract-changelog.sh)), puts
+   the Full changelog link above it, and **publishes the GitHub Release** — your draft
    if there is one, a new release otherwise, and a pre-release for a candidate.
 2. Builds the **CLI/server binary** for Linux, macOS (x86-64 + arm64), and
    Windows, and attaches each as a `.tar.gz` / `.zip`.
@@ -188,7 +188,7 @@ cargo run -- changelog                 # full changelog
 cargo run -- changelog --version 0.6.0 # one section (an -rc.N resolves to it too)
 cargo run -- changelog --json          # machine-readable
 
-# Exactly what the GitHub Release body will start with
+# The curated notes, exactly as the GitHub Release shows them
 scripts/extract-changelog.sh 0.6.0-rc.1
 ```
 
@@ -203,8 +203,8 @@ build** (tag `dev-build`) with fresh Windows and macOS desktop bundles.
 
 - **Honest about what it is.** It reports `development`, so the app never shows
   a What's New prompt for it, and its notes open by saying it is untested.
-- **Useful notes anyway.** The `Unreleased` changelog, as "Coming in the next
-  release", then the full commit list since the last release.
+- **Useful notes anyway.** A link to every commit since the last release, then
+  the `Unreleased` changelog as "Coming in the next release".
 - **Replaced in one step.** All platforms build first; only when every one
   succeeded is the previous dev build swapped out — tag, notes and downloads
   together. A failed build leaves the last good one in place.
@@ -310,6 +310,6 @@ This requires a paid Apple Developer account. Until those are set, the ad-hoc +
 - [`src/version.rs`](src/version.rs) — the version/changelog API.
 - [`.github/workflows/release.yml`](.github/workflows/release.yml) — candidates and releases.
 - [`.github/workflows/dev-build.yml`](.github/workflows/dev-build.yml) — the Latest dev build.
-- [`scripts/release-commits.sh`](scripts/release-commits.sh) — the commit list for the nerds.
+- [`scripts/full-changelog-link.sh`](scripts/full-changelog-link.sh) — the Full changelog link.
 - [`.github/workflows/pr-preview.yml`](.github/workflows/pr-preview.yml) and [`scripts/build-site.sh`](scripts/build-site.sh) — PR previews.
 - [`.github/workflows/deploy-docs.yml`](.github/workflows/deploy-docs.yml) — the web slicer and docs on GitHub Pages.

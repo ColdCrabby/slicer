@@ -6,8 +6,8 @@ name: Latest dev build
 #
 # It is deliberately *not* a release: the binaries report their version as
 # "development" (so the app never shows a What's New prompt for them), and the
-# notes are the not-yet-released changelog plus the raw commit list. Versioned
-# releases and release candidates are tag-driven — see release.yml and
+# notes are the not-yet-released changelog under a link to every commit since.
+# Versioned releases and release candidates are tag-driven — see release.yml and
 # RELEASING.md.
 #
 # The build publishes all at once. Bundles are built first, and only when every
@@ -223,6 +223,8 @@ jobs:
             echo "the latest versioned release instead."
             echo ""
             echo "Built from \`${sha}\` on $(date -u +'%Y-%m-%d %H:%M') UTC."
+            echo ""
+            bash scripts/full-changelog-link.sh HEAD
             if unreleased="$(bash scripts/extract-changelog.sh Unreleased 2>/dev/null)"; then
               echo ""
               echo "## Coming in the next release${last:+ (since ${last})}"
@@ -242,13 +244,6 @@ jobs:
               echo '```bash'
               echo 'xattr -cr "/Applications/Cold Crabby Desktop.app"'
               echo '```'
-            fi
-            commits="$(bash scripts/release-commits.sh HEAD)"
-            if [[ -n "${commits}" ]]; then
-              echo ""
-              echo "---"
-              echo ""
-              echo "${commits}"
             fi
           } > NOTES.md
           cat NOTES.md
