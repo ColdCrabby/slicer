@@ -530,7 +530,16 @@ export class SceneSelection {
     // otherwise the orbit would dab every facet the pointer later crosses, the
     // "panning paints" bug. The stroke is keyed to the pointer id, and only
     // this pointer's moves can add dabs.
-    if (this.currentObjectMode === 'paint' && hitId !== null) {
+    //
+    // The gesture gate is explicit here, not merely inherited from the button
+    // check above: painting is the primary button (or a pen's eraser) on a
+    // model, in paint mode — nothing else. A middle/right-button press is a
+    // camera pan, and it must stay one even over a model.
+    if (
+      this.currentObjectMode === 'paint' &&
+      hitId !== null &&
+      this.isPaintGesture(event, eraser)
+    ) {
       this.paintPointerId = event.pointerId;
       this.paintSample(event, true);
     }
@@ -889,6 +898,22 @@ export class SceneSelection {
       (event.pointerType === 'touch' || event.pointerType === 'pen') &&
       this.currentSelectedIds.has(hitId)
     );
+  }
+
+  /**
+   * Whether this press is a paint gesture rather than camera navigation.
+   *
+   * Painting is the primary button — or a pen's eraser end — and nothing else.
+   * The camera owns every other button: a middle-drag pans and a right-drag
+   * also pans, so neither may ever arm a stroke, not even when it starts on a
+   * model. Touch and pen have no secondary buttons, so `button === 0` is the
+   * primary contact for them too.
+   *
+   * Stated here rather than left implicit in the caller: this is the gesture
+   * distinction the whole feature turns on, and it should read as one rule.
+   */
+  private isPaintGesture(event: PointerEvent, eraser: boolean): boolean {
+    return eraser || event.button === 0;
   }
 
   /**

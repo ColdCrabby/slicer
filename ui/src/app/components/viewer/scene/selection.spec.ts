@@ -551,6 +551,30 @@ describe('SceneSelection', () => {
       expect(gizmoHandlers.paintEnd).toHaveBeenCalledTimes(0);
     });
 
+    // The gesture gate: only the primary button (or a pen's eraser) paints. A
+    // middle-drag pans the camera even when it starts on a model, so it must
+    // not arm a stroke — otherwise the pan would dab every facet it crossed,
+    // the same bug through a different button.
+    it('does not paint on a middle-button drag over the model', () => {
+      dispatch('pointerdown', { button: 1, clientX: CENTRE, clientY: CENTRE });
+      dispatch('pointermove', { button: 1, clientX: CENTRE + 10, clientY: CENTRE });
+      dispatch('pointerup', { button: 1, clientX: CENTRE + 10, clientY: CENTRE });
+
+      expect(cameraListener).toHaveBeenCalled();
+      expect(gizmoHandlers.paintDab).toHaveBeenCalledTimes(0);
+      expect(gizmoHandlers.paintEnd).toHaveBeenCalledTimes(0);
+    });
+
+    // A right press over a model is still a camera/context gesture, never a
+    // dab — the camera keeps it and no stroke is armed.
+    it('does not paint on a right-button press over the model', () => {
+      dispatch('pointerdown', { button: 2, clientX: CENTRE, clientY: CENTRE });
+      dispatch('pointerup', { button: 2, clientX: CENTRE, clientY: CENTRE });
+
+      expect(gizmoHandlers.paintDab).toHaveBeenCalledTimes(0);
+      expect(gizmoHandlers.paintEnd).toHaveBeenCalledTimes(0);
+    });
+
     it('paints a stroke that begins on the model, and hides it from the camera', () => {
       dispatch('pointerdown', { clientX: CENTRE, clientY: CENTRE });
       dispatch('pointermove', { clientX: CENTRE + 5, clientY: CENTRE });
