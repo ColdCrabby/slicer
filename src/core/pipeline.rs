@@ -123,6 +123,21 @@ pub fn process_mesh_with_plugins(
     run_pipeline(mesh, params, logger, plugins).0
 }
 
+/// Compatibility shim for the pre-plugin `process_mesh_with_paint` API.
+///
+/// Support paint is not wired into the staged pipeline in this research
+/// branch; the paint argument is accepted to keep callers compiling and is
+/// currently ignored. The core slicing pipeline still runs through the
+/// plugin stage registry.
+pub fn process_mesh_with_paint(
+    mesh: &Mesh,
+    params: &SlicingParams,
+    logger: &dyn ProcessLogger,
+    _paint: &crate::mesh::paint::FacetPaint,
+) -> Vec<SliceLayer> {
+    process_mesh(mesh, params, logger)
+}
+
 /// Debug variant of [`process_mesh`].
 ///
 /// Runs **the same pipeline** and additionally collects geometry snapshots at

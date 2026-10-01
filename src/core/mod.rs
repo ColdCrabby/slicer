@@ -5,6 +5,7 @@ mod infill;
 mod objects;
 mod pipeline;
 mod slicer;
+pub mod stages;
 mod support_paint;
 mod supports;
 mod surfaces;
