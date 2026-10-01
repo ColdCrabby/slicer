@@ -28,214 +28,65 @@ See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 
 ## [Unreleased]
 
-### Added
+## [0.6.0] - 2026-10-01
 
-- **Library.** Every model that reaches a plate is kept once, with a picture,
-  so the next plate is built from what you have. Duplicates — renamed copies,
-  re-exports — are recognised; the selected model turns in a live preview.
-  With a plate open, the library opens beside it, and picking a model puts it
-  straight on the plate.
-- **Copy, link or both.** On the desktop, choose whether models are copied into
-  the library or linked where they are, and point it at folders to watch. On
-  iPad the library is a folder in Files, so a model saved there just appears.
+Your models get a library, and your prints come off faster. Every model you've
+plated is now one keypress away, and the stock profiles take nearly ten minutes
+off a Benchy.
 
-### Fixed
+### Highlights
 
-- **Links open in your browser from the desktop and iPad apps.** Help, the
-  docs and every link in the app's own text did nothing there.
-- **The same model now slices to the same G-code.** Simplifying a region before
-  Arachne's medial fill could leave two of its edges crossing, and the Voronoi
-  diagram of crossing edges is undefined — so two runs of one file could print
-  different walls there. Regions are now made clean again after simplifying, and
-  the surface trim no longer depends on hash order. Classic was never affected.
-- **Removing a model can be undone.** Undo re-adds it from its file, in place;
-  `Delete` / `Backspace` now remove the selection too.
-- **Upload & print asks first, and never sends a stale file.** Starting a print
-  always confirms, and after any change the result button waits for a re-slice.
-- **The layer counter matches the slice.** The preview no longer counted a
-  layer twice when moves sat between its two layer-change markers.
-- **Arrow keys stay in the field you're typing in.** The G-code preview's arrow
-  shortcuts no longer steal them, and single-key plate shortcuts only work while
-  the plate is on screen.
-- **Dragging the empty plate no longer opens the file picker.**
-- **Selecting behaves the way the platform does.** `⌃`-click on a Mac opens the
-  menu instead of adding to the selection, `⌘`-click adds there and `Ctrl`-click
-  elsewhere, and a modifier-click that misses no longer throws the selection
-  away. Clicking a selected part keeps it selected.
-- **Duplicates and new models arrive selected**, and a duplicated group lands
-  beside itself instead of on top of its neighbours. **Centre on bed** moves a
-  selection as one piece instead of stacking it.
-- **The objects list's menu matches the model's** and acts on the whole
-  selection; `Shift`-click selects a range.
-- **`Esc` and a tool's own key put the tool down**, back to Select & move.
-- **A printer whose connection type isn't supported says "Not supported"** rather
-  than "Offline", and a switched-off printer is grey rather than red.
+- **Library** — every model you've ever plated, kept once with a picture. Press
+  `L` beside a plate and pick one to drop it on. On desktop it can watch your
+  folders; on iPad it's a folder in Files.
+- **Faster by default** — quicker stock speeds take a Benchy from 47 to 37
+  minutes, at the same layer height, walls and infill.
+- **Smarter packing** — Place objects nests parts by shape and height, so one
+  can tuck under another's overhang.
 
 ### Added
 
-- **Export a plate as 3MF.** Right-click the plate's tab, or an empty spot on
-  the bed, and choose **Export as 3MF…** — every model is saved where it sits,
-  ready to reopen here or in another slicer. The CLI gains `--export-3mf`.
-- **Cancel a running slice** — the Slice button reads Cancel while it works.
-- **Filament weight and cost after a slice**, next to the print time.
-- **A Model | G-code switch** at the top right, with names instead of an icon
-  that only appeared after the first slice.
-- **More in the macOS menu bar** — File › Add Model, Slice and Export G-code,
-  Settings, and a Help menu. The desktop window also reopens at the size and
-  place you left it.
-- **Keyboard: `⌘/Ctrl + D` duplicates, `⌘/Ctrl + Enter` slices.**
-- **Drag a model to move it.** With a mouse, Select & move now picks a part up
-  and moves it in one gesture; empty bed still orbits. Touch keeps tap-then-drag.
-- **Box selection.** `Shift`-drag adds everything the box touches, `⌥/Alt`-drag
-  takes it away; with Multi-select on, the pencil draws the box while fingers
-  keep orbiting.
-- **Nudge with the arrow keys** — 1 mm, `Shift` for 10, `⌥/Alt` for 0.1, in the
-  direction you're looking.
-- **Zoom to a part** with `Z`, a double-click, or **Zoom to** in the context
-  menu — without swinging the camera round.
-- **A 90° quarter turn per axis** on the Rotate card.
-- **A pen's eraser end erases support paint**, whatever the brush is set to.
-- **A quiet note while slicing for a generic printer**, with a link to add yours.
-
-- **Inner walls have their own speed** — the hidden walls behind the surface no
-  longer inherit the visible one's pace. `Inner Wall Speed` defaults to 125% of
-  the outer wall, stated as a percentage so slowing the outer wall for a better
-  finish keeps the buried ones fast.
-- **Internal solid infill has its own speed** — the solid layers sealed between
-  the skins are no longer priced like the top surface they share a name with.
-  `Internal Solid Speed` defaults to 150% of the top surface, which lands on the
-  same speed as sparse infill.
-- **Travel brakes gently onto the outer wall** — a hop that lands where a
-  visible wall starts now slows at the outer-wall acceleration instead of the
-  travel one, so the toolhead is not still ringing when the wall begins. On by
-  default; every other hop keeps full travel acceleration.
+- **Drag to move, box to select** — pick a part up in one gesture; `Shift`-drag
+  selects everything in the box. Long-press builds a selection on touch and pen.
+- **Export a plate as 3MF** — right-click its tab or an empty spot on the bed.
+- **Read the G-code beside the plate** — click a line and the preview jumps to
+  it; scrub the preview and the text follows.
+- **Slicing tells you more** — filament weight and cost beside the print time,
+  and Slice turns into Cancel while it works.
+- **Search all of Settings** — pages, preferences, profiles and every setting.
+- **Per-printer material tweaks** — let one machine treat a material differently
+  without copying the filament for it.
+- **More from the keyboard** — `⌘/Ctrl + Enter` slices, `⌘/Ctrl + D` duplicates,
+  `Z` zooms to a part, arrows nudge, and removing a model can be undone.
+- **Send feedback** from the Help menu.
 
 ### Changed
 
-- **A calmer, floating layout.** The title bar and side rail lose their fills
-  and rules, and each part of a page is its own rounded panel, 5px apart, with
-  only the main content in the darker tone. Workplate tabs are borderless, and
-  the crab sits whole in the corner.
-- **Print settings float over the plate.** Hidden, a slim bar marks the plate's
-  left edge: rest the pointer there and the panel turns in. Docked, the plate
-  moves over with it instead of being squeezed, and a three-dot grip resizes it
-  — the same grip as between Settings columns.
-- **The library, reworked.** Opened over a plate it slides out from the rail,
-  resizable and closed with `Esc`; the full page is panels like the rest. Cards
-  show the model edge to edge, **Add to workplate** asks which one, **New
-  workplate** starts one, and removing is the bin beside the close button.
-- **More of the app from the keyboard.** `L` opens the library, `⌘/Ctrl + \`
-  docks or hides the print settings, arrow keys walk the model grid, and the
-  library page takes `⌘/Ctrl + O`, `F2` and `Delete`.
-- **Settings are steadier.** Preference help opens as the usual tooltip, counts
-  are small badges, *Saving… / Saved* and **Restore defaults** no longer shift
-  the line, and a jump to a setting marks it with a soft background.
-- **The app starts faster.** The first screen downloads about a fifth less code
-  (943 kB → 726 kB, 242 kB → 192 kB compressed). The settings schema, unused
-  form controls and a second popover engine no longer load before the home
-  screen.
-- **Settings, regrouped for a glance.** The sidebar splits into **App** and
-  **Library**; each library page shows how many you have and which one is the
-  default. General's twenty rows move to **3D View** and **Controls** (keyboard
-  shortcuts included), each preference is one line with the rest behind its ⓘ,
-  and on/off choices are switches.
-- **Search all of Settings** from the sidebar — pages, preferences, your
-  profiles by name, and every printer, filament and process setting.
-- **Built-in profiles read as editable.** Rename one where its name is, see
-  *Saved* after each change, and put the shipped values back with **Restore
-  defaults**; no more "Duplicate to customise".
-- **The profile outline fits on an iPad.** Tighter columns, and the section list
-  folds itself to icons when that is what makes the room. Its left edge is now
-  one continuous line that steps in under open sections, with the part of the
-  editor on screen drawn on it exactly as you scroll.
-- **Place objects nests by shape and by height, not by bounding box.** A plate
-  prints a layer at a time, so one part may take the space above or below
-  another wherever the two never want the same height in the same place — a part
-  leaning at 45° hangs over its neighbour, a small part tucks in under a flared
-  rim. Parts with flat overhangs still keep the column beneath them, because
-  support material would be there, and printing one part at a time gives every
-  part its own space from the plate up. The gap you set is measured between the
-  parts themselves, overhead as well as sideways, and parts may take a quarter
-  turn to fit; `Turn to fit` on the placement card turns that off. A plate with
-  room to spare comes out as one compact group in the middle instead of a long
-  row, so the nozzle travels less between parts.
-- **After a slice, the result action leads.** Download, Upload or Print becomes
-  the main button; Re-Slice steps back until something changes.
-- **One Help menu in the title bar** replaces five link icons, which on a phone
-  left the plate's name two letters wide.
-- **Recent plates come first on Home**, and each printer card opens that printer.
-- **Debug overlays and the thumbnail animation are off by default** — turn them
-  on in Settings → 3D View.
-- **The browser build's performance note is a one-time notice** with a link to
-  the desktop app, not a dialog in front of the model you just opened.
-- **"Save to profiles"** replaces "Sync", and the app says **plate** throughout.
-- **The print-settings drawer has a Done button** on phones and tablets, and the
-  object list no longer covers the Slice card beside a docked panel.
-
-- **The stock profiles are quicker across the board.** Outer walls run at
-  120 mm/s (was 80), top surfaces at 100 (was 60), bridges and the steep overhang
-  bands that inherit from them at 25 (was 10), and travel at 300 mm/s (was 150).
-  A stock 3DBenchy drops from 46m39s to 36m51s — a fifth of the print — at the
-  same layer height, wall count and infill.
-- **The fast presets moved up with them.** High Speed walls go to 180 mm/s and
-  Maximum to 250, both still held below their own infill speed so there is
-  something left to spend on the surface. Past roughly 20 mm³/s the limit is the
-  hotend rather than the profile — set `Max Volumetric Speed` on the filament.
-- **Touch targets are sized for a fingertip on touch devices** — one size for
-  finger and Apple Pencil alike, so switching between them never shifts the
-  layout.
-- **Tablet chrome is calmer** — the blanket 44 pt floor is now two numbers: 40 px
-  for an isolated control and 36 px for a settings row, which takes roughly a
-  screen and a half of scrolling out of the settings panel on an iPad.
-- **The sidebar's resize edge behaves like it does on a desktop** — its enlarged
-  touch strip overhung the plate and turned taps beside the panel into accidental
-  resizes.
-- **G-code Layer and Progress read as one pair** — Progress gains its own header
-  and a `137 / 138` readout of where you are inside the layer, so both sliders
-  line up instead of one sitting indented behind a label.
-- **The preview's step arrows are 32 px and no longer stacked** — forward-a-layer
-  and forward-an-extrusion sat a few pixels apart at the same spot, and they now
-  carry a resting surface so a touchscreen can see they are buttons.
-- **Holding a preview arrow runs through the layers**, accelerating as it goes,
-  the same way holding a number field's `+` already did.
-- **One place for the app to talk to you** — anything about the plate now
-  appears as a pill at the top of the scene, next to the work it describes. A
-  running job fills its own pill and finishes in it, instead of handing the
-  result to a message in the opposite corner.
-- **The bottom-left corner is yours again** — the floating message stack no
-  longer covers the object list or the "outside the build area" warning.
-- **Errors say their piece where they happened** — a preset that will not
-  import says so in the picker, a reset that fails says so on its own card, and
-  a slice reports the reason it failed on the Slice button's status line
-  instead of repeating the whole event somewhere else.
-- **The celebration is for a print actually starting**, not for every upload it
-  used to play alongside an identically worded message.
+- **A calmer, floating layout** — print settings float over the plate instead of
+  squeezing it, and plate tabs look like tabs, with a searchable list of them all.
+- **Hidden walls keep their pace** — inner walls and internal solid infill have
+  their own speeds, so slowing the outer wall for a better finish costs less.
+- **Cleaner wall starts** — travel brakes gently where it lands on an outer wall.
+- **Built-in profiles are editable in place**, with Restore defaults to go back,
+  and the setup wizards ask one thing per screen.
+- **Messages appear beside the work they're about**, not in a corner over your
+  plate.
+- **The app starts faster** and fits a fingertip on phones and tablets.
 
 ### Fixed
 
-- **Curves no longer stutter or print as facets.** Spiral (vase) loops used to
-  reach the printer unsimplified, as thousands of 0.01 mm zig-zag moves that
-  made Klipper slow down at nearly every vertex. Every path now merges those
-  micro-segments first, and the default path tolerance drops from 0.05 mm to
-  0.0125 mm so large arcs stay round rather than faceted.
+- **The same model always slices to the same G-code.**
+- **Curves print smooth** — no more stutter or facets on vases and large arcs.
+- **Rotated and auto-oriented parts sit on the bed**, and turn where they stand.
+- **Adding models works on iPad** — the plate's add button no longer greys out
+  `.stl` and `.3mf` files.
+- **Links open in your browser** from the desktop and iPad apps.
+- **Upload & print always confirms first**, and never sends a stale file.
 
-- **Held steppers no longer die under a fingertip.** A touchscreen reads a long
-  press as a request for a context menu about half a second in — right after the
-  repeat started — which stopped `+` / `−` from running at all on a phone or
-  tablet, and popped the system callout on top of the button being held.
-- **Auto-oriented parts sit on the bed.** A part turned onto an angled face
-  could float tens of millimetres above the plate, land off-centre, or be flagged
-  out of bounds when it fit. Placement now measures the part itself, not a box
-  around it.
-- **Rotate, scale and Pull to floor turn a part where it stands.** Models
-  exported from CAD often carry an origin far from the geometry, and turning
-  about it swung the part across the plate. Pull to floor also no longer sinks
-  the rest of the part into the bed when the picked face isn't the lowest.
-- **Pull to floor highlights the face you'll get.** On finely tessellated
-  curves the highlight could spread round half the model; it now stops where
-  the surface stops being flat.
-- **A model opened with auto-orient off lands on the bed**, centred, rather
-  than wherever its file's origin put it.
+### Contributors
+
+Thanks to @max-scopp, who shipped this release end to end — the library, the
+floating layout and the new plate tools all landed in this cycle.
 
 ## [0.5.0] - 2026-09-16
 
