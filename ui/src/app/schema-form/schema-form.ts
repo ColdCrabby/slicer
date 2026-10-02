@@ -29,19 +29,8 @@ import { noticeForField } from './field-exceptions/field-exceptions';
 import { controlFor } from './models/field-control';
 import { FieldDef, SchemaGroup } from './models/field-def';
 import { parseSchema } from './models/schema-parser';
-import {
-  type Tier,
-  deepestTier,
-  deeperOf,
-  filterRelevantGroups,
-  isFieldInTier,
-  isTierAtMost,
-  orderGroupsByTier,
-  nextTier,
-  shallowestTier,
-  tierOf,
-} from './models/relevance';
-import { SettingsDetailPreference } from '../services/settings-detail-preference';
+import { filterRelevantGroups } from './models/relevance';
+import { valueAtPath } from './models/field-path';
 
 export interface FieldChangeEvent {
   key: string;
@@ -668,6 +657,16 @@ export class SchemaForm {
 
   protected onFieldChange(key: string, value: unknown): void {
     this.fieldChange.emit({ key, value });
+  }
+
+  /**
+   * The current value of a field, addressed by path.
+   *
+   * Identical to a plain lookup for the flat majority of settings; plugin
+   * settings are namespaced, so they are one level deeper.
+   */
+  protected valueAt(key: string): unknown {
+    return valueAtPath(this.value(), key);
   }
 
   /**

@@ -15,6 +15,13 @@ import {
   type FilamentMaterial,
   type FilamentProfile,
 } from '../../models/filament.model';
+import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
+import { SETTING_CONTRACTS } from '../../models/setting-contract';
+import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
+import { patchForPath, valueAtPath } from '../../schema-form/models/field-path';
+import { parseSchema } from '../../schema-form/models/schema-parser';
+import type { SchemaGroup } from '../../schema-form/models/field-def';
+import { CloudCatalog, catalogSpecOf } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
@@ -343,6 +350,16 @@ export class FilamentsSettings {
   }
 
   /**
+   * A single param value, addressed by field key.
+   *
+   * Plugin settings are namespaced (`plugins.<id>.<key>`), so the key can be a
+   * path; for every core setting this is the plain lookup it replaces.
+   */
+  protected paramAt(filament: FilamentProfile, key: string): unknown {
+    return valueAtPath(this.paramsOf(filament), key);
+  }
+
+  /**
    * Sibling values for a filament field's cross-contract notices: this
    * filament's own params over the **active printer's**.
    *
@@ -363,7 +380,11 @@ export class FilamentsSettings {
 
   /** Apply a single param field edit (templates can't build computed keys). */
   protected setParam(id: string, key: string, value: unknown): void {
-    this.updateParams(id, { [key]: value });
+    // A namespaced (plugin) key patches its whole root branch so the merge in
+    // `updateParams` keeps that plugin's other values; a plain key is the
+    // shallow patch it always was.
+    const current = (this.store.getById(id)?.params as Record<string, unknown>) ?? {};
+    this.updateParams(id, patchForPath(current, key, value));
   }
 
   protected renameTo(id: string, name: string): void {
