@@ -154,6 +154,7 @@ classDiagram
   class Artifacts {
     +pre_strip_infill_regions
     +interior_regions
+    +slice_outlines
     +overhang_support
     +first_layer_height
   }

@@ -97,9 +97,17 @@ flowchart LR
   J --> K[flow compensate] --> L[adhesion]
 ```
 
-`process_mesh_debug` re-implements this entire sequence a second time to capture
-snapshots. That is already a maintenance hazard; any naive hook scheme would
-make it a third copy.
+The sequence now lives in [core/stages.rs](core/stages.rs) as a
+`StageRegistry` of 19 named stages, every id a `phases::` constant; the locals
+are fields on `SliceContext::artifacts`.
+
+`process_mesh_debug` re-implemented this entire sequence a second time to
+capture snapshots — a maintenance hazard the design predicted any naive hook
+scheme would turn into a third copy. It had **already drifted**: the duplicate
+silently skipped path ordering and bed adhesion, so `--debug-geometry` emitted
+unordered G-code with no skirt. It is now the production pipeline plus one
+plugin ([plugin/builtin/debug_capture.rs](plugin/builtin/debug_capture.rs)),
+and a test pins the two to the same layers.
 
 ### `SliceLayer` could not express non-planar intent
 
@@ -270,7 +278,8 @@ pub struct PluginManifest {
 
 `SliceContext` replaces the local variables that currently trap inter-stage
 state: it owns the layers, an `artifacts` side-channel (`interior_regions`,
-`pre_strip_infill_regions`), the params, the logger, and a typed map for
+`slice_outlines`, `overhang_support`, `pre_strip_infill_regions`,
+`first_layer_height`), the params, the logger, and a typed map for
 plugin-owned data.
 
 Everything reachable from a stage must be `Send + Sync` — rayon parallelises

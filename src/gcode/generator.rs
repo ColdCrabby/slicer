@@ -2891,34 +2891,35 @@ impl GcodeGenerator {
                     .as_ref()
                     .is_some_and(|vz| vz.len() == raw_points.len());
 
-                let (points, vertex_widths): (Vec<(f64, f64)>, Option<Vec<f64>>) = if non_planar {
-                    (raw_points, raw_vertex_widths)
-                } else {
-                    match raw_vertex_widths {
-                        Some(vw)
-                            if params.path_tolerance > 0.0
-                                && raw_points.len() > 2
-                                && vw.len() == raw_points.len() =>
-                        {
-                            let (p, w) = crate::gcode::simplify::simplify_path_with_widths(
-                                &raw_points,
-                                &vw,
-                                params.path_tolerance,
-                                WIDTH_SIMPLIFY_TOL_MM,
-                            );
-                            (p, Some(w))
-                        }
-                        Some(vw) => (raw_points, Some(vw)),
-                        None if params.path_tolerance > 0.0 && raw_points.len() > 2 => (
-                            crate::gcode::simplify::simplify_path(
-                                &raw_points,
-                                params.path_tolerance,
+                let (mut points, mut vertex_widths): (Vec<(f64, f64)>, Option<Vec<f64>>) =
+                    if non_planar {
+                        (raw_points, raw_vertex_widths)
+                    } else {
+                        match raw_vertex_widths {
+                            Some(vw)
+                                if params.path_tolerance > 0.0
+                                    && raw_points.len() > 2
+                                    && vw.len() == raw_points.len() =>
+                            {
+                                let (p, w) = crate::gcode::simplify::simplify_path_with_widths(
+                                    &raw_points,
+                                    &vw,
+                                    params.path_tolerance,
+                                    WIDTH_SIMPLIFY_TOL_MM,
+                                );
+                                (p, Some(w))
+                            }
+                            Some(vw) => (raw_points, Some(vw)),
+                            None if params.path_tolerance > 0.0 && raw_points.len() > 2 => (
+                                crate::gcode::simplify::simplify_path(
+                                    &raw_points,
+                                    params.path_tolerance,
+                                ),
+                                None,
                             ),
-                            None,
-                        ),
-                        None => (raw_points, None),
-                    }
-                };
+                            None => (raw_points, None),
+                        }
+                    };
 
                 // Guard against future algorithm changes that might produce degenerate paths.
                 debug_assert!(
@@ -3167,7 +3168,7 @@ impl GcodeGenerator {
                     // no prime.
                     let lift = detoured_over_material && params.z_hop_mm > 0.0;
                     if lift {
-                        out.push_str(&format!(
+                        out.raw_str(&format!(
                             "{} ; z-hop\n",
                             self.dialect.move_z(
                                 machine_z(layer.z + params.z_hop_mm, params),
@@ -3194,7 +3195,7 @@ impl GcodeGenerator {
                         );
                     }
                     if lift {
-                        out.push_str(&format!(
+                        out.raw_str(&format!(
                             "{} ; lower\n",
                             self.dialect
                                 .move_z(machine_z(layer.z, params), params.travel_speed_mm_min)
@@ -3619,17 +3620,6 @@ impl GcodeGenerator {
                         crate::core::ExtrusionRole::Skirt | crate::core::ExtrusionRole::Support
                     );
                 }
-            }
-
-            // ── Minimum layer time dwell ───────────────────────────────────────
-            // Feedrates are already clamped at `min_print_speed`; whatever
-            // shortfall remains against `min_layer_time_s` is made up here
-            // with a pause rather than slowing extrusion further.
-            if dwell_deficit_s > 0.0 {
-                out.raw_str(&format!(
-                    "{} ; min layer time\n",
-                    self.dialect.dwell(dwell_deficit_s * 1000.0)
-                ));
             }
 
             // Remember where this (non-spiral) layer left the nozzle so a
