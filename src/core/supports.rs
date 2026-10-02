@@ -302,7 +302,12 @@ pub fn generate_supports_with_paint(
         }
         let grown_prev = poly_inflate(&footprints[i - 1], max_step);
 
-        let mut detected = if auto_detect {
+        // Two independent sources feed this layer's support. The auto-detected
+        // overhang is derived purely from geometry and is the *only* thing the
+        // `support_auto` flag controls; the painted enforcer is an explicit
+        // user instruction and must never be gated by that flag or filtered
+        // against the detected set. They are combined by union below.
+        let auto_overhang = if auto_detect {
             let raw = poly_difference(&footprints[i], &grown_prev);
             // The noise filter belongs to *detection* only. A painted enforcer
             // is an explicit instruction, however small the facet — passing it
@@ -313,38 +318,50 @@ pub fn generate_supports_with_paint(
             Paths::new(vec![])
         };
 
+        // Painted enforcer for this layer, computed without consulting
+        // `auto_overhang` so an empty detected set (auto-detect off, or a model
+        // with no qualifying overhangs) cannot discard it. This is what makes
+        // paint-on-support work in manual mode; intersecting it with the
+        // auto-detected set would make it a silent no-op whenever that set is
+        // empty.
+        let enforced = if painted {
+            let enforcer = paint.enforcer_at(i);
+            if enforcer.is_empty() {
+                Paths::new(vec![])
+            } else {
+                // Clip to the model's own cross-section: paint on a surface
+                // that is not actually exposed at this height describes no
+                // overhang, and support hanging in free air beside the part
+                // helps nobody.
+                let mut region = poly_intersect(&footprints[i], &enforcer);
+                // Already-supported material needs nothing added under it.
+                region = poly_difference(&region, &grown_prev);
+                // A blocker wins where the two overlap, so a broad enforcer can
+                // be trimmed with a few strokes rather than repainted.
+                let blocker = paint.blocker_at(i);
+                if !blocker.is_empty() {
+                    region = poly_difference(&region, &poly_inflate(&blocker, blocker_grow));
+                }
+                region
+            }
+        } else {
+            Paths::new(vec![])
+        };
+        enforced_overhang[i] = enforced.clone();
+
+        // Auto-detected overhangs are still subject to blockers. Enforcers were
+        // already trimmed against the blocker above.
+        let mut detected = auto_overhang;
         if painted {
             let blocker = paint.blocker_at(i);
             if !blocker.is_empty() && !detected.is_empty() {
                 detected = poly_difference(&detected, &poly_inflate(&blocker, blocker_grow));
             }
-
-            let enforcer = paint.enforcer_at(i);
-            if !enforcer.is_empty() {
-                // Clip to the model's own cross-section: paint on a surface
-                // that is not actually exposed at this height describes no
-                // overhang, and support hanging in free air beside the part
-                // helps nobody.
-                let mut enforced = poly_intersect(&footprints[i], &enforcer);
-                // Already-supported material needs nothing added under it.
-                enforced = poly_difference(&enforced, &grown_prev);
-                // A blocker wins where the two overlap, so a broad enforcer can
-                // be trimmed with a few strokes rather than repainted.
-                if !blocker.is_empty() {
-                    enforced = poly_difference(&enforced, &poly_inflate(&blocker, blocker_grow));
-                }
-                // Union into the *possibly empty* detected set: an enforcer is
-                // an independent source of support, not a modifier of the
-                // auto-detected overhangs. With `support_auto` off `detected`
-                // is empty here and the enforcer is the sole contributor — it
-                // must never be intersected against the auto set or it would
-                // silently vanish.
-                detected = poly_union(&detected, &enforced);
-                enforced_overhang[i] = enforced;
-            }
         }
 
-        overhang[i] = detected;
+        // The enforcer is added as its own source, never intersected with the
+        // auto set, so it forces support regardless of `support_auto`.
+        overhang[i] = poly_union(&detected, &enforced);
     }
 
     // ── 3. Register each overhang at its top-contact (activation) layer ─────
