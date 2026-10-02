@@ -8,7 +8,7 @@
 //! 50 footprints empty and produced no support at any threshold, while every
 //! hand-built unit test passed. Only the pipeline path can catch that.
 
-use slicer_engine::core::{process_mesh, ExtrusionRole, SliceLayer};
+use slicer_engine::core::{process_mesh, process_mesh_with_paint, ExtrusionRole, SliceLayer};
 use slicer_engine::gcode::{GcodeFlavor, GcodeGenerator};
 use slicer_engine::logging::NullLogger;
 use slicer_engine::mesh::types::{Face, Mesh, Vertex};
@@ -114,6 +114,33 @@ fn a_steep_slope_is_supported_through_the_whole_pipeline() {
         covered > layers.len() / 2,
         "support must span most of the slope ({covered} of {} layers)",
         layers.len()
+    );
+}
+
+/// A painted enforcer must force support through the *whole* pipeline even
+/// when the automatic overhang rule is switched off. Regression guard for
+/// T-25, end-to-end: the unit path can pass while paint is dropped at the
+/// `project_support_paint` → `process_mesh_with_paint` boundary.
+#[test]
+fn a_painted_enforcer_forces_support_without_auto_detect() {
+    use slicer_engine::mesh::paint::{FacetPaint, PaintState};
+
+    let mesh = mushroom();
+    // The cap is the second box, so its faces are 12..24; its bottom face
+    // (the z=10 underside) is the first quad — faces 12 and 13.
+    let mut paint = FacetPaint::new();
+    paint.set(12, PaintState::Enforcer, mesh.faces.len());
+    paint.set(13, PaintState::Enforcer, mesh.faces.len());
+
+    let params = SlicingParams {
+        support_auto: false,
+        ..support_params(45.0)
+    };
+    let layers = process_mesh_with_paint(&mesh, &params, &NullLogger, &paint);
+
+    assert!(
+        support_len(&layers) > 0.0,
+        "a painted enforcer must generate support with auto-detect off"
     );
 }
 

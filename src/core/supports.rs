@@ -333,6 +333,12 @@ pub fn generate_supports_with_paint(
                 if !blocker.is_empty() {
                     enforced = poly_difference(&enforced, &poly_inflate(&blocker, blocker_grow));
                 }
+                // Union into the *possibly empty* detected set: an enforcer is
+                // an independent source of support, not a modifier of the
+                // auto-detected overhangs. With `support_auto` off `detected`
+                // is empty here and the enforcer is the sole contributor — it
+                // must never be intersected against the auto set or it would
+                // silently vanish.
                 detected = poly_union(&detected, &enforced);
                 enforced_overhang[i] = enforced;
             }
@@ -1310,6 +1316,72 @@ mod tests {
         assert!(
             support_total_len(&layers) > 0.0,
             "a painted enforcer must be supported even with no path to the plate"
+        );
+    }
+
+    /// A painted enforcer is an explicit instruction, so it must seed support
+    /// whether or not the automatic overhang rule runs. Regression guard for
+    /// T-25: an enforcer used to be intersected only against the auto-detected
+    /// overhang set, so with `support_auto` off that set was empty and the
+    /// enforcer silently produced nothing at all.
+    #[test]
+    fn painted_enforcer_is_independent_of_auto_detect() {
+        let build = || {
+            let layers = tiered_stack(20.0, 15.0);
+            let n = layers.len();
+            let mut enforcers = vec![Paths::new(vec![]); n];
+            // Layer 30 is where the cap first appears, which is where its
+            // underside overhang is registered in step 2.
+            enforcers[30] = square_paths(-20.0, 0.0, 15.0);
+            (
+                layers,
+                SupportPaintMasks {
+                    enforcers,
+                    blockers: vec![Paths::new(vec![]); n],
+                },
+            )
+        };
+
+        let params = SlicingParams {
+            support_auto: false,
+            ..params_with_supports()
+        };
+
+        // Auto-detect off and nothing painted: this geometry is all overhang,
+        // so an empty result proves the toggle really skips the angle rule.
+        let mut bare = tiered_stack(20.0, 15.0);
+        let bare_n = bare.len();
+        let empty = SupportPaintMasks {
+            enforcers: vec![Paths::new(vec![]); bare_n],
+            blockers: vec![Paths::new(vec![]); bare_n],
+        };
+        generate_supports_with_paint(&mut bare, &params, None, &empty);
+        assert_eq!(
+            support_total_len(&bare),
+            0.0,
+            "auto-detect off must skip the overhang rule entirely"
+        );
+
+        // Same geometry and settings, but the cap is painted: the enforcer is
+        // the *only* source of support and must still build a column.
+        let (mut painted, mask) = build();
+        generate_supports_with_paint(&mut painted, &params, None, &mask);
+        assert!(
+            support_total_len(&painted) > 0.0,
+            "a painted enforcer must force support with auto-detect off"
+        );
+
+        // Tree supports read the same `add_at` pads, but route through a
+        // different column builder — guard that path too.
+        let (mut tree, tree_mask) = build();
+        let tree_params = SlicingParams {
+            support_type: SupportType::Tree,
+            ..params
+        };
+        generate_supports_with_paint(&mut tree, &tree_params, None, &tree_mask);
+        assert!(
+            support_total_len(&tree) > 0.0,
+            "tree supports must honour a painted enforcer with auto-detect off"
         );
     }
 
