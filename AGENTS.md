@@ -1345,7 +1345,7 @@ rationale.
 [src/plugin/](src/plugin/README.md) is the extension interface, and
 [src/core/stages.rs](src/core/stages.rs) is the pipeline it hooks into.
 `process_mesh` no longer runs the sequence as straight-line code: it builds a
-`StageRegistry` of 17 named stages, folds in any plugins, and runs it. The
+`StageRegistry` of 19 named stages, folds in any plugins, and runs it. The
 design and its security model are in [src/PLUGINS.md](src/PLUGINS.md).
 
 - **A step added to `pipeline.rs` instead of `stages.rs` is a step no plugin can

@@ -357,6 +357,10 @@ fn the_core_stage_order_is_what_plugins_target() {
     // Every id here is a public hook point: a plugin naming one is entitled to
     // run on that side of it. Changing this list is an API change, not an
     // implementation detail — hence a test that has to be edited deliberately.
+    // `slice_outline_snapshot` and `support_generation` were added when this
+    // branch was reconciled with main's pipeline: the overhang classifier needs
+    // the pre-wall slice outlines, and support generation (previously only a
+    // re-exported function) now runs as a stage before path ordering.
     let ids: Vec<String> = core_stages()
         .ids()
         .iter()
@@ -368,6 +372,7 @@ fn the_core_stage_order_is_what_plugins_target() {
         vec![
             ids::SLICING,
             ids::COMPENSATION,
+            ids::SLICE_OUTLINE_SNAPSHOT,
             ids::ELEPHANT_FOOT,
             ids::WALL_GENERATION,
             ids::INFILL_REGION_SNAPSHOT,
@@ -378,6 +383,7 @@ fn the_core_stage_order_is_what_plugins_target() {
             ids::OVERHANG_CLASSIFICATION,
             ids::GAP_FILL_PRUNE,
             ids::INFILL,
+            ids::SUPPORT_GENERATION,
             ids::PATH_ORDERING,
             ids::FLOW_COMPENSATION,
             ids::FUZZY_SKIN,

@@ -62,7 +62,8 @@ free. See [`plugin/README.md`](../plugin/README.md).
 4. **`SliceLayer` is the sole carrier between phases.** Each phase reads from
    and writes back into the same `Vec<SliceLayer>`; nothing escapes to
    global state. Geometry that genuinely has to pass *between* stages —
-   `interior_regions`, `pre_strip_infill_regions`, `overhang_support` — lives on
+   `interior_regions`, `slice_outlines`, `pre_strip_infill_regions`,
+   `overhang_support` — lives on
    `SliceContext::artifacts` rather than in a local, which is what makes an
    inserted stage able to read it. Several are only populated when their feature
    is on, so a reader must cope with absence.

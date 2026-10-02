@@ -127,8 +127,10 @@ pub fn process_mesh_with_plugins(
 ///
 /// Support paint is not wired into the staged pipeline in this research
 /// branch; the paint argument is accepted to keep callers compiling and is
-/// currently ignored. The core slicing pipeline still runs through the
-/// plugin stage registry.
+/// currently ignored. Support generation itself still runs, as the
+/// `support_generation` stage, with empty paint masks — byte-identical to
+/// unpainted support. The core slicing pipeline runs through the plugin stage
+/// registry.
 pub fn process_mesh_with_paint(
     mesh: &Mesh,
     params: &SlicingParams,

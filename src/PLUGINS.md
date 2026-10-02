@@ -98,7 +98,7 @@ flowchart LR
 ```
 
 The sequence now lives in [core/stages.rs](core/stages.rs) as a
-`StageRegistry` of 17 named stages, every id a `phases::` constant; the locals
+`StageRegistry` of 19 named stages, every id a `phases::` constant; the locals
 are fields on `SliceContext::artifacts`.
 
 `process_mesh_debug` re-implemented this entire sequence a second time to
@@ -289,8 +289,9 @@ pub struct PluginManifest {
 
 `SliceContext` replaces the local variables that used to trap inter-stage
 state: it owns the layers, an `artifacts` side-channel (`interior_regions`,
-`pre_strip_infill_regions`, `overhang_support`, `first_layer_height`), the
-params, the logger, and a typed map for plugin-owned data.
+`slice_outlines`, `overhang_support`, `pre_strip_infill_regions`,
+`first_layer_height`), the params, the logger, and a typed map for
+plugin-owned data.
 
 Everything reachable from a stage must be `Send + Sync` — rayon parallelises
 wall generation, interior regions, surfaces and infill.

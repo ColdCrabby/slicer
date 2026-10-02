@@ -31,9 +31,17 @@ pub struct Artifacts {
     /// Per-layer interior regions used to place surfaces. Empty when the model
     /// has no top or bottom layers.
     pub interior_regions: Vec<Paths>,
-    /// Per-layer pristine `OuterWall` outlines, captured before surface
-    /// generation splits any wall, used to grade overhang degree. `None` when
-    /// dynamic overhang speed is off.
+    /// Per-layer slice outlines, captured after dimensional compensation and
+    /// before elephant-foot compensation and wall generation, while `paths`
+    /// still *is* the material footprint. Layer `i`'s outline is what the
+    /// overhang classifier measures layer `i + 1`'s walls against. Taken
+    /// unconditionally: whether a wall hangs in air is geometry and cannot
+    /// depend on a speed setting.
+    pub slice_outlines: Vec<Paths>,
+    /// Per-layer pristine `OuterWall` centrelines, captured before surface
+    /// generation splits any wall, used as the material footprint support
+    /// generation measures its strands against. `None` when support
+    /// generation is off.
     pub overhang_support: Option<Vec<Paths>>,
     /// The thickness the object's bottom layer is sliced and charged at.
     pub first_layer_height: f64,

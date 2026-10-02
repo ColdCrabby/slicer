@@ -28,6 +28,8 @@ use crate::settings::params::{SeamPosition, SlicingParams};
 use super::infill::{add_infill_to_layers, calculate_interior_region, InfillConfig};
 use super::pipeline::resolved_first_layer_height;
 use super::slicer::slice_mesh_with_first_layer;
+use super::support_paint::SupportPaintMasks;
+use super::supports::generate_supports_with_paint;
 use super::surfaces::{
     generate_top_bottom_surfaces_with_interior, perimeter_paths_of, prune_redundant_gap_fill,
     SurfaceConfig,
@@ -47,6 +49,8 @@ pub mod ids {
     pub const SLICING: &str = phases::SLICING;
     /// XY size and hole compensation, on the raw contours.
     pub const COMPENSATION: &str = phases::COMPENSATION;
+    /// Snapshot of the raw contours as the material footprint, before walls.
+    pub const SLICE_OUTLINE_SNAPSHOT: &str = phases::SLICE_OUTLINE_SNAPSHOT;
     /// Medial-limited shrink of the layers resting on the bed.
     pub const ELEPHANT_FOOT: &str = phases::ELEPHANT_FOOT;
     /// Perimeter bead generation.
@@ -57,7 +61,7 @@ pub mod ids {
     pub const WALL_RESTRICTIONS: &str = phases::WALL_RESTRICTIONS;
     /// Per-layer interior regions used to place surfaces.
     pub const INTERIOR_REGIONS: &str = phases::INTERIOR_REGIONS;
-    /// Pristine outer-wall snapshot for overhang-degree grading.
+    /// Pristine outer-wall snapshot for support generation.
     pub const OVERHANG_SUPPORT_SNAPSHOT: &str = phases::OVERHANG_SUPPORT_SNAPSHOT;
     /// Top / bottom solid surfaces, bridges and ironing.
     pub const SURFACES: &str = phases::SURFACES;
@@ -67,6 +71,8 @@ pub mod ids {
     pub const GAP_FILL_PRUNE: &str = phases::GAP_FILL_PRUNE;
     /// Sparse infill.
     pub const INFILL: &str = phases::INFILL;
+    /// Support strands under overhangs steeper than the threshold angle.
+    pub const SUPPORT_GENERATION: &str = phases::SUPPORT_GENERATION;
     /// Greedy-TSP ordering and seam placement.
     pub const PATH_ORDERING: &str = phases::PATH_ORDERING;
     /// Extrusion scaling where wall beads overlap.
@@ -88,6 +94,10 @@ pub fn core_stages() -> StageRegistry {
     registry
         .push(FnStage::boxed(ids::SLICING, slice))
         .push(FnStage::boxed(ids::COMPENSATION, compensate_dimensions))
+        .push(FnStage::boxed(
+            ids::SLICE_OUTLINE_SNAPSHOT,
+            snapshot_slice_outlines,
+        ))
         .push(FnStage::boxed(ids::ELEPHANT_FOOT, elephant_foot))
         .push(FnStage::boxed(ids::WALL_GENERATION, generate_walls))
         .push(FnStage::boxed(
@@ -107,6 +117,7 @@ pub fn core_stages() -> StageRegistry {
         ))
         .push(FnStage::boxed(ids::GAP_FILL_PRUNE, prune_gap_fill))
         .push(FnStage::boxed(ids::INFILL, infill))
+        .push(FnStage::boxed(ids::SUPPORT_GENERATION, generate_supports))
         .push(FnStage::boxed(ids::PATH_ORDERING, order_paths))
         .push(FnStage::boxed(ids::FLOW_COMPENSATION, compensate_flow))
         .push(FnStage::boxed(ids::FUZZY_SKIN, fuzzy_skin))
@@ -140,6 +151,22 @@ fn slice(cx: &mut SliceContext<'_>) {
 /// consumed, so correcting it here leaves all of those relations true.
 fn compensate_dimensions(cx: &mut SliceContext<'_>) {
     apply_compensation(&mut cx.layers, cx.params, cx.logger);
+}
+
+/// Snapshot the raw contours as the material footprint, before walls exist.
+///
+/// This is the outline the overhang classifier measures against: the material
+/// of layer `i` fills its slice outline, so layer `i + 1`'s walls hang over
+/// `slice_outlines[i]`, not over the centrelines the wall generator is about
+/// to replace `paths` with. The timing is the whole subtlety — after
+/// dimensional compensation (a deliberate resize the printed part really has)
+/// and before elephant foot, which is *not* a step the next layer hangs over:
+/// it shrinks the first layers precisely so the squashed bead spreads back out
+/// to the model's width, so the material still reaches the uncompensated
+/// outline. Taken unconditionally: whether a wall hangs in air is geometry and
+/// cannot depend on a speed setting.
+fn snapshot_slice_outlines(cx: &mut SliceContext<'_>) {
+    cx.artifacts.slice_outlines = cx.layers.iter().map(|l| l.paths.clone()).collect();
 }
 
 /// Undo the first layer's squish, in the same raw-contour window.
@@ -209,10 +236,19 @@ fn interior_regions(cx: &mut SliceContext<'_>) {
 
 /// Snapshot pristine outer walls before surface generation splits any of them.
 ///
-/// Layer `i`'s support outline is `snapshot[i - 1]`; the grading stage below
-/// consumes it. Only taken when dynamic overhang speed is on.
+/// Supports need the same un-split outlines, and for the same reason: the
+/// classification pass below retags an overhanging wall as `OverhangPerimeter`
+/// and splits its loop, so a steep slope keeps no `OuterWall` path for
+/// [`generate_supports_with_paint`] to measure. Layer `i`'s snapshot is the
+/// footprint the strands of layer `i + 1` are grown from. Only taken when
+/// support generation is on.
+///
+/// [`generate_supports_with_paint`]: super::supports::generate_supports_with_paint
 fn snapshot_overhang_support(cx: &mut SliceContext<'_>) {
-    cx.artifacts.overhang_support = overhang_support_snapshot(&cx.layers, cx.params);
+    if !cx.params.support_enabled {
+        return;
+    }
+    cx.artifacts.overhang_support = Some(perimeter_snapshot(&cx.layers));
 }
 
 /// Generate top / bottom solid surfaces, bridges and ironing inside the walls.
@@ -248,19 +284,31 @@ fn surfaces(cx: &mut SliceContext<'_>) {
 /// break the single continuous contour the spiral emitter needs. Requires
 /// `unsupported_regions`, which only surface generation populates — hence the
 /// same guard as the stage above.
+///
+/// Measures against [`Artifacts::slice_outlines`], the layer below's material
+/// footprint — not against its wall centrelines, which understate the
+/// footprint by half a bead and turn a supported bead into an "airborne" one.
+/// Only the *degrees* are gated on `enable_overhang_speed`; whether a wall
+/// hangs in air is geometry and is graded unconditionally.
+///
+/// [`Artifacts::slice_outlines`]: crate::plugin::Artifacts::slice_outlines
 fn classify_overhangs(cx: &mut SliceContext<'_>) {
     let params = cx.params;
     if (params.top_layers == 0 && params.bottom_layers == 0) || params.spiral_vase {
         return;
     }
     cx.logger.log_debug("classifying overhang perimeters");
-    let support = std::mem::take(&mut cx.artifacts.overhang_support);
-    let grading = support.as_deref().map(|support| OverhangGrading {
-        support,
+    let outlines = std::mem::take(&mut cx.artifacts.slice_outlines);
+    let grading = params.enable_overhang_speed.then(|| OverhangGrading {
         band_class: overhang_band_class(params),
     });
-    classify_overhang_perimeters(&mut cx.layers, params.nozzle_diameter_mm, grading);
-    cx.artifacts.overhang_support = support;
+    classify_overhang_perimeters(
+        &mut cx.layers,
+        params.nozzle_diameter_mm,
+        Some(&outlines),
+        grading,
+    );
+    cx.artifacts.slice_outlines = outlines;
 }
 
 /// Drop gap-fill beads a solid surface already covers.
@@ -297,6 +345,38 @@ fn infill(cx: &mut SliceContext<'_>) {
     );
     cx.artifacts.pre_strip_infill_regions = pre_strip;
     cx.logger.log_debug("infill generation complete");
+}
+
+/// Generate support structures for overhangs steeper than the threshold angle.
+///
+/// Runs before path ordering so support strands are grouped and ordered with
+/// the rest of the layer. Reads the pristine outer-wall snapshot taken before
+/// surface generation split any wall — the live `OuterWall` paths of a steep
+/// slope are already gone by now, retagged and split by the classification
+/// stage above.
+///
+/// Support paint is not wired into the staged pipeline in this research
+/// branch; empty masks reproduce unpainted support generation exactly.
+fn generate_supports(cx: &mut SliceContext<'_>) {
+    let params = cx.params;
+    if !params.support_enabled {
+        return;
+    }
+    cx.logger.log_debug(&format!(
+        "generating supports (type: {:?}, threshold: {}°, density: {:.0}%)",
+        params.support_type,
+        params.support_threshold_angle,
+        params.support_density * 100.0
+    ));
+    let pristine = std::mem::take(&mut cx.artifacts.overhang_support);
+    generate_supports_with_paint(
+        &mut cx.layers,
+        params,
+        pristine.as_deref(),
+        &SupportPaintMasks::default(),
+    );
+    cx.artifacts.overhang_support = pristine;
+    cx.logger.log_debug("support generation complete");
 }
 
 /// Order each layer's paths with a greedy TSP inside role groups, and place
@@ -410,6 +490,7 @@ pub(crate) fn surface_config(params: &SlicingParams) -> SurfaceConfig {
         top_pattern: params.top_surface_pattern,
         bottom_pattern: params.bottom_surface_pattern,
         internal_solid_pattern: params.internal_solid_infill_pattern,
+        elephant_foot: super::compensation::ElephantFootConfig::resolve(params),
         ironing_enabled: params.ironing_enabled,
         ironing_type: params.ironing_type,
         ironing_spacing: params.ironing_spacing,
@@ -550,25 +631,19 @@ fn apply_elephant_foot(
     super::compensation::apply_elephant_foot(layers, &config);
 }
 
-/// Snapshot each layer's pristine OuterWall perimeter outline for dynamic
-/// overhang-degree grading, or `None` when the feature is disabled.
+/// Snapshot each layer's pristine `OuterWall` perimeter outline.
 ///
-/// Must be called **before** surface generation, which splits walls via bridge
-/// clipping — the grader needs the un-split centrelines so a layer's support
-/// outline (`snapshot[i-1]`) matches the geometry `unsupported_regions` was
-/// built from.
-fn overhang_support_snapshot(layers: &[SliceLayer], params: &SlicingParams) -> Option<Vec<Paths>> {
-    if !params.enable_overhang_speed {
-        return None;
-    }
+/// The caller decides whether the snapshot is wanted; this only gathers it.
+fn perimeter_snapshot(layers: &[SliceLayer]) -> Vec<Paths> {
     #[cfg(not(target_arch = "wasm32"))]
-    let snapshot = {
+    {
         use rayon::prelude::*;
         layers.par_iter().map(perimeter_paths_of).collect()
-    };
+    }
     #[cfg(target_arch = "wasm32")]
-    let snapshot = layers.iter().map(perimeter_paths_of).collect();
-    Some(snapshot)
+    {
+        layers.iter().map(perimeter_paths_of).collect()
+    }
 }
 
 /// Fold each raw overhang band `0..=4` to the [`OverhangClass`] the classifier
@@ -588,12 +663,22 @@ fn overhang_band_class(params: &SlicingParams) -> [OverhangClass; 5] {
         params.overhang_fan_speed > 0.0
             && upper_fraction > params.overhang_fan_threshold + f64::EPSILON
     };
-    let deg1 = if params.overhang_1_4_speed > 0.0 || fan_targets(0.25) {
+    let deg1 = if params
+        .overhang_1_4_speed
+        .resolve(params.perimeter_speed)
+        .is_some()
+        || fan_targets(0.25)
+    {
         OverhangClass::Deg1
     } else {
         OverhangClass::None
     };
-    let deg2 = if params.overhang_2_4_speed > 0.0 || fan_targets(0.5) {
+    let deg2 = if params
+        .overhang_2_4_speed
+        .resolve(params.perimeter_speed)
+        .is_some()
+        || fan_targets(0.5)
+    {
         OverhangClass::Deg2
     } else {
         OverhangClass::None
