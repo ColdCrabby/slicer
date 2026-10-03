@@ -150,6 +150,16 @@ export class SceneSelection {
   private pressState: SelectionPressState | null = null;
 
   /**
+   * The pointer id a live paint stroke belongs to, or null when none does.
+   *
+   * A stroke is born only from a press that landed on a model — a press on
+   * empty bed is a camera orbit. Keying the stroke to the pointer id (rather
+   * than reading the press state, which any left button shares) is what keeps
+   * that orbit from drizzling paint over every facet the pointer crosses.
+   */
+  private paintPointerId: number | null = null;
+
+  /**
    * Makes a plain tap toggle its object in and out of the selection, the way
    * ⌘/Ctrl-click does with a mouse. Touch has no modifier key, so without this
    * a multi-object selection could only be built from the objects list.
@@ -385,6 +395,11 @@ export class SceneSelection {
     return computeSelectionCentroid(objects);
   }
 
+  /**
+   * Hands the gesture to the camera. Besides giving up the press this aborts a
+   * live paint stroke: once navigation owns the pointer, its remaining moves
+   * must not keep laying dabs.
+   */
   cancelActiveDrag(): void {
     this.abandonPress();
   }
@@ -396,7 +411,7 @@ export class SceneSelection {
       this.hideFaceHighlight();
     }
     if (mode !== 'paint') {
-      this.cancelPendingPaint();
+      this.abandonPaintStroke();
     }
   }
 
@@ -415,7 +430,7 @@ export class SceneSelection {
       cancelAnimationFrame(this.highlightRafHandle);
       this.highlightRafHandle = 0;
     }
-    this.cancelPendingPaint();
+    this.abandonPaintStroke();
     this.brushCursor.dispose();
     this.faceHighlight.geometry.dispose();
     (this.faceHighlight.material as Material).dispose();
@@ -506,10 +521,26 @@ export class SceneSelection {
       this.updateFaceHighlight(event);
     }
 
-    // Support paint: a tap alone must mark the facet under the cursor even
-    // when the pointer never moves, so the first dab happens on contact —
-    // every later sample comes from `onPointerMove`.
-    if (this.currentObjectMode === 'paint') {
+    // Support paint: a tap on a model must mark the facet under the cursor even
+    // when the pointer never moves, so the first dab happens on contact — every
+    // later sample comes from `onPointerMove`.
+    //
+    // Only a press that actually landed on a model starts a stroke. A press on
+    // empty bed is a camera orbit (see below), so it must not arm painting —
+    // otherwise the orbit would dab every facet the pointer later crosses, the
+    // "panning paints" bug. The stroke is keyed to the pointer id, and only
+    // this pointer's moves can add dabs.
+    //
+    // The gesture gate is explicit here, not merely inherited from the button
+    // check above: painting is the primary button (or a pen's eraser) on a
+    // model, in paint mode — nothing else. A middle/right-button press is a
+    // camera pan, and it must stay one even over a model.
+    if (
+      this.currentObjectMode === 'paint' &&
+      hitId !== null &&
+      this.isPaintGesture(event, eraser)
+    ) {
+      this.paintPointerId = event.pointerId;
       this.paintSample(event, true);
     }
 
@@ -598,9 +629,11 @@ export class SceneSelection {
       }
       // A stroke that began on a model owns the whole gesture — its
       // `pointerdown` was withheld from the camera, so every move of it must be
-      // too, or the view starts turning halfway through the stroke. The lift is
+      // too, or the view starts turning halfway through the stroke. Keyed to
+      // the pointer that started the stroke, not to the press: a camera drag
+      // sweeping across the model must pass through untouched. The lift is
       // still let through (see `onPointerUp`).
-      if (this.pressState?.pointerId === event.pointerId && this.pressState.hitId !== null) {
+      if (this.paintPointerId === event.pointerId) {
         event.preventDefault();
         event.stopPropagation();
       }
@@ -681,7 +714,24 @@ export class SceneSelection {
       event.preventDefault();
       return;
     }
-    // The long-press already acted on this press; the lift only ends it.
+
+    // A paint stroke ends here whatever its length — dragging *is* painting,
+    // so a stroke whose press travelled is the normal case, not a cancelled
+    // gesture. Every dab already applied its own op; the lift only commits
+    // the stroke as one history entry. Selection is left untouched, same as
+    // pull-to-floor — painting is a manipulation gesture, not a pick.
+    // `preventDefault` only when a stroke of ours is actually ending: an
+    // empty-bed press was an orbit, and its lift belongs to the camera.
+    if (this.currentObjectMode === 'paint') {
+      if (this.finishPaintStroke(event.pointerId)) {
+        event.preventDefault();
+      }
+      return;
+    }
+
+    // The long-press already acted on this press; the lift only ends it. A
+    // travelled pull-to-floor press is the mis-aimed case the contact dab
+    // exists for — dragging off the face cancels it.
     if (moved || consumed) {
       return;
     }
@@ -695,16 +745,6 @@ export class SceneSelection {
       } else if (this.currentSelectedIds.size > 0) {
         this.selectionHandlers?.clearSelection();
       }
-      return;
-    }
-
-    if (this.currentObjectMode === 'paint') {
-      // Every dab already applied its own op; the lift only commits the
-      // stroke as one history entry. Selection is left untouched, same as
-      // pull-to-floor — painting is a manipulation gesture, not a pick.
-      this.cancelPendingPaint();
-      this.gizmoHandlers?.paintEnd();
-      event.preventDefault();
       return;
     }
 
@@ -738,8 +778,7 @@ export class SceneSelection {
       this.selectionHandlers?.selectExactly?.([...ps.box.base]);
     }
     if (this.currentObjectMode === 'paint') {
-      this.cancelPendingPaint();
-      this.gizmoHandlers?.paintEnd();
+      this.finishPaintStroke(event.pointerId);
     }
     this.endPress();
   };
@@ -797,10 +836,13 @@ export class SceneSelection {
    *
    * A live direct drag has already moved the objects, so it is committed
    * rather than dropped: leaving the scene-command batch open would strand
-   * the move outside the undo history.
+   * the move outside the undo history. A live paint stroke is the opposite:
+   * it is dropped, because once the camera owns the pointer its remaining
+   * moves are navigation, not dabs.
    */
   private abandonPress(): void {
     const dragging = Boolean(this.pressState?.drag);
+    this.abandonPaintStroke();
     this.endPress();
     if (dragging) {
       this.gizmoHandlers?.end();
@@ -856,6 +898,22 @@ export class SceneSelection {
       (event.pointerType === 'touch' || event.pointerType === 'pen') &&
       this.currentSelectedIds.has(hitId)
     );
+  }
+
+  /**
+   * Whether this press is a paint gesture rather than camera navigation.
+   *
+   * Painting is the primary button — or a pen's eraser end — and nothing else.
+   * The camera owns every other button: a middle-drag pans and a right-drag
+   * also pans, so neither may ever arm a stroke, not even when it starts on a
+   * model. Touch and pen have no secondary buttons, so `button === 0` is the
+   * primary contact for them too.
+   *
+   * Stated here rather than left implicit in the caller: this is the gesture
+   * distinction the whole feature turns on, and it should read as one rule.
+   */
+  private isPaintGesture(event: PointerEvent, eraser: boolean): boolean {
+    return eraser || event.button === 0;
   }
 
   /**
@@ -1378,6 +1436,34 @@ export class SceneSelection {
     this.brushCursor.hide();
   }
 
+  /**
+   * Discard an in-flight stroke without committing it — the pointer was taken
+   * over by the camera (second contact, two-finger gesture) or the tool was
+   * left mid-drag. The dabs already applied stay, but the stroke never lands
+   * in history and no further dab can join it.
+   */
+  private abandonPaintStroke(): void {
+    this.paintPointerId = null;
+    this.cancelPendingPaint();
+  }
+
+  /**
+   * End the stroke owned by this pointer, committing it as one history entry.
+   *
+   * Returns whether a stroke was actually live: an empty-bed press never
+   * started one (it was a camera orbit), so its lift must not emit `paintEnd`
+   * — the paint panel would open an empty undo entry for every orbit.
+   */
+  private finishPaintStroke(pointerId: number): boolean {
+    if (this.paintPointerId !== pointerId) {
+      this.cancelPendingPaint();
+      return false;
+    }
+    this.abandonPaintStroke();
+    this.gizmoHandlers?.paintEnd();
+    return true;
+  }
+
   /** The pointer left the canvas, so there is no surface to sit the ring on. */
   private onPointerLeave = (): void => {
     this.brushCursor.hide();
@@ -1402,7 +1488,9 @@ export class SceneSelection {
     }
     // Hovering only moves the ring; a held press also lays paint. Both come
     // from the same cast, so tracking the cursor costs nothing extra mid-stroke.
-    const pressed = this.pressState?.pointerId === ev.pointerId;
+    // The stroke's own pointer decides "pressed": any other pointer over the
+    // canvas (the camera's, mid-orbit) must hover-only.
+    const pressed = this.paintPointerId === ev.pointerId;
     this.paintSample(ev, pressed);
   };
 
