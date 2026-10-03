@@ -91,7 +91,7 @@ fn splat_infill_regions(area: &Paths, nozzle_diameter_mm: f64) -> Vec<Paths> {
 }
 
 /// One CCW outer contour and the CW holes it **directly** encloses.
-type Island = (clipper2::Path, Vec<clipper2::Path>);
+pub(super) type Island = (clipper2::Path, Vec<clipper2::Path>);
 
 /// Group a flat Clipper2 contour list into islands.
 ///
@@ -103,7 +103,7 @@ type Island = (clipper2::Path, Vec<clipper2::Path>);
 /// the outer island's material, and `D` would be emitted **twice**. A repeated
 /// path flips the even-odd parity `point_in_region_even_odd` counts on, so the
 /// enclosed void would read as solid and be filled straight across.
-fn group_islands(paths: &Paths) -> Vec<Island> {
+pub(super) fn group_islands(paths: &Paths) -> Vec<Island> {
     let contours: Vec<clipper2::Path> = paths.iter().cloned().collect();
     let outers: Vec<&clipper2::Path> = contours.iter().filter(|p| p.signed_area() > 0.0).collect();
 
@@ -125,7 +125,7 @@ fn group_islands(paths: &Paths) -> Vec<Island> {
 
 /// Net material of an island: its outer area minus the holes it encloses, so a
 /// ring is judged by what it actually prints rather than its bounding extent.
-fn island_net_area(island: &Island) -> f64 {
+pub(super) fn island_net_area(island: &Island) -> f64 {
     island.0.signed_area().abs() - island.1.iter().map(|h| h.signed_area().abs()).sum::<f64>()
 }
 

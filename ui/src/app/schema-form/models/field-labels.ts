@@ -149,6 +149,11 @@ export const FIELD_LABELS: Record<string, string> = {
   // Support
   support_enabled: 'Generate Supports',
   support_type: 'Support Style',
+  support_tree_branch_angle: 'Branch Angle',
+  support_tree_preferred_angle: 'Preferred Branch Angle',
+  support_tree_tip_diameter: 'Tip Diameter',
+  support_tree_branch_diameter: 'Branch Diameter',
+  support_tree_branch_diameter_angle: 'Branch Diameter Angle',
   support_auto: 'Detect Overhangs Automatically',
   support_density: 'Support Density',
   support_threshold_angle: 'Support Threshold Angle',

@@ -3,33 +3,32 @@
 //! Detects overhangs steeper than [`SlicingParams::support_threshold_angle`],
 //! projects the unsupported area downward with horizontal (XY) and vertical (Z)
 //! clearance from the model, classifies dense **interface** contact layers, and
-//! fills the resulting columns with a grid/zig-zag pattern tagged
+//! fills the result with walls and a grid/zig-zag pattern tagged
 //! [`ExtrusionRole::Support`].  Both support styles are produced:
 //!
-//! | Style                    | Load-bearing column                         | Merging |
-//! |--------------------------|---------------------------------------------|---------|
-//! | [`SupportType::Normal`]  | full overhang footprint (straight-down grid) | none |
-//! | [`SupportType::Tree`]    | node-drop branches that lean inward + converge | tips within `merge_dist` collapse |
+//! | Style                    | Load-bearing body                                   | Printed as |
+//! |--------------------------|-----------------------------------------------------|------------|
+//! | [`SupportType::Normal`]  | the full overhang footprint, straight down          | one contour round each column, sparse grid inside |
+//! | [`SupportType::Tree`]    | branches from tips under the overhang to the bed or a top surface | a tube per branch — one wall, two on thick trunks — sparse core |
 //!
-//! `Tree` is a node-drop (influence-drop) simulation — the standard organic
-//! support model, reduced to essentials: contact tips are sampled from each
-//! overhang, migrate toward their local centroid each layer (so **edge tips lean
-//! inward** and a wide field contracts into a few trunks), merge when they meet,
-//! and reject any step that would enter the model.  Wide interface caps still
-//! cover the full overhang at the contact layers, so the trunks stay thin and
-//! tree uses markedly less filament than a grid column.  It is **not** a
-//! physically optimal collision-avoiding tree with base flaring (that is a much
-//! larger algorithm); the honest limitation is surfaced by
-//! [`SlicingParams::unsupported_feature_warnings`].
+//! `Tree` lives in [`super::tree_support`]: tips sampled under the contact
+//! pads drift together and merge into trunks, steer around the model using
+//! precomputed avoidance, and thicken toward the ground.  Both styles share
+//! everything here — overhang detection, paint, the dense interface pads that
+//! cover the whole overhang at the contact layers, and the fill — so a tree
+//! only has to hold the pads up, not cover the overhang itself.
 //!
 //! # Build-plate-only
 //!
-//! [`SlicingParams::support_on_build_plate_only`] restricts support to columns
-//! that can descend to the bed through empty space.  A contact pad is dropped
-//! when it overlaps the model's accumulated footprint below it, so the overhang
-//! above prints unsupported rather than growing a column that lands on — and
-//! scars, or cannot be freed from — the print.  Losing those overhangs is the
-//! point of the option, not a shortcoming of it.
+//! [`SlicingParams::support_on_build_plate_only`] restricts support to what can
+//! descend to the bed through empty space.  For normal support a contact pad is
+//! dropped when it overlaps the model's accumulated footprint below it, so the
+//! overhang above prints unsupported rather than growing a column that lands on
+//! — and scars, or cannot be freed from — the print.  A tree branch can lean
+//! around the model, so the tree applies the option per branch instead: a
+//! branch that cannot reach the bed is pruned, and a pad no branch holds is not
+//! printed.  Losing those overhangs is the point of the option, not a
+//! shortcoming of it.
 //!
 //! # Pipeline placement
 //!
@@ -64,18 +63,24 @@ const TREE_MIN_REGION_AREA_FRACTION: f64 = 0.25;
 /// an overhang.
 const OVERHANG_FACET_TOLERANCE_MM: f64 = 0.05;
 
-/// Tree support — maximum branch angle from vertical.  A branch may lean this
-/// far per layer (`dx = tan(angle)·layer_height`), so tips converge into trunks
-/// as they descend.  40° matches the organic-support default of mature slicers.
-const TREE_BRANCH_ANGLE_DEG: f64 = 40.0;
+/// How much wider tree tips are spaced when interface layers sit on them.
+///
+/// At the plain support pitch a broad flat overhang grew a canopy of thin tubes
+/// denser in material than the grid normal support lays there.  Half as far
+/// again cut a cap held 20 mm up from 0.92× to 0.64× the filament of normal
+/// support, while the interface lines still only span about 3 mm between tips;
+/// twice the pitch saved a little more but left them bridging over 4 mm.
+const TREE_TIP_PITCH_UNDER_INTERFACE: f64 = 1.5;
 
-/// Tree support — trunk radius as a multiple of the nozzle diameter.  Trunks are
-/// deliberately thin; the wide interface caps carry the actual contact surface.
-const TREE_TRUNK_NOZZLE_MULT: f64 = 1.5;
-
-/// Tree support — contact-tip sampling spacing as a multiple of the nozzle
-/// diameter.  Sparser than a grid column, so tree uses less material.
-const TREE_TIP_SPACING_NOZZLE_MULT: f64 = 6.0;
+/// Tree branches at least this many branch diameters wide get a second wall.
+///
+/// A branch alone is a tube one bead thick around a sparse core, which is
+/// plenty stiff at its own width.  A trunk twice that wide is carrying merged
+/// branches, and its one bead is spread round a much longer wall; the second
+/// wall is where it pays for itself.  Doubling every branch past a fixed
+/// 3 mm instead put a second wall on nearly every branch a few millimetres
+/// below its tip, roughly doubling the material in each trunk.
+const TREE_DOUBLE_WALL_BRANCH_DIAMETERS: f64 = 2.0;
 
 /// Minimum length of an emitted support run, as a multiple of the nozzle
 /// diameter.  Mirrors the gap-fill splat filter: a run below this is an
@@ -106,7 +111,7 @@ fn path_run_len(path: &Path, closed: bool) -> f64 {
 ///
 /// Clipper2 boolean ops on an empty operand can throw; these wrappers keep the
 /// accumulation loop total and readable.
-fn poly_union(a: &Paths, b: &Paths) -> Paths {
+pub(super) fn poly_union(a: &Paths, b: &Paths) -> Paths {
     if a.is_empty() {
         return b.clone();
     }
@@ -116,21 +121,21 @@ fn poly_union(a: &Paths, b: &Paths) -> Paths {
     union(a.clone(), b.clone(), FillRule::NonZero).unwrap_or_else(|_| a.clone())
 }
 
-fn poly_difference(a: &Paths, b: &Paths) -> Paths {
+pub(super) fn poly_difference(a: &Paths, b: &Paths) -> Paths {
     if a.is_empty() || b.is_empty() {
         return a.clone();
     }
     difference(a.clone(), b.clone(), FillRule::NonZero).unwrap_or_else(|_| a.clone())
 }
 
-fn poly_intersect(a: &Paths, b: &Paths) -> Paths {
+pub(super) fn poly_intersect(a: &Paths, b: &Paths) -> Paths {
     if a.is_empty() || b.is_empty() {
         return Paths::new(vec![]);
     }
     intersect(a.clone(), b.clone(), FillRule::NonZero).unwrap_or_default()
 }
 
-fn poly_inflate(a: &Paths, delta: f64) -> Paths {
+pub(super) fn poly_inflate(a: &Paths, delta: f64) -> Paths {
     if a.is_empty() || delta.abs() < 1e-9 {
         return a.clone();
     }
@@ -454,7 +459,12 @@ pub fn generate_supports_with_paint(
     // plate, so with `support_on_build_plate_only` it is removed outright and
     // the overhang above it prints unsupported — the trade this option exists
     // to make.  The vector is only built when the option is on.
-    let plate_only = params.support_on_build_plate_only;
+    //
+    // Tree support is exempt: a branch can lean around the model to reach the
+    // plate from a contact a straight column could not, so the tree applies the
+    // option itself, branch by branch.
+    let is_tree = params.support_type == SupportType::Tree;
+    let plate_only = params.support_on_build_plate_only && !is_tree;
     let covered: Vec<Paths> = if plate_only {
         let mut acc = Paths::new(vec![]);
         let mut out = Vec::with_capacity(n);
@@ -492,12 +502,10 @@ pub fn generate_supports_with_paint(
     // Two strategies produce a per-layer `columns[i]` region:
     //   • Normal — the full overhang footprint projected straight down (a grid
     //     column), subtracting the model + XY clearance each layer.
-    //   • Tree — a node-drop simulation: contact tips are sampled, migrate
-    //     toward their local centroid each layer (so edge tips lean inward and
-    //     converge), merge when they meet, avoid the model, and rasterise into
-    //     thin trunks.  Wide interface caps (added below) still cover the full
-    //     overhang at the contact layers, so the trunks can stay thin.
-    let is_tree = params.support_type == SupportType::Tree;
+    //   • Tree — branches grown from tips under the contact pads down to the bed
+    //     or the model ([`super::tree_support`]).  Dense interface pads (added
+    //     below) still cover the full overhang at the contact layers, so the
+    //     branches only have to hold the pads up.
     let iface = params.support_interface_layers;
 
     // Weld the per-layer contact rings into a printable body before either
@@ -544,16 +552,38 @@ pub fn generate_supports_with_paint(
         })
         .collect();
 
-    let columns: Vec<Paths> = if is_tree {
-        simulate_tree_columns(&new_area, &footprints, &solid, &covered, n, lh, ext_w, xy)
+    // The pads printed as top interface: every contact pad for normal support,
+    // only the ones a branch actually holds up for tree support.
+    let (columns, contact_pads): (Vec<Paths>, Vec<Paths>) = if is_tree {
+        let z: Vec<f64> = layers.iter().map(|l| l.z).collect();
+        let obstacles: Vec<Paths> = if painted {
+            (0..n)
+                .map(|i| poly_inflate(&paint.blocker_at(i), blocker_grow))
+                .collect()
+        } else {
+            vec![Paths::new(vec![]); n]
+        };
+        let tree = super::tree_support::generate(
+            &super::tree_support::TreeInput {
+                z: &z,
+                footprints: &footprints,
+                solid: &solid,
+                contacts: &new_area,
+                enforced: &enforced_add_at,
+                obstacles: &obstacles,
+            },
+            &tree_settings(params, xy, z_gap),
+        );
+        (tree.branches, tree.supported_contacts)
     } else {
-        project_normal_columns(&support_area, &footprints, &covered, n, xy)
+        (
+            project_normal_columns(&support_area, &footprints, &covered, n, xy),
+            new_area,
+        )
     };
 
-    // Per-layer printed regions, split into interface (dense) and body.
-    let mut body_regions: Vec<Paths> = vec![Paths::new(vec![]); n];
-    let mut iface_regions: Vec<Paths> = vec![Paths::new(vec![]); n];
-
+    // Per-layer printed regions, split into interface (dense) and body.  Every
+    // layer is independent from here on, so both passes run a layer per task.
     let bead = crate::core::support_nominal_width_mm(params);
     let min_island_area = if is_tree {
         SUPPORT_MIN_REGION_AREA_MM2 * TREE_MIN_REGION_AREA_FRACTION
@@ -561,7 +591,8 @@ pub fn generate_supports_with_paint(
         SUPPORT_MIN_REGION_AREA_MM2
     };
 
-    for i in 0..n {
+    let regions: Vec<(Paths, Paths)> = per_layer(n, |i| {
+        let empty = || (Paths::new(vec![]), Paths::new(vec![]));
         let column = &columns[i];
 
         // Horizontal clearance frame for this layer (model + XY distance).
@@ -574,7 +605,7 @@ pub fn generate_supports_with_paint(
         // real cap instead of a hairline ring.
         let mut top_full = Paths::new(vec![]);
         if iface > 0 {
-            for pad in new_area.iter().take((i + iface).min(n)).skip(i) {
+            for pad in contact_pads.iter().take((i + iface).min(n)).skip(i) {
                 if !pad.is_empty() {
                     top_full = poly_union(&top_full, pad);
                 }
@@ -583,14 +614,14 @@ pub fn generate_supports_with_paint(
         let top_if = poly_difference(&top_full, &clip);
 
         if column.is_empty() && top_if.is_empty() {
-            continue;
+            return empty();
         }
 
         // The printed footprint is the union of the load-bearing column and the
         // (possibly wider) top contact pad — less whatever cannot be printed.
         let total = printable_support(&poly_union(column, &top_if), bead, min_island_area);
         if total.is_empty() {
-            continue;
+            return empty();
         }
         let top_if = poly_intersect(&top_if, &total);
 
@@ -607,10 +638,8 @@ pub fn generate_supports_with_paint(
 
         let iface_region = poly_union(&top_if, &bot_if);
         let body_region = poly_difference(&total, &iface_region);
-
-        iface_regions[i] = iface_region;
-        body_regions[i] = body_region;
-    }
+        (iface_region, body_region)
+    });
 
     // ── 5. Fill each layer's support regions and append Support paths ───────
     let body_dens = params.support_density.clamp(0.02, 1.0);
@@ -624,22 +653,24 @@ pub fn generate_supports_with_paint(
         crate::core::support_nominal_width_mm(params),
         params.layer_height,
     );
-    // Tree trunks are already thin and sparse (few columns), so they are filled
-    // near-solid for strength; normal support fills the whole overhang area at
-    // the configured (sparse) density.
-    let body_spacing = if is_tree {
-        fill_spacing / body_dens.max(0.6)
-    } else {
-        fill_spacing / body_dens
-    };
+    let body_spacing = fill_spacing / body_dens;
     let iface_spacing = fill_spacing / iface_dens;
+    // A tree branch is a tube: one wall, or two once it is thick enough to
+    // carry real load, around a sparse core.  Normal support keeps a single
+    // contour around each column.
+    let double_wall_area = if is_tree {
+        let d = params.support_tree_branch_diameter.max(bead) * TREE_DOUBLE_WALL_BRANCH_DIAMETERS;
+        std::f64::consts::FRAC_PI_4 * d * d
+    } else {
+        f64::INFINITY
+    };
     let min_len = params.min_infill_extrusion_mm;
+    let min_run = ext_w * SUPPORT_MIN_RUN_LEN_NOZZLE_MULT;
 
-    for i in 0..n {
-        let body = &body_regions[i];
-        let iface_r = &iface_regions[i];
+    let strands: Vec<(Vec<Path>, Vec<Path>)> = per_layer(n, |i| {
+        let (iface_r, body) = &regions[i];
         if body.is_empty() && iface_r.is_empty() {
-            continue;
+            return (Vec::new(), Vec::new());
         }
 
         // Alternate direction each layer for inter-layer bonding.
@@ -655,22 +686,19 @@ pub fn generate_supports_with_paint(
         // Without a contour the scanline is the only thing drawn, so any island
         // narrower than a couple of line pitches degenerates into a row of
         // disconnected dashes — each one paying a full retract → travel →
-        // un-retract to deposit a speck. A tree trunk is a ~1.2 mm disc, which
-        // came out as one or two sub-bead specks per layer; on a Benchy 93.8 %
-        // of tree support segments were under 2 mm. A loop turns each island
-        // into one continuous extrusion and gives the fill something to tie
-        // into.
+        // un-retract to deposit a speck. A thin tree branch came out as one or
+        // two sub-bead specks per layer that way; on a Benchy 93.8 % of tree
+        // support segments were under 2 mm. A loop turns each island into one
+        // continuous extrusion and gives the fill something to tie into.
         let printed = poly_union(body, iface_r);
-        let half = fill_spacing * 0.5;
-        let contour = poly_inflate(&printed, -half);
+        let (walls, inner) = support_walls(&printed, fill_spacing, double_wall_area);
 
         // An island thinner than one bead cannot hold a contour; fall back to
         // filling it directly rather than dropping it.
-        let (body_fill, iface_fill) = if contour.is_empty() {
+        let (body_fill, iface_fill) = if walls.is_empty() {
             (body.clone(), iface_r.clone())
         } else {
-            loops.extend(contour.iter().cloned());
-            let inner = poly_inflate(&printed, -fill_spacing);
+            loops.extend(walls);
             if inner.is_empty() {
                 (Paths::new(vec![]), Paths::new(vec![]))
             } else {
@@ -682,27 +710,168 @@ pub fn generate_supports_with_paint(
         };
 
         if !body_fill.is_empty() {
-            let lines = generate_rectilinear_infill(&body_fill, body_spacing, body_angle, min_len);
-            fills.extend(lines.iter().cloned());
+            fills.extend(support_fill(
+                &body_fill,
+                body_spacing,
+                body_angle,
+                min_len,
+                is_tree,
+            ));
         }
         if !iface_fill.is_empty() {
-            let lines =
-                generate_rectilinear_infill(&iface_fill, iface_spacing, iface_angle, min_len);
-            fills.extend(lines.iter().cloned());
+            fills.extend(support_fill(
+                &iface_fill,
+                iface_spacing,
+                iface_angle,
+                min_len,
+                is_tree,
+            ));
         }
 
-        let min_run = ext_w * SUPPORT_MIN_RUN_LEN_NOZZLE_MULT;
+        loops.retain(|path| path_run_len(path, true) >= min_run);
+        fills.retain(|path| path_run_len(path, false) >= min_run);
+        (loops, fills)
+    });
+
+    for (layer, (loops, fills)) in layers.iter_mut().zip(strands) {
         for path in loops {
-            if path_run_len(&path, true) >= min_run {
-                push_support_path(&mut layers[i], path, false);
-            }
+            push_support_path(layer, path, false);
         }
         for path in fills {
-            if path_run_len(&path, false) >= min_run {
-                push_support_path(&mut layers[i], path, true);
-            }
+            push_support_path(layer, path, true);
         }
     }
+}
+
+/// Map `f` over every layer index, in order — one layer per task where the
+/// platform has threads, one after another where it does not (the browser
+/// build).
+pub(super) fn per_layer<T: Send>(n: usize, f: impl Fn(usize) -> T + Sync + Send) -> Vec<T> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use rayon::prelude::*;
+        (0..n).into_par_iter().map(f).collect()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        (0..n).map(f).collect()
+    }
+}
+
+/// The tree's shape, from the settings.  Out-of-range values are clamped
+/// rather than rejected: a tip wider than the branch, or a preferred lean past
+/// the steepest one, has an obvious intended meaning.
+fn tree_settings(
+    params: &SlicingParams,
+    xy: f64,
+    z_gap: usize,
+) -> super::tree_support::TreeSettings {
+    let bead = crate::core::support_nominal_width_mm(params);
+    let max_angle = params.support_tree_branch_angle.clamp(5.0, 80.0);
+    let preferred = params.support_tree_preferred_angle.clamp(0.0, max_angle);
+    let tip_radius = (params.support_tree_tip_diameter * 0.5).max(bead * 0.5);
+    let branch_radius = (params.support_tree_branch_diameter * 0.5).max(tip_radius);
+    let density = params.support_density.clamp(0.02, 1.0);
+    super::tree_support::TreeSettings {
+        max_angle: max_angle.to_radians(),
+        preferred_angle: preferred.to_radians(),
+        tip_radius,
+        branch_radius,
+        growth_per_mm: params
+            .support_tree_branch_diameter_angle
+            .clamp(0.0, 45.0)
+            .to_radians()
+            .tan(),
+        xy,
+        z_gap,
+        tip_spacing: tip_pitch(params, bead, density, tip_radius),
+        rest_on_model: !params.support_on_build_plate_only,
+    }
+}
+
+/// Fill strands for one support region.
+///
+/// A tree layer is dozens of separate branch cross-sections, and the
+/// serpentine fill joins the end of one scan line to the next by sorted order
+/// across the whole region — up to two pitches away, which at a sparse support
+/// pitch is over 5 mm.  On a branch layer that joined neighbouring branches
+/// with a strand extruded across the air between them.  Filling each branch on
+/// its own keeps every strand inside the branch it belongs to.
+fn support_fill(
+    region: &Paths,
+    spacing: f64,
+    angle: f64,
+    min_len: f64,
+    per_island: bool,
+) -> Vec<Path> {
+    if !per_island {
+        return generate_rectilinear_infill(region, spacing, angle, min_len)
+            .iter()
+            .cloned()
+            .collect();
+    }
+    let mut out = Vec::new();
+    for island in super::infill::group_islands(region) {
+        let mut paths = vec![island.0];
+        paths.extend(island.1);
+        out.extend(
+            generate_rectilinear_infill(&Paths::new(paths), spacing, angle, min_len)
+                .iter()
+                .cloned(),
+        );
+    }
+    out
+}
+
+/// Distance between tree tips under an overhang.
+///
+/// The pitch normal support lays its lines at, so a density means the same
+/// thing in both styles — and never so tight that tips touch.  Under dense
+/// interface layers the tips spread to [`TREE_TIP_PITCH_UNDER_INTERFACE`] times
+/// that: the interface lines span the gaps between tips, so the extra tips
+/// only add branches to a canopy that is already the costliest part of a tree.
+fn tip_pitch(params: &SlicingParams, bead: f64, density: f64, tip_radius: f64) -> f64 {
+    let pitch = (bead / density).max(tip_radius * 2.0 + bead);
+    if params.support_interface_layers > 0 {
+        pitch * TREE_TIP_PITCH_UNDER_INTERFACE
+    } else {
+        pitch
+    }
+}
+
+/// The wall loops around each support island, and the region left inside
+/// them for the fill.
+///
+/// Every island gets one loop half a pitch in from its edge.  An island with at
+/// least `double_wall_area` of material gets a second loop a pitch further in,
+/// and its fill shrinks to match.  No loops come back when nothing is wide
+/// enough to hold one.
+fn support_walls(printed: &Paths, spacing: f64, double_wall_area: f64) -> (Vec<Path>, Paths) {
+    let half = spacing * 0.5;
+    let first = poly_inflate(printed, -half);
+    if first.is_empty() {
+        return (Vec::new(), Paths::new(vec![]));
+    }
+    let mut loops: Vec<Path> = first.iter().cloned().collect();
+    let mut inner = poly_inflate(printed, -spacing);
+    if double_wall_area.is_finite() {
+        let mut thick: Vec<Path> = Vec::new();
+        for island in super::infill::group_islands(printed) {
+            if super::infill::island_net_area(&island) >= double_wall_area {
+                thick.push(island.0);
+                thick.extend(island.1);
+            }
+        }
+        if !thick.is_empty() {
+            let thick = Paths::new(thick);
+            loops.extend(poly_inflate(&thick, -(half + spacing)).iter().cloned());
+            inner = poly_union(
+                &poly_difference(&inner, &thick),
+                &poly_inflate(&thick, -2.0 * spacing),
+            );
+        }
+    }
+    (loops, inner)
 }
 
 /// Project the accumulated support area straight down (classic grid support).
@@ -736,314 +905,6 @@ fn project_normal_columns(
         out[i] = filter_small(&column, SUPPORT_MIN_REGION_AREA_MM2);
     }
     out
-}
-
-/// Tree / organic support via a node-drop simulation.
-///
-/// This is the standard influence-drop model used by mature slicers, reduced to
-/// its essentials:
-///
-/// 1. **Seed** — at each activation layer, the overhang pad is sampled into a
-///    grid of contact tips.
-/// 2. **Merge** — tips closer than `merge_dist` collapse to their centroid, so
-///    branches that meet become one trunk.
-/// 3. **Migrate** — each tip moves toward the centroid of its neighbours, capped
-///    at `tan(TREE_BRANCH_ANGLE)·layer_height` per layer.  A uniform interior is
-///    balanced (no motion), but **edge tips see neighbours only on their inner
-///    side and therefore lean inward**, so a wide field of tips contracts into a
-///    few trunks as it descends — the characteristic tree shape.
-/// 4. **Avoid the model** — a migration step that would land a tip inside the
-///    model + XY clearance is rejected (the branch slides rather than diving in),
-///    and a tip that comes down onto the model ends there.
-/// 5. **Rasterise** — the surviving tips are stamped as discs of radius
-///    `TREE_TRUNK_NOZZLE_MULT·nozzle` and the model is subtracted.
-///
-/// Returns a per-layer load-bearing column (model already subtracted).  It is
-/// deterministic: sampling, merging and migration are all order-stable.
-#[allow(clippy::too_many_arguments)]
-fn simulate_tree_columns(
-    new_area: &[Paths],
-    footprints: &[Paths],
-    solid: &[Paths],
-    covered: &[Paths],
-    n: usize,
-    layer_height: f64,
-    ext_w: f64,
-    xy: f64,
-) -> Vec<Paths> {
-    let max_dx = TREE_BRANCH_ANGLE_DEG.to_radians().tan() * layer_height;
-    let trunk_r = ext_w * TREE_TRUNK_NOZZLE_MULT;
-    let sample_sp = ext_w * TREE_TIP_SPACING_NOZZLE_MULT;
-    let merge_dist = sample_sp * 0.75;
-    let neigh = sample_sp * 1.6;
-
-    let mut nodes: Vec<(f64, f64)> = Vec::new();
-    let mut out = vec![Paths::new(vec![]); n];
-
-    for i in (0..n).rev() {
-        // 1. Seed new contact tips from the support area first appearing here.
-        if !new_area[i].is_empty() {
-            for p in sample_region_points(&new_area[i], sample_sp) {
-                nodes.push(p);
-            }
-        }
-        if nodes.is_empty() {
-            continue;
-        }
-
-        // 2. Merge tips that have come within merge_dist of each other.
-        nodes = merge_close_points(&nodes, merge_dist);
-
-        // 3 + 4. Migrate toward the local centroid, rejecting steps into the model.
-        // Under build-plate-only a branch must also never lean out over model
-        // that lies *below* this layer: unlike a straight-down column, a tree
-        // tip moves in XY, so a seed that started plate-reachable can drift
-        // over the print unless every step is re-checked.
-        let forbidden = poly_inflate(&footprints[i], xy);
-        let below = covered.get(i);
-        let grid = SpatialGrid::build(&nodes, neigh);
-        let mut moved = Vec::with_capacity(nodes.len());
-        for &(x, y) in &nodes {
-            let (cx, cy, cnt) = grid.local_centroid(&nodes, x, y, neigh);
-            let mut np = (x, y);
-            if cnt > 1 {
-                let (dx, dy) = (cx - x, cy - y);
-                let d = (dx * dx + dy * dy).sqrt();
-                if d > 1e-9 {
-                    let s = max_dx.min(d) / d;
-                    let cand = (x + dx * s, y + dy * s);
-                    let into_model = point_in_paths_eo(cand.0, cand.1, &forbidden);
-                    let over_model = below.is_some_and(|c| point_in_paths_eo(cand.0, cand.1, c));
-                    if !into_model && !over_model {
-                        np = cand;
-                    }
-                }
-            }
-            moved.push(np);
-        }
-        // A tip that has come down onto the model rests on it: the branch ends
-        // here rather than passing through and resurfacing in a cavity below.
-        nodes = moved
-            .into_iter()
-            .filter(|&(x, y)| !point_in_paths_eo(x, y, &solid[i]))
-            .collect();
-        if nodes.is_empty() {
-            continue;
-        }
-
-        // 5. Rasterise the trunks and subtract the model.
-        let discs = stamp_discs(&nodes, trunk_r);
-        let mut column = poly_difference(&discs, &forbidden);
-        if let Some(c) = below {
-            column = poly_difference(&column, c);
-        }
-        out[i] = filter_small(
-            &column,
-            SUPPORT_MIN_REGION_AREA_MM2 * TREE_MIN_REGION_AREA_FRACTION,
-        );
-    }
-
-    out
-}
-
-/// Sample a polygon region into a regular grid of interior points, spacing
-/// `spacing` mm apart.  Uses an even-odd scanline so holes (e.g. the void of an
-/// annular overhang) are correctly excluded.  Deterministic: points are emitted
-/// in row-major (y, then x) order.
-fn sample_region_points(region: &Paths, spacing: f64) -> Vec<(f64, f64)> {
-    if region.is_empty() || spacing <= 1e-6 {
-        return Vec::new();
-    }
-    let (mut min_y, mut max_y) = (f64::INFINITY, f64::NEG_INFINITY);
-    for c in region.iter() {
-        for p in c.iter() {
-            min_y = min_y.min(p.y());
-            max_y = max_y.max(p.y());
-        }
-    }
-    if !min_y.is_finite() || min_y >= max_y {
-        return Vec::new();
-    }
-
-    let mut pts = Vec::new();
-    let mut y = (min_y / spacing).ceil() * spacing;
-    while y <= max_y {
-        // X coordinates where the horizontal scan line crosses region edges.
-        let mut xs: Vec<f64> = Vec::new();
-        for c in region.iter() {
-            let verts: Vec<(f64, f64)> = c.iter().map(|p| (p.x(), p.y())).collect();
-            let m = verts.len();
-            for k in 0..m {
-                let (x0, y0) = verts[k];
-                let (x1, y1) = verts[(k + 1) % m];
-                // Half-open straddle test: each edge counted once at a shared vertex.
-                if (y0 <= y) != (y1 <= y) {
-                    let t = (y - y0) / (y1 - y0);
-                    xs.push(x0 + t * (x1 - x0));
-                }
-            }
-        }
-        xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let mut k = 0;
-        while k + 1 < xs.len() {
-            let (xa, xb) = (xs[k], xs[k + 1]);
-            let mut x = (xa / spacing).ceil() * spacing;
-            while x <= xb {
-                pts.push((x, y));
-                x += spacing;
-            }
-            k += 2;
-        }
-        y += spacing;
-    }
-    pts
-}
-
-/// A uniform spatial hash over 2D points for O(1)-ish neighbour queries.
-struct SpatialGrid {
-    cell: f64,
-    map: std::collections::HashMap<(i64, i64), Vec<usize>>,
-}
-
-impl SpatialGrid {
-    fn key(cell: f64, x: f64, y: f64) -> (i64, i64) {
-        ((x / cell).floor() as i64, (y / cell).floor() as i64)
-    }
-
-    fn build(points: &[(f64, f64)], cell: f64) -> Self {
-        let cell = cell.max(1e-3);
-        let mut map: std::collections::HashMap<(i64, i64), Vec<usize>> =
-            std::collections::HashMap::new();
-        for (i, &(x, y)) in points.iter().enumerate() {
-            map.entry(Self::key(cell, x, y)).or_default().push(i);
-        }
-        Self { cell, map }
-    }
-
-    /// Indices of points within the 3×3 cell neighbourhood of `(x, y)`.
-    fn neighbours(&self, x: f64, y: f64) -> Vec<usize> {
-        let (cx, cy) = Self::key(self.cell, x, y);
-        let mut out = Vec::new();
-        for dx in -1..=1 {
-            for dy in -1..=1 {
-                if let Some(v) = self.map.get(&(cx + dx, cy + dy)) {
-                    out.extend_from_slice(v);
-                }
-            }
-        }
-        out
-    }
-
-    /// Centroid of the points within `radius` of `(x, y)` (including itself),
-    /// plus the count.  Used as the inward-pulling migration target.
-    fn local_centroid(
-        &self,
-        points: &[(f64, f64)],
-        x: f64,
-        y: f64,
-        radius: f64,
-    ) -> (f64, f64, usize) {
-        let r2 = radius * radius;
-        let (mut sx, mut sy, mut cnt) = (0.0, 0.0, 0usize);
-        for i in self.neighbours(x, y) {
-            let (px, py) = points[i];
-            let (dx, dy) = (px - x, py - y);
-            if dx * dx + dy * dy <= r2 {
-                sx += px;
-                sy += py;
-                cnt += 1;
-            }
-        }
-        if cnt == 0 {
-            (x, y, 0)
-        } else {
-            (sx / cnt as f64, sy / cnt as f64, cnt)
-        }
-    }
-}
-
-/// Collapse points closer than `dist` into their group centroid.  Greedy and
-/// order-stable (points are visited in input order); each unvisited point claims
-/// all not-yet-claimed points within `dist` via a spatial grid.
-fn merge_close_points(points: &[(f64, f64)], dist: f64) -> Vec<(f64, f64)> {
-    if points.len() < 2 || dist <= 1e-6 {
-        return points.to_vec();
-    }
-    let grid = SpatialGrid::build(points, dist);
-    let d2 = dist * dist;
-    let mut claimed = vec![false; points.len()];
-    let mut out = Vec::new();
-    for i in 0..points.len() {
-        if claimed[i] {
-            continue;
-        }
-        let (x, y) = points[i];
-        let (mut sx, mut sy, mut cnt) = (x, y, 1usize);
-        claimed[i] = true;
-        for j in grid.neighbours(x, y) {
-            if j <= i || claimed[j] {
-                continue;
-            }
-            let (px, py) = points[j];
-            let (dx, dy) = (px - x, py - y);
-            if dx * dx + dy * dy <= d2 {
-                claimed[j] = true;
-                sx += px;
-                sy += py;
-                cnt += 1;
-            }
-        }
-        out.push((sx / cnt as f64, sy / cnt as f64));
-    }
-    out
-}
-
-/// Stamp a disc of radius `r` at every node and union them into one region.
-/// Each node becomes a near-zero-length segment inflated with round caps, so a
-/// single `inflate` call produces every disc at once.
-fn stamp_discs(nodes: &[(f64, f64)], r: f64) -> Paths {
-    if nodes.is_empty() || r <= 1e-6 {
-        return Paths::new(vec![]);
-    }
-    let eps = (r * 0.01).max(1e-3);
-    let segs: Vec<Path> = nodes
-        .iter()
-        .map(|&(x, y)| {
-            let mut p = Path::new(vec![]);
-            p.push(Point::new(x - eps, y));
-            p.push(Point::new(x + eps, y));
-            p
-        })
-        .collect();
-    let inflated = inflate(Paths::new(segs), r, JoinType::Round, EndType::Round, 2.0);
-    if inflated.is_empty() {
-        return inflated;
-    }
-    union(inflated.clone(), Paths::new(vec![]), FillRule::NonZero).unwrap_or(inflated)
-}
-
-/// Even-odd point-in-polygon test against a `Paths` set (holes respected).
-/// Returns `true` when `(x, y)` lies inside an odd number of contours.
-fn point_in_paths_eo(x: f64, y: f64, paths: &Paths) -> bool {
-    if paths.is_empty() {
-        return false;
-    }
-    let mut inside = false;
-    for c in paths.iter() {
-        let verts: Vec<(f64, f64)> = c.iter().map(|p| (p.x(), p.y())).collect();
-        let m = verts.len();
-        for k in 0..m {
-            let (xi, yi) = verts[k];
-            let (xj, yj) = verts[(k + 1) % m];
-            if (yi > y) != (yj > y) {
-                let x_cross = xi + (y - yi) / (yj - yi) * (xj - xi);
-                if x < x_cross {
-                    inside = !inside;
-                }
-            }
-        }
-    }
-    inside
 }
 
 /// Append a single support path to `layer`, keeping the parallel per-path
@@ -1238,18 +1099,21 @@ mod tests {
 
     #[test]
     fn tree_uses_materially_less_filament_than_normal() {
-        // Regression lock for the tree rewrite: a tall thin base under a wide
-        // flat plate.  The plate underside is a large overhang.  Normal fills it
-        // with a full grid column; tree drops sparse converging branches and
-        // must therefore use materially less filament.  (Before the rewrite the
-        // two were byte-identical — this test would have failed.)
+        // A small cap on a thin post 30 mm up.  Normal fills the whole
+        // underside with a grid column all the way down; tree branches gather
+        // into a few trunks and must use materially less filament.
+        //
+        // The height is the point: trees pay off for overhangs well above the
+        // bed.  Under a wide plate only a few millimetres up the branches have
+        // no room to gather, and separate trunks cost about what a sparse grid
+        // does.
         let build = |ty: SupportType| {
             let mut layers = Vec::new();
-            for k in 0..20 {
-                layers.push(square_layer(0.2 * (k as f64 + 1.0), 0.0, 0.0, 2.0));
+            for k in 0..150 {
+                layers.push(square_layer(0.2 * (k as f64 + 1.0), 0.0, 0.0, 1.0));
             }
-            for k in 20..22 {
-                layers.push(square_layer(0.2 * (k as f64 + 1.0), 0.0, 0.0, 16.0));
+            for k in 150..152 {
+                layers.push(square_layer(0.2 * (k as f64 + 1.0), 0.0, 0.0, 4.0));
             }
             let params = SlicingParams {
                 support_type: ty,
@@ -1265,7 +1129,7 @@ mod tests {
             "both styles must produce support (normal={normal:.0}mm, tree={tree:.0}mm)"
         );
         assert!(
-            tree < normal * 0.85,
+            tree < normal * 0.9,
             "tree must use materially less filament than normal \
              (tree={tree:.0}mm, normal={normal:.0}mm)"
         );
@@ -1418,8 +1282,11 @@ mod tests {
 
     #[test]
     fn build_plate_only_holds_for_tree_supports_too() {
-        // Tree tips migrate in XY, so a seed that starts plate-reachable can
-        // drift over the print unless every step is re-checked.
+        // Unlike a straight column, a branch may pass high above the base and
+        // lean out past it to reach the plate, grazing its edge on the way — so
+        // the guarantee is not "nothing above the base" but "nothing standing on
+        // it": the air gap above the base stays clear, and so does everything
+        // over its interior just above it, where a resting branch would be.
         let mut layers = tiered_stack(8.0, 20.0);
         let params = SlicingParams {
             support_type: SupportType::Tree,
@@ -1428,13 +1295,18 @@ mod tests {
         };
         generate_supports(&mut layers, &params, None);
         assert!(
-            support_total_len(&layers) > 0.0,
-            "tree must still support the reachable overhang"
+            support_path_count(&layers[0]) > 0,
+            "tree must still reach the plate under the reachable overhang"
         );
         assert_eq!(
-            support_vertices_in_box(&layers, 8.0),
+            support_vertices_in_box(&layers[10..11], 8.0),
             0,
-            "no tree branch may drift over the model under build-plate-only"
+            "the air gap above the base must stay clear"
+        );
+        assert_eq!(
+            support_vertices_in_box(&layers[10..15], 7.0),
+            0,
+            "no tree branch may stand on the base under build-plate-only"
         );
     }
 

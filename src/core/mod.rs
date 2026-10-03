@@ -8,6 +8,7 @@ mod slicer;
 mod support_paint;
 mod supports;
 mod surfaces;
+mod tree_support;
 mod types;
 mod walls;
 

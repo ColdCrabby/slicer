@@ -28,6 +28,13 @@ See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 
 ## [Unreleased]
 
+### Changed
+
+- **Organic tree supports** — branches grow from small tips under the overhang,
+  merge into trunks, steer around your model and thicken toward the plate,
+  standing on the model only where the plate is out of reach. Shape them with
+  the new branch angle and diameter settings under Support.
+
 ### Fixed
 
 - **Painted support enforcers work on any slope** — paint one under a gentle

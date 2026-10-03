@@ -696,3 +696,102 @@ fn an_enforcer_supports_a_slope_the_angle_rule_passes_over() {
         );
     }
 }
+
+/// A block on the bed, a thin post on the block, and a wide cap on the post:
+/// the cap's support must find its way down past the block.
+fn tiered() -> Mesh {
+    let mut m = Mesh::new();
+    add_box(&mut m, (-8.0, -8.0, 0.0), (8.0, 8.0, 4.0));
+    add_box(&mut m, (-2.0, -2.0, 4.0), (2.0, 2.0, 20.0));
+    add_box(&mut m, (-14.0, -14.0, 20.0), (14.0, 14.0, 22.0));
+    m.vertices = m.faces.iter().flat_map(|f| f.vertices).collect();
+    m.calculate_aabb();
+    m
+}
+
+/// Support vertices on layers whose plane lies in `z_range`, as
+/// `(x, y, z)`.
+fn support_points(layers: &[SliceLayer], z_range: std::ops::Range<f64>) -> Vec<(f64, f64, f64)> {
+    let mut out = Vec::new();
+    for layer in layers.iter().filter(|l| z_range.contains(&l.z)) {
+        for (i, path) in layer.paths.iter().enumerate() {
+            if layer.role_for_path(i) == ExtrusionRole::Support {
+                out.extend(path.iter().map(|p| (p.x(), p.y(), layer.z)));
+            }
+        }
+    }
+    out
+}
+
+/// Distance from `(x, y)` to the axis-aligned square of half-width `half`
+/// centred on the origin — negative inside it.
+fn to_square(x: f64, y: f64, half: f64) -> f64 {
+    let (dx, dy) = (x.abs() - half, y.abs() - half);
+    if dx <= 0.0 && dy <= 0.0 {
+        dx.max(dy)
+    } else {
+        dx.max(0.0).hypot(dy.max(0.0))
+    }
+}
+
+#[test]
+fn tree_branches_keep_their_clearance_and_reach_the_bed_around_the_model() {
+    let params = SlicingParams {
+        support_type: SupportType::Tree,
+        ..support_params(45.0)
+    };
+    let layers = process_mesh(&tiered(), &params, &NullLogger);
+    assert!(
+        !support_points(&layers, 0.0..0.3).is_empty(),
+        "branches from the cap must reach the bed"
+    );
+
+    // Checked on bead centrelines against the XY clearance itself. A centreline
+    // sits half a bead further out than the material it lays, which leaves room
+    // for the clearance being measured round the wall centreline at a convex
+    // corner — a little less there than on a flat face, for either style.
+    let keep_out = params.support_xy_distance_mm;
+    for (x, y, z) in support_points(&layers, 0.0..19.9) {
+        let model_half = if z < 4.0 { 8.0 } else { 2.0 };
+        let gap = to_square(x, y, model_half);
+        assert!(
+            gap >= keep_out,
+            "support at ({x:.2}, {y:.2}, z={z:.2}) is {gap:.2} mm from the model; \
+             at least {keep_out:.2} mm expected"
+        );
+    }
+}
+
+#[test]
+fn tree_branches_never_stand_on_the_model_under_build_plate_only() {
+    let params = SlicingParams {
+        support_type: SupportType::Tree,
+        support_on_build_plate_only: true,
+        ..support_params(45.0)
+    };
+    let layers = process_mesh(&tiered(), &params, &NullLogger);
+    assert!(
+        !support_points(&layers, 0.0..0.3).is_empty(),
+        "the cap reaches past the block, so branches still reach the bed"
+    );
+    // A branch standing on the block would sit right above its top, over its
+    // interior. Branches may graze its edge on their way past to the bed, but
+    // the layer of air above the block stays clear, and so does everything over
+    // its interior in the first millimetre up.
+    let over = |z: std::ops::Range<f64>, inset: f64| {
+        support_points(&layers, z)
+            .into_iter()
+            .filter(|&(x, y, _)| to_square(x, y, 8.0) < -inset)
+            .count()
+    };
+    assert_eq!(
+        over(4.0..4.2, 0.0),
+        0,
+        "the air gap above the block must stay clear"
+    );
+    assert_eq!(
+        over(4.0..5.0, 1.0),
+        0,
+        "no branch may stand on the block under build-plate-only"
+    );
+}
