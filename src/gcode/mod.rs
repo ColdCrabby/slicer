@@ -7,18 +7,18 @@
 //!
 //! ```text
 //! GcodeGenerator  ──uses──►  GcodeDialect (trait)
-//!                                 ▲           ▲
-//!                          MarlinDialect  KlipperDialect
+//!                              ▲          ▲            ▲
+//!                    MarlinDialect  KlipperDialect  RepRapFirmwareDialect
 //! ```
 //!
 //! | Module        | Contents                                              |
 //! |---------------|-------------------------------------------------------|
-//! | `flavor`      | [`GcodeFlavor`] enum + `FromStr` / `Display`          |
+//! | `flavor`      | [`GcodeFlavor`] enum + [`ForeignFlavor`] mapping      |
 //! | `dialect`     | [`GcodeDialect`] trait (incl. `header`) + [`WarnFn`]  |
 //! | `generator`   | [`GcodeGenerator`] façade + [`generate_gcode`]        |
 //! | `stats`       | [`SliceStatistics`] + metadata header rendering       |
 //! | `source`      | [`resolve_gcode_source`] file/string resolver         |
-//! | `dialects/`   | Concrete dialect implementations (Marlin, Klipper)   |
+//! | `dialects/`   | Concrete dialects (Marlin, Klipper, RepRapFirmware)   |
 //!
 //! ## Example
 //!
@@ -42,8 +42,8 @@ pub mod time_estimate;
 pub mod travel;
 
 pub use dialect::{GcodeDialect, WarnFn};
-pub use dialects::{KlipperDialect, MarlinDialect};
-pub use flavor::GcodeFlavor;
+pub use dialects::{KlipperDialect, MarlinDialect, RepRapFirmwareDialect};
+pub use flavor::{ForeignFlavor, GcodeFlavor};
 pub use generator::{
     generate_gcode, generate_gcode_for_plate, generate_gcode_from_params, GcodeGenerator,
 };

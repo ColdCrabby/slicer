@@ -2,6 +2,9 @@ import type {
   PrinterProfile,
   PrinterConnection,
 } from '../../generated/slicer-engine-ws-client-message-v1';
+import type { SlicingParams } from '../../generated/slicer-engine-printer-profile-v1';
+import globalSettingsSchema from '../../schemas/slicer-engine-global-settings-v1.json';
+import { enumLabel } from '../schema-form/models/field-labels';
 import type { SceneBedSnapshot } from '../services/scene-engine';
 import type { FilamentMaterial } from './filament.model';
 import {
@@ -24,7 +27,7 @@ import { uid } from './id';
 export type { PrinterProfile, PrinterConnection };
 
 export type PrinterConnectionKind = NonNullable<PrinterConnection['kind']>;
-export type PrinterGcodeFlavor = 'marlin' | 'klipper';
+export type PrinterGcodeFlavor = NonNullable<SlicingParams['gcode_flavor']>;
 export type BedShape = NonNullable<PrinterProfile['bed_shape']>;
 
 /**
@@ -68,10 +71,22 @@ export const PRINTER_CONNECTION_KINDS: PrinterConnectionKind[] = [
   'prusalink',
 ];
 
-export const PRINTER_GCODE_FLAVORS: { value: PrinterGcodeFlavor; label: string }[] = [
-  { value: 'marlin', label: 'Marlin' },
-  { value: 'klipper', label: 'Klipper' },
-];
+/**
+ * The firmware flavors a printer can run, in the engine's order.
+ *
+ * Read from the generated schema rather than listed here: the engine's
+ * `GcodeFlavor` is the one list, so a dialect it adds is offered with no UI
+ * change, and one it drops can never linger as a choice the slicer refuses.
+ */
+export const PRINTER_GCODE_FLAVORS: { value: PrinterGcodeFlavor; label: string }[] = (
+  globalSettingsSchema.$defs.GcodeFlavor.oneOf as { const: PrinterGcodeFlavor }[]
+).map(({ const: value }) => ({ value, label: enumLabel(value) }));
+
+/** The flavor `value` names, or `undefined` for anything the engine lacks. */
+export function asGcodeFlavor(value: string | undefined): PrinterGcodeFlavor | undefined {
+  const token = value?.trim().toLowerCase();
+  return PRINTER_GCODE_FLAVORS.find((f) => f.value === token)?.value;
+}
 
 /** Default hardware slice params contributed by a from-scratch printer. */
 export function defaultPrinterParams(): Record<string, unknown> {

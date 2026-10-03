@@ -430,17 +430,28 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                 }
             }
             "M106" => {
-                // Marlin part-cooling: `M106 P<n> S<0-255>` (P defaults to 0).
+                // Part-cooling: `M106 P<n> S<speed>` (P defaults to 0). Marlin's
+                // speed is an integer 0-255; RepRapFirmware also takes a 0-1
+                // fraction, which is what our RepRapFirmware dialect writes. A
+                // decimal point is what tells them apart: `S1` is Marlin's
+                // near-off, `S1.00` RepRapFirmware's full speed.
                 let mut fan_index: u32 = 0;
-                let mut raw: f32 = 0.0;
+                let mut speed: f32 = 0.0;
                 for param in parts {
                     match param.split_at(1) {
                         ("P" | "p", rest) => fan_index = rest.parse().unwrap_or(0),
-                        ("S" | "s", rest) => raw = rest.parse().unwrap_or(0.0),
+                        ("S" | "s", rest) => {
+                            let raw: f32 = rest.parse().unwrap_or(0.0);
+                            speed = if rest.contains('.') && raw <= 1.0 {
+                                raw
+                            } else {
+                                raw / 255.0
+                            };
+                        }
                         _ => {}
                     }
                 }
-                sticky.set_fan(&format!("P{fan_index}"), (raw / 255.0).clamp(0.0, 1.0));
+                sticky.set_fan(&format!("P{fan_index}"), speed.clamp(0.0, 1.0));
                 sticky.seed(&mut current);
             }
             "M107" => {
@@ -1063,6 +1074,27 @@ G1 X10 Y0 Z0.2 E1.0
         let layers = parse_gcode_bytes(gcode);
         let layer = first_printed_layer(&layers);
         assert!((fan_speed(layer, "P0").expect("P0 fan") - 204.0 / 255.0).abs() < 1e-4);
+    }
+
+    /// RepRapFirmware's fractional `M106 S0.50` is read as the fraction it is,
+    /// while Marlin's integer `S1` stays the near-off it means there.
+    #[test]
+    fn reprapfirmware_fractional_fan_speed_is_not_divided_by_255() {
+        let gcode = b"
+;LAYER_CHANGE
+;Z:0.200
+M106 S0.50
+M106 P2 S1.00
+M106 P3 S1
+;TYPE:Outer wall
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+";
+        let layers = parse_gcode_bytes(gcode);
+        let layer = first_printed_layer(&layers);
+        assert!((fan_speed(layer, "P0").expect("P0 fan") - 0.5).abs() < 1e-4);
+        assert!((fan_speed(layer, "P2").expect("P2 fan") - 1.0).abs() < 1e-4);
+        assert!((fan_speed(layer, "P3").expect("P3 fan") - 1.0 / 255.0).abs() < 1e-4);
     }
 
     /// `M107` turns the (optionally P-selected) fan off.

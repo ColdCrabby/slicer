@@ -104,7 +104,7 @@ pub struct SliceCommand {
     #[arg(long, default_value = "human")]
     pub output_format: String,
 
-    /// G-code firmware flavor (marlin, klipper).
+    /// G-code firmware flavor (marlin, klipper, reprapfirmware).
     /// When omitted, falls back to the value stored in global settings (default: marlin).
     #[arg(long)]
     pub gcode_flavor: Option<String>,
@@ -270,7 +270,7 @@ pub struct SliceCommand {
 
     /// Wrap each object's moves in firmware object markers so a single failed
     /// part can be cancelled mid-print (Klipper `EXCLUDE_OBJECT_*`,
-    /// Marlin/RepRap `M486`).
+    /// Marlin/RepRapFirmware `M486`).
     ///
     /// When omitted, uses the value from settings.
     #[arg(long)]

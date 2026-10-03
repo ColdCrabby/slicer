@@ -5,8 +5,8 @@
 
 pub mod klipper;
 pub mod marlin;
-pub mod reprap;
+pub mod reprapfirmware;
 
 pub use klipper::KlipperDialect;
 pub use marlin::MarlinDialect;
-pub use reprap::RepRapDialect;
+pub use reprapfirmware::RepRapFirmwareDialect;

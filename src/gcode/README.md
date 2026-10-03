@@ -9,7 +9,7 @@ Converts `Vec<SliceLayer>` → a firmware-ready G-code `String`.
 ```
 gcode/
 ├── mod.rs          re-exports; module-level docs
-├── flavor.rs       GcodeFlavor enum (Marlin | Klipper)
+├── flavor.rs       GcodeFlavor enum (Marlin | Klipper | RepRapFirmware) + ForeignFlavor
 ├── dialect.rs      GcodeDialect trait + WarnFn + header()
 ├── generator.rs    GcodeGenerator façade + generate_gcode()
 ├── stats.rs        SliceStatistics + metadata/settings header lines
@@ -17,9 +17,10 @@ gcode/
 ├── time_estimate.rs  acceleration-aware print-time estimator
 ├── source.rs       resolve_gcode_source() file/string resolver
 └── dialects/
-    ├── mod.rs      re-exports
-    ├── marlin.rs   MarlinDialect  (M104/M109/M140/M190; HEADER_BLOCK header)
-    └── klipper.rs  KlipperDialect (START_PRINT / END_PRINT; KLIPPER_HEADER)
+    ├── mod.rs             re-exports
+    ├── marlin.rs          MarlinDialect  (M104/M109/M140/M190; HEADER_BLOCK header)
+    ├── klipper.rs         KlipperDialect (START_PRINT / END_PRINT; KLIPPER_HEADER)
+    └── reprapfirmware.rs  RepRapFirmwareDialect (T0, M116, M226, M572, G29 S0/S1)
 ```
 
 ---
@@ -74,8 +75,14 @@ classDiagram
         +set_pressure_advance(pa)
         +call_macro(name)
     }
+    class RepRapFirmwareDialect {
+        T0 M116 M226 M600 M572
+        M203 in mm/min, M205 jerk
+        G29 S0 / S1 height maps
+    }
     GcodeDialect <|-- MarlinDialect
     GcodeDialect <|-- KlipperDialect
+    GcodeDialect <|-- RepRapFirmwareDialect
 
     class GcodeGenerator {
         -dialect Box~dyn GcodeDialect~
@@ -138,6 +145,72 @@ Doing any of that afterwards would lower the nozzle into the part just finished.
 
 ---
 
+## RepRapFirmware
+
+RepRapFirmware (Duet and compatible boards) accepts most of Marlin's commands,
+which is what makes it easy to get wrong: much of what a Marlin-shaped dialect
+writes is **accepted and then does something else**. `RepRapFirmwareDialect`
+overrides each of those, and the reasons are the contract:
+
+| Concern          | Marlin form   | What RRF does with it                   | Emitted instead     |
+| ---------------- | ------------- | --------------------------------------- | ------------------- |
+| Pause            | `M0`          | **ends the job** and runs `stop.g`      | `M226` → `pause.g`  |
+| Colour change    | `M600`        | supported                               | `M600` → `filament-change.g`, else `pause.g` |
+| Max feedrate     | `M203` mm/s   | read as mm/min — a 60× slower cap       | `M203` in mm/min    |
+| Cornering        | `M205 J`      | no junction deviation                   | `M205 X Y` jerk     |
+| Recover settings | `M208`        | sets the **axis travel limits**         | `M207 S R F T Z0`   |
+| Pressure advance | `M900 K`      | unknown command                         | `M572 D0 S`         |
+| Mesh             | `M420 S1`     | unknown command                         | `G29 S1` / `G29 S0` |
+| Fan              | `M106 S0–255` | reads `S1` as a fraction — **full** speed | `M106 S0.00–1.00` |
+| Fan off          | `M107`        | deprecated                              | `M106 S0`           |
+| Tool             | implicit      | no selected tool ⇒ no extrusion         | `T0` in the start script |
+
+The default start script waits with `M116` (bed and tool together) rather than
+`M190` + `M109`, and the end script disables motors with `M18`. RRF runs
+`sys/start.g` before the file's first line, and from 3.5 runs `sys/stop.g` after
+its last, so neither script repeats what those macros are for. Everything in the
+default output exists from RRF 3.1 on; `M486` object labels are the newest.
+
+Jerk goes out as `M205`, not `M566`: from RRF 3.6 `M205` sets limits for the
+current job only and can never exceed the machine limits `config.g` sets with
+`M566` — exactly the scope a slicer should have. The viewer reads RRF's
+fractional `M106` back as the fraction it is (a decimal point tells `S1.00` from
+Marlin's `S1`).
+
+Adaptive mesh probing redefines the grid with `M557` before `G29 S0`. That is the
+only way RRF offers to probe part of the bed, and RRF keeps the grid until the
+next `M557` or a restart, so a later full-bed calibration probes the last
+footprint. The setting's help text says so.
+
+---
+
+## Firmwares without a dialect of their own
+
+Presets from other slicers name their firmware with a `gcode_flavor` token from
+a longer list than ours. [`ForeignFlavor`](flavor.rs) — reached through
+`GcodeFlavor::from_foreign` — maps every token we know to the dialect that
+serves it best and, when that dialect was not written for the firmware, carries
+a **caveat** in plain words: what the firmware will do differently with our
+G-code. The importer surfaces that caveat instead of coercing silently, and
+`GcodeFlavor::from_str` refuses an approximated token with the nearest flavor
+and the caveat in its error, so the CLI never coerces silently either.
+
+| Token(s)                               | Dialect          | Exact? |
+| -------------------------------------- | ---------------- | ------ |
+| `marlin2`, `klipper`, `reprapfirmware` | the matching one | yes    |
+| `marlin` (legacy)                      | Marlin           | no — older Marlin ignores what it predates |
+| `reprap`                               | Marlin           | no — RepRap/Sprinter, **not** RepRapFirmware |
+| `repetier`, `smoothie`, `teacup`       | Marlin           | no     |
+| `makerware`, `sailfish`                | Marlin           | no — the printer needs X3G |
+| `mach3`, `machinekit`                  | Marlin           | no — extrudes on an A axis |
+| `no-extrusion`, `bambu`                | Marlin           | no     |
+
+`reprap` is the trap the table exists for: in a foreign preset it is Marlin's
+ancestor, while in our own settings it is the old spelling of
+`reprapfirmware`, still accepted so stored settings keep loading.
+
+---
+
 ## Spiral (vase) mode
 
 The pipeline hands over a plain single-wall slice; **the spiralization happens
@@ -176,11 +249,11 @@ of that would either duplicate the work or race it. Turning it on hands the
 mesh step to the slicer instead, so it survives across different custom start
 scripts without being copied into each one by hand.
 
-| Mode           | Marlin / RepRapFirmware (default)          | Klipper                                  |
-| -------------- | ------------------------------------------- | ----------------------------------------- |
-| `off`          | (nothing emitted)                          | (nothing emitted)                        |
-| `load_profile` | `M420 S1`                                  | `BED_MESH_PROFILE LOAD=<name>`           |
-| `calibrate`    | `G29` (bounded by `L`/`R`/`F`/`B` when adaptive), then `M420 S1` | `BED_MESH_CALIBRATE` (bounded by `AREA_MIN`/`AREA_MAX` when adaptive) |
+| Mode           | Marlin (default)                           | Klipper                                  | RepRapFirmware                            |
+| -------------- | ------------------------------------------- | ----------------------------------------- | ----------------------------------------- |
+| `off`          | (nothing emitted)                          | (nothing emitted)                        | (nothing emitted)                         |
+| `load_profile` | `M420 S1`                                  | `BED_MESH_PROFILE LOAD=<name>`           | `G29 S1`, or `G29 S1 P"<name>.csv"`       |
+| `calibrate`    | `G29` (bounded by `L`/`R`/`F`/`B` when adaptive), then `M420 S1` | `BED_MESH_CALIBRATE` (bounded by `AREA_MIN`/`AREA_MAX` when adaptive) | `G29 S0` (after an `M557` grid over the footprint when adaptive) |
 
 `bed_mesh_adaptive` bounds `calibrate` to the print's own XY footprint —
 computed once from every extrusion point across every layer — instead of
@@ -191,7 +264,7 @@ there is nothing to bound.
 The directive is emitted right after the start script (custom or the dialect
 default), so homing has already run — probing an unhomed axis either faults or
 reads garbage. **A start script that already probes or loads a mesh owns the
-job**: if it contains `G29`, `M420`, `BED_MESH_CALIBRATE` or
+job**: if it contains `G29`, `M420`, `M375`, `BED_MESH_CALIBRATE` or
 `BED_MESH_PROFILE`, the generator emits a note and suppresses its own directive
 rather than probing twice or fighting over which mesh ends up active.
 
@@ -381,16 +454,20 @@ To keep the estimate honest — *it must describe the moves the printer actually
 runs* — the kinematic limits are both **emitted** by the generator and **read
 back** by the estimator from the same `SlicingParams`:
 
-| Param                     | Emitted as (Marlin / Klipper)                          | In the estimate                    |
-| ------------------------- | ------------------------------------------------------ | ---------------------------------- |
-| `acceleration`            | `M204 P…` / `SET_VELOCITY_LIMIT ACCEL=…` (per role)    | per-move ramp rate                 |
-| `square_corner_velocity`  | `M205 J<jd>` / `SET_VELOCITY_LIMIT SQUARE_CORNER_VEL…` | junction-deviation corner speed    |
-| `max_velocity`            | `M203 X… Y…` / `SET_VELOCITY_LIMIT VELOCITY=…`         | per-move nominal-speed cap         |
+| Param                     | Emitted as (Marlin / Klipper / RepRapFirmware)                          | In the estimate                    |
+| ------------------------- | ------------------------------------------------------------------------ | ---------------------------------- |
+| `acceleration`            | `M204 P…` / `SET_VELOCITY_LIMIT ACCEL=…` / `M204 P…` (per role)          | per-move ramp rate                 |
+| `square_corner_velocity`  | `M205 J<jd>` / `SET_VELOCITY_LIMIT SQUARE_CORNER_VEL…` / `M205 X… Y…`    | junction-deviation corner speed    |
+| `max_velocity`            | `M203 X… Y…` / `SET_VELOCITY_LIMIT VELOCITY=…` / `M203 X… Y…` in mm/min  | per-move nominal-speed cap         |
 
 Marlin has no square-corner-velocity command, so it is converted to a
 junction-deviation distance `jd = scv² · (√2 − 1) / accel` — the exact relation
-`junction_speed` inverts. Each limit is emitted only when set (`> 0`), so a
-profile that never touched them produces byte-identical output to before.
+`junction_speed` inverts. RepRapFirmware corners by jerk instead, and a
+right-angle corner taken at the square-corner velocity changes each axis by
+exactly that much, so it is emitted unchanged as the X/Y jerk. The two models
+agree at 90° and differ a little at shallower angles, which the estimate does
+not model. Each limit is emitted only when set (`> 0`), so a profile that never
+touched them produces byte-identical output to before.
 
 ### Calibration (Bucket B)
 
@@ -664,7 +741,7 @@ default-off, so the baseline output is unchanged):
 
 | Setting                       | Effect                                                                                                              |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `use_firmware_retraction`     | Emits `G10`/`G11` instead of `G1 E` moves; syncs the firmware via `M207`/`M208` (Marlin) or `SET_RETRACTION` (Klipper) in the start section |
+| `use_firmware_retraction`     | Emits `G10`/`G11` instead of `G1 E` moves; syncs the firmware via `M207`/`M208` (Marlin), `M207 … R T` (RepRapFirmware) or `SET_RETRACTION` (Klipper) in the start section |
 | `use_relative_e_distances`    | Emits `M83` and per-move incremental E (`G1 … E<delta>`) instead of `M82` absolute positions                       |
 | `retract_before_travel_mm`    | Minimum travel distance that triggers a retraction (the `min` above)                                              |
 | `retract_restart_extra_mm`    | Extra prime length added on un-retract to compensate for travel ooze                                               |

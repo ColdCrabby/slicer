@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import {
+  asGcodeFlavor,
   makePrinter,
   PRINTER_CONNECTION_LABELS,
   PRINTER_GCODE_FLAVORS,
@@ -74,14 +75,6 @@ interface Reading {
 interface WizardQuestion {
   readonly question: DetectionQuestion;
   readonly copy: NonNullable<ReturnType<typeof questionCopy>>;
-}
-
-function normalizedFlavor(value: string | undefined): PrinterGcodeFlavor | undefined {
-  const normalized = value?.trim().toLowerCase();
-  if (normalized === 'marlin' || normalized === 'klipper') {
-    return normalized;
-  }
-  return undefined;
 }
 
 /**
@@ -568,7 +561,7 @@ export class PrinterWizard {
    */
   private applyDetection(result: PrinterDetectionResult, host: string): void {
     const base = makePrinter();
-    const flavor = normalizedFlavor(result.firmware);
+    const flavor = asGcodeFlavor(result.firmware);
     const params: Record<string, unknown> = {
       ...((base.params as Record<string, unknown>) ?? {}),
       // Non-Klipper printers get the firmware-appropriate template outright;
