@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
-import { isFieldRelevant } from './relevance';
+import { filterRelevantGroups, isFieldRelevant } from './relevance';
 import { parseSchema } from './schema-parser';
 import type { FieldDef } from './field-def';
 
@@ -59,6 +59,24 @@ describe('field relevance gates', () => {
     expect(airGap.relevantWhen?.equals).toBe('raft');
     expect(isFieldRelevant(airGap, { adhesion_type: 'raft' })).toBe(true);
     expect(isFieldRelevant(airGap, { adhesion_type: 'brim' })).toBe(false);
+  });
+
+  it('hides a field whose own gate is hidden', () => {
+    // Tree settings are gated on the style, the style on supports being on.
+    const visible = (values: Record<string, unknown>) =>
+      filterRelevantGroups(parsed.groups, values)
+        .flatMap((g) => g.fields)
+        .map((f) => f.key);
+
+    expect(visible({ support_enabled: true, support_type: 'tree' })).toContain(
+      'support_tree_branch_angle',
+    );
+    expect(visible({ support_enabled: true, support_type: 'normal' })).not.toContain(
+      'support_tree_branch_angle',
+    );
+    expect(visible({ support_enabled: false, support_type: 'tree' })).not.toContain(
+      'support_tree_branch_angle',
+    );
   });
 
   it('leaves an ungated field always relevant', () => {

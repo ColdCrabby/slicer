@@ -568,13 +568,14 @@ doc comments. Five things are worth knowing from outside it:
   `SLICE_EPSILON` above each plane. Moving the planes or that offset moves
   where paint lands; a slab centred on the plane missed ledges between planes
   and left a strip along every layer of a blocked shallow slope.
-- **`Normal` carries the full overhang footprint down; `Tree` is a node-drop
-  simulation** whose tips migrate toward their local centroid, merge when they
-  meet, and reject any step entering the model. Both stop where they come down
-  onto the model, so support never passes through solid material into a cavity
-  below. Tree costs markedly less filament. It is a pragmatic approximation,
-  **not** a collision-avoiding branching tree with base flaring — the
-  limitation is surfaced by `unsupported_feature_warnings()`.
+- **`Normal` carries the full overhang footprint down; `Tree` grows branches**
+  ([`tree_support.rs`](tree_support.rs)) from tips under the contact pads to
+  the bed, or to a top surface of the model when the bed is out of reach.
+  Branches steer around the model using avoidance maps built per branch radius,
+  merge into trunks, and thicken toward the ground; the module docs have the
+  model. Both styles stop where they come down onto the model, so support never
+  passes through solid material into a cavity below, and both share the
+  interface pads and the fill — a tree only holds the pads up.
 - **`ExtrusionRole::forms_closed_loops` is one definition** shared by the G-code
   generator and the path orderer. The two disagreeing about whether `Support`
   closes silently drops the segment that closes each island back to its start.
