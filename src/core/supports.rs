@@ -54,6 +54,11 @@ const SUPPORT_MIN_OVERHANG_AREA_MM2: f64 = 1.0;
 /// too small to print a stable column.
 const SUPPORT_MIN_REGION_AREA_MM2: f64 = 1.0;
 
+/// Tree trunks are thin by design, so a trunk island is kept down to this
+/// fraction of [`SUPPORT_MIN_REGION_AREA_MM2`]: dropping a disc the model has
+/// clipped would cut the trunk and leave the branch above standing on air.
+const TREE_MIN_REGION_AREA_FRACTION: f64 = 0.25;
+
 /// Extra horizontal tolerance (mm) added to the per-layer overhang step so that
 /// the tiny facet-to-facet jitter of a near-vertical wall does not register as
 /// an overhang.
@@ -166,8 +171,39 @@ fn morphological_close(paths: &Paths, r: f64) -> Paths {
     }
 }
 
+/// The part of one layer's support region that can actually be printed.
+///
+/// Two rules, both about the support itself rather than the overhang it holds:
+///
+/// - **Nothing narrower than a bead** — an opening by half a bead erases it.
+///   A strip that thin cannot hold a bead by construction, and the island
+///   contour inset half a pitch from its edge breaks it into specks.
+/// - **No island below `min_area` of net material** — one too small to stand
+///   as a column, or to hold a loop around any fill, supports nothing yet costs
+///   a full retract → travel → un-retract to reach.
+///
+/// Together they remove the support that crept into places it cannot work: a
+/// recess too narrow to fit a column between its walls once the XY clearance is
+/// taken off both sides, or the hairline the clearance leaves where a column
+/// grazes the model — on a Benchy, a sliver up the hull on every other layer.
+fn printable_support(region: &Paths, bead: f64, min_area: f64) -> Paths {
+    if region.is_empty() {
+        return region.clone();
+    }
+    let r = bead * 0.5;
+    let eroded = poly_inflate(region, -r);
+    if eroded.is_empty() {
+        return eroded;
+    }
+    let opened = poly_inflate(&eroded, r);
+    // The opening can round a corner past the region it came from; never print
+    // outside what the column and the clearance allowed.
+    let opened = poly_intersect(&opened, region);
+    super::infill::drop_small_islands(opened, min_area)
+}
+
 /// Accumulate the per-layer contacts top-down into the region that needs
-/// support at each layer, **before** any model clearance is taken out.
+/// support at each layer, **before** the XY clearance is taken out.
 ///
 /// A contact is only the *newly* exposed sliver at its layer
 /// (`footprint[i] − inflate(footprint[i−1], max_step)`), so down a continuous
@@ -182,13 +218,28 @@ fn morphological_close(paths: &Paths, r: f64) -> Paths {
 /// what the support body physically is.  The close only bridges *between*
 /// rings; it never pushes the outer boundary out, so the supported area is
 /// unchanged — only its connectivity is.
-fn accumulate_support_area(add_at: &[Paths], n: usize, close_r: f64) -> Vec<Paths> {
+///
+/// The model's own cross-section (`solid`, the layer's material out to its
+/// surface) is taken out of the accumulation at every layer on the way down: a
+/// column that comes down onto the model stands on it and stops there.  Carried
+/// past it, the column fell straight through solid material and resurfaced in
+/// whatever opened up below — a cabin roof's support reappeared as a speck in
+/// each letter sunk into the underside of a Benchy's keel, 36 mm further down.
+fn accumulate_support_area(
+    add_at: &[Paths],
+    solid: &[Paths],
+    n: usize,
+    close_r: f64,
+) -> Vec<Paths> {
     let mut acc = Paths::new(vec![]);
     let mut out = vec![Paths::new(vec![]); n];
     for i in (0..n).rev() {
         if !add_at[i].is_empty() {
             acc = poly_union(&acc, &add_at[i]);
             acc = morphological_close(&acc, close_r);
+        }
+        if !acc.is_empty() {
+            acc = poly_difference(&acc, &solid[i]);
         }
         out[i] = acc.clone();
     }
@@ -222,14 +273,22 @@ pub fn generate_supports(
 /// Generate support, honouring per-facet paint.
 ///
 /// Identical to [`generate_supports`] but for two extra terms in the overhang
-/// step, mirroring how PrusaSlicer and OrcaSlicer inject the same data:
+/// step:
 ///
 /// ```text
 /// auto      = footprint[i] − inflate(footprint[i−1], max_step)   // as before
 /// auto      = auto − blocker[i]
-/// enforced  = (footprint[i] ∩ enforcer[i]) − inflate(footprint[i−1], max_step)
+/// enforced  = (footprint[i] ∩ enforcer[i]) − inflate(footprint[i−1], facet_tol)
+/// enforced  = enforced − blocker[i]
 /// overhang  = auto ∪ enforced
 /// ```
+///
+/// An enforcer is measured against the layer below with only the facet-noise
+/// tolerance, **not** the threshold step: it asks for support however gentle
+/// the overhang, so a slope the angle rule passes over gets support where it is
+/// painted — with automatic detection on or off.  Gating it on `max_step` as
+/// well made it a strict subset of what detection already found, so painting an
+/// enforcer added nothing anywhere the rule had not.
 ///
 /// Everything downstream — accumulation, the tree simulation, interface caps,
 /// clearance, fill — is untouched, because by that point painted and detected
@@ -282,19 +341,18 @@ pub fn generate_supports_with_paint(
     // Blockers are widened by half a bead before subtraction: a painted region
     // and a detected overhang have independently-derived boundaries, and
     // subtracting one from the other leaves a sliver of support along the seam
-    // otherwise.  OrcaSlicer expands its blockers for the same reason.
+    // otherwise.
     let blocker_grow = crate::core::outer_wall_nominal_width_mm(params) * 0.5;
     let painted = !paint.is_empty();
     // `support_auto` off means the overhang rule is skipped entirely and
-    // support comes only from paint — Orca's `normal(manual)` / `tree(manual)`,
-    // PrusaSlicer's `support_material_auto`.
+    // support comes only from paint.
     let auto_detect = params.support_auto;
 
     let mut overhang: Vec<Paths> = vec![Paths::new(vec![]); n];
     // The enforced contribution alone, tracked in parallel with `overhang` so
     // build-plate-only (3b below) can restore it after filtering: a painted
     // enforcer is an instruction to support *here*, even by resting on the
-    // model instead of the plate, matching OrcaSlicer.
+    // model instead of the plate.
     let mut enforced_overhang: Vec<Paths> = vec![Paths::new(vec![]); n];
     for i in 1..n {
         if footprints[i].is_empty() {
@@ -326,8 +384,16 @@ pub fn generate_supports_with_paint(
                 // overhang, and support hanging in free air beside the part
                 // helps nobody.
                 let mut enforced = poly_intersect(&footprints[i], &enforcer);
-                // Already-supported material needs nothing added under it.
-                enforced = poly_difference(&enforced, &grown_prev);
+                // Material resting on the layer below needs nothing added under
+                // it — but *any* outward step counts, not only one past the
+                // threshold. The facet tolerance is still taken off, so a
+                // painted vertical wall does not sprout slivers from facet
+                // jitter; down a slope the rings it leaves are that tolerance
+                // apart, which the accumulation's close welds shut.
+                enforced = poly_difference(
+                    &enforced,
+                    &poly_inflate(&footprints[i - 1], OVERHANG_FACET_TOLERANCE_MM),
+                );
                 // A blocker wins where the two overlap, so a broad enforcer can
                 // be trimmed with a few strokes rather than repainted.
                 if !blocker.is_empty() {
@@ -362,7 +428,13 @@ pub fn generate_supports_with_paint(
         if overhang[i].is_empty() {
             continue;
         }
-        let activate = (i as isize - 1 - z_gap as isize).max(0) as usize;
+        // An overhang nearer the bed than the gap leaves no layer to stand
+        // support on. Clamping it onto layer 0 instead printed a speck straight
+        // under it with no gap at all — one in each shallow recess of a part's
+        // underside.
+        let Some(activate) = i.checked_sub(1 + z_gap) else {
+            continue;
+        };
         add_at[activate] = poly_union(&add_at[activate], &overhang[i]);
         if !enforced_overhang[i].is_empty() {
             enforced_add_at[activate] =
@@ -404,10 +476,10 @@ pub fn generate_supports_with_paint(
             let mut kept = filter_small(&reachable, SUPPORT_MIN_OVERHANG_AREA_MM2);
             // A painted enforcer asked for support at this exact place; unlike
             // an auto-detected overhang, it is not sacrificed just because the
-            // column would have to rest on the model instead of the plate —
-            // OrcaSlicer's enforcers do the same. The column-projection step
-            // below still stops at the model surface either way, so this
-            // cannot punch through geometry, only rest on it.
+            // column would have to rest on the model instead of the plate. The
+            // column-projection step below still stops at the model surface
+            // either way, so this cannot punch through geometry, only rest on
+            // it.
             if !enforced_add_at[i].is_empty() {
                 kept = poly_union(&kept, &enforced_add_at[i]);
             }
@@ -433,7 +505,14 @@ pub fn generate_supports_with_paint(
     // it; 0.6 leaves margin for the round-join approximation, and the nozzle
     // floor covers a near-vertical threshold where `max_step` is tiny.
     let close_r = (max_step * 0.6).max(ext_w * 0.5);
-    let mut support_area = accumulate_support_area(&add_at, n, close_r);
+    // The model out to its surface: footprints are wall centrelines, half a
+    // bead inside it.
+    let half_bead = crate::core::outer_wall_nominal_width_mm(params) * 0.5;
+    let solid: Vec<Paths> = footprints
+        .iter()
+        .map(|fp| poly_inflate(fp, half_bead))
+        .collect();
+    let mut support_area = accumulate_support_area(&add_at, &solid, n, close_r);
 
     // A blocker forbids support *at that place*, not merely at the contact
     // above it — otherwise a column seeded elsewhere descends straight through
@@ -466,7 +545,7 @@ pub fn generate_supports_with_paint(
         .collect();
 
     let columns: Vec<Paths> = if is_tree {
-        simulate_tree_columns(&new_area, &footprints, &covered, n, lh, ext_w, xy)
+        simulate_tree_columns(&new_area, &footprints, &solid, &covered, n, lh, ext_w, xy)
     } else {
         project_normal_columns(&support_area, &footprints, &covered, n, xy)
     };
@@ -474,6 +553,13 @@ pub fn generate_supports_with_paint(
     // Per-layer printed regions, split into interface (dense) and body.
     let mut body_regions: Vec<Paths> = vec![Paths::new(vec![]); n];
     let mut iface_regions: Vec<Paths> = vec![Paths::new(vec![]); n];
+
+    let bead = crate::core::support_nominal_width_mm(params);
+    let min_island_area = if is_tree {
+        SUPPORT_MIN_REGION_AREA_MM2 * TREE_MIN_REGION_AREA_FRACTION
+    } else {
+        SUPPORT_MIN_REGION_AREA_MM2
+    };
 
     for i in 0..n {
         let column = &columns[i];
@@ -501,8 +587,12 @@ pub fn generate_supports_with_paint(
         }
 
         // The printed footprint is the union of the load-bearing column and the
-        // (possibly wider) top contact pad.
-        let total = poly_union(column, &top_if);
+        // (possibly wider) top contact pad — less whatever cannot be printed.
+        let total = printable_support(&poly_union(column, &top_if), bead, min_island_area);
+        if total.is_empty() {
+            continue;
+        }
+        let top_if = poly_intersect(&top_if, &total);
 
         // Bottom interface: where the column rests on model within `iface`
         // layers below (contact that must detach cleanly).
@@ -663,15 +753,18 @@ fn project_normal_columns(
 ///    side and therefore lean inward**, so a wide field of tips contracts into a
 ///    few trunks as it descends — the characteristic tree shape.
 /// 4. **Avoid the model** — a migration step that would land a tip inside the
-///    model + XY clearance is rejected (the branch slides rather than diving in).
+///    model + XY clearance is rejected (the branch slides rather than diving in),
+///    and a tip that comes down onto the model ends there.
 /// 5. **Rasterise** — the surviving tips are stamped as discs of radius
 ///    `TREE_TRUNK_NOZZLE_MULT·nozzle` and the model is subtracted.
 ///
 /// Returns a per-layer load-bearing column (model already subtracted).  It is
 /// deterministic: sampling, merging and migration are all order-stable.
+#[allow(clippy::too_many_arguments)]
 fn simulate_tree_columns(
     new_area: &[Paths],
     footprints: &[Paths],
+    solid: &[Paths],
     covered: &[Paths],
     n: usize,
     layer_height: f64,
@@ -728,7 +821,15 @@ fn simulate_tree_columns(
             }
             moved.push(np);
         }
-        nodes = moved;
+        // A tip that has come down onto the model rests on it: the branch ends
+        // here rather than passing through and resurfacing in a cavity below.
+        nodes = moved
+            .into_iter()
+            .filter(|&(x, y)| !point_in_paths_eo(x, y, &solid[i]))
+            .collect();
+        if nodes.is_empty() {
+            continue;
+        }
 
         // 5. Rasterise the trunks and subtract the model.
         let discs = stamp_discs(&nodes, trunk_r);
@@ -736,7 +837,10 @@ fn simulate_tree_columns(
         if let Some(c) = below {
             column = poly_difference(&column, c);
         }
-        out[i] = filter_small(&column, SUPPORT_MIN_REGION_AREA_MM2 * 0.25);
+        out[i] = filter_small(
+            &column,
+            SUPPORT_MIN_REGION_AREA_MM2 * TREE_MIN_REGION_AREA_FRACTION,
+        );
     }
 
     out
@@ -1288,8 +1392,7 @@ mod tests {
         // the cap's underside is painted as an enforcer this time. A painted
         // enforcer is a direct instruction to support that exact spot, so
         // build-plate-only must not sacrifice it just because the column has
-        // to rest on the model instead of reaching the plate — matching
-        // OrcaSlicer's enforcer behaviour.
+        // to rest on the model instead of reaching the plate.
         let mut layers = tiered_stack(20.0, 15.0);
         let n = layers.len();
         let mut enforcers = vec![Paths::new(vec![]); n];
@@ -1332,6 +1435,178 @@ mod tests {
             support_vertices_in_box(&layers, 8.0),
             0,
             "no tree branch may drift over the model under build-plate-only"
+        );
+    }
+
+    /// A square layer with a square hole through it: `square_layer` plus a
+    /// clockwise inner contour, so the footprint is a frame.
+    fn frame_layer(z: f64, half: f64, hole_half: f64) -> SliceLayer {
+        let mut layer = square_layer(z, 0.0, 0.0, half);
+        let mut hole = Path::new(vec![]);
+        hole.push(Point::new(-hole_half, -hole_half));
+        hole.push(Point::new(-hole_half, hole_half));
+        hole.push(Point::new(hole_half, hole_half));
+        hole.push(Point::new(hole_half, -hole_half));
+        layer.paths.push(hole);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer
+    }
+
+    /// Count support vertices inside the centred box `|x|, |y| < half` on the
+    /// given layers.
+    fn support_vertices_near_origin(layers: &[SliceLayer], half: f64) -> usize {
+        let mut n = 0;
+        for layer in layers {
+            for (i, path) in layer.paths.iter().enumerate() {
+                if layer.role_for_path(i) != ExtrusionRole::Support {
+                    continue;
+                }
+                n += path
+                    .iter()
+                    .filter(|p| p.x().abs() < half && p.y().abs() < half)
+                    .count();
+            }
+        }
+        n
+    }
+
+    #[test]
+    fn an_enforcer_supports_a_slope_the_angle_rule_passes_over() {
+        // Steps out 0.1 mm per 0.2 mm layer — about 27° from vertical, well
+        // inside the 45° rule. Painted, it must be supported whether automatic
+        // detection runs or not: an enforcer measured against the threshold
+        // step only ever reached what detection had already found.
+        let build = || -> Vec<SliceLayer> {
+            (0..30)
+                .map(|k| square_layer(0.2 * (k as f64 + 1.0), 0.0, 0.0, 4.0 + 0.1 * k as f64))
+                .collect()
+        };
+        let mut unpainted = build();
+        generate_supports(&mut unpainted, &params_with_supports(), None);
+        assert_eq!(
+            support_total_len(&unpainted),
+            0.0,
+            "the slope is self-supporting, so nothing is detected"
+        );
+
+        for auto in [true, false] {
+            let mut layers = build();
+            let n = layers.len();
+            let paint = SupportPaintMasks {
+                enforcers: vec![square_paths(0.0, 0.0, 20.0); n],
+                blockers: vec![Paths::new(vec![]); n],
+            };
+            let params = SlicingParams {
+                support_auto: auto,
+                ..params_with_supports()
+            };
+            generate_supports_with_paint(&mut layers, &params, None, &paint);
+            assert!(
+                support_total_len(&layers) > 50.0,
+                "a painted slope must be supported (support_auto = {auto})"
+            );
+        }
+    }
+
+    #[test]
+    fn support_stops_on_the_model_instead_of_falling_through_it() {
+        // A slab with a pocket in its underside, a post on the slab, and a cap
+        // on the post. The cap's support lands on the slab's top; carried any
+        // further, it dropped through the solid slab and came out in the
+        // pocket. The pocket's own ceiling is blocked, so anything found in it
+        // fell through from above.
+        for ty in [SupportType::Normal, SupportType::Tree] {
+            let mut layers = Vec::new();
+            for k in 0..3 {
+                layers.push(frame_layer(0.2 * (k as f64 + 1.0), 10.0, 4.0));
+            }
+            for k in 3..10 {
+                layers.push(square_layer(0.2 * (k as f64 + 1.0), 0.0, 0.0, 10.0));
+            }
+            for k in 10..20 {
+                layers.push(square_layer(0.2 * (k as f64 + 1.0), 0.0, 0.0, 1.5));
+            }
+            for k in 20..22 {
+                layers.push(square_layer(0.2 * (k as f64 + 1.0), 0.0, 0.0, 9.0));
+            }
+            let n = layers.len();
+            let mut blockers = vec![Paths::new(vec![]); n];
+            blockers[3] = square_paths(0.0, 0.0, 5.0);
+            let paint = SupportPaintMasks {
+                enforcers: vec![Paths::new(vec![]); n],
+                blockers,
+            };
+            let params = SlicingParams {
+                support_type: ty,
+                ..params_with_supports()
+            };
+            generate_supports_with_paint(&mut layers, &params, None, &paint);
+
+            assert!(
+                support_total_len(&layers[10..20]) > 0.0,
+                "{ty:?}: the cap must be supported off the slab"
+            );
+            assert_eq!(
+                support_vertices_near_origin(&layers[..3], 4.0),
+                0,
+                "{ty:?}: support must not pass through the slab into the pocket under it"
+            );
+        }
+    }
+
+    #[test]
+    fn an_overhang_nearer_the_bed_than_the_gap_gets_no_support() {
+        // A pocket one layer deep in the underside: its ceiling is on layer 1,
+        // and the default one-layer gap is layer 0 itself. Clamping the contact
+        // onto layer 0 printed support straight under the ceiling, with no gap.
+        let mut layers = vec![frame_layer(0.2, 10.0, 4.0)];
+        for k in 1..6 {
+            layers.push(square_layer(0.2 * (k as f64 + 1.0), 0.0, 0.0, 10.0));
+        }
+        let params = params_with_supports();
+        assert_eq!(params.support_z_gap_layers, 1);
+        generate_supports(&mut layers, &params, None);
+        assert_eq!(support_total_len(&layers), 0.0);
+
+        // With no gap there is room, and the same pocket is supported.
+        let mut touching = vec![frame_layer(0.2, 10.0, 4.0)];
+        for k in 1..6 {
+            touching.push(square_layer(0.2 * (k as f64 + 1.0), 0.0, 0.0, 10.0));
+        }
+        let params = SlicingParams {
+            support_z_gap_layers: 0,
+            ..params_with_supports()
+        };
+        generate_supports(&mut touching, &params, None);
+        assert!(support_total_len(&touching) > 0.0);
+    }
+
+    #[test]
+    fn printable_support_drops_slivers_and_specks_but_keeps_a_column() {
+        let bead = 0.4;
+        let mut region = square_paths(0.0, 0.0, 5.0);
+        // A hairline strip a quarter of a bead wide, apart from the column.
+        let mut sliver = Path::new(vec![]);
+        sliver.push(Point::new(10.0, -5.0));
+        sliver.push(Point::new(10.1, -5.0));
+        sliver.push(Point::new(10.1, 5.0));
+        sliver.push(Point::new(10.0, 5.0));
+        region.push(sliver);
+        // A speck wide enough for a bead but far too small to stand.
+        region.push(square_paths(-10.0, 0.0, 0.3).iter().next().unwrap().clone());
+
+        let kept = printable_support(&region, bead, SUPPORT_MIN_REGION_AREA_MM2);
+        let area: f64 = kept.iter().map(|p| p.signed_area()).sum();
+        assert!(
+            (area - 100.0).abs() < 1.0,
+            "the 10 × 10 column survives intact (area {area:.2})"
+        );
+        let b = kept.bounds();
+        assert!(
+            b.min.x() > -5.1 && b.max.x() < 5.1,
+            "the sliver and the speck are gone (bounds x {:.2}..{:.2})",
+            b.min.x(),
+            b.max.x()
         );
     }
 }

@@ -491,7 +491,7 @@ fn intersect_fill_areas(areas: &[Option<Paths>]) -> Paths {
 ///
 /// A patch that small is not worth splitting off from the layers that would
 /// otherwise have printed it normally.
-fn drop_small_islands(paths: Paths, min_area: f64) -> Paths {
+pub(super) fn drop_small_islands(paths: Paths, min_area: f64) -> Paths {
     if paths.is_empty() || min_area <= 0.0 {
         return paths;
     }

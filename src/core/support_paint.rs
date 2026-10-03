@@ -7,12 +7,11 @@
 //! [`generate_supports`](super::generate_supports) to union in and subtract
 //! out.
 //!
-//! # Slabs, not shadows
+//! # Bands, not shadows
 //!
-//! Each painted triangle is clipped against the **slab** its layer occupies —
-//! `[z − h/2, z + h/2)` — and what survives is projected onto XY.  That is the
-//! same thing libslic3r's `slice_mesh_slabs` does for the same reason, and the
-//! semantics are worth stating because the obvious alternative is wrong:
+//! Each painted triangle is clipped against the **band** of Z its layer owns
+//! and what survives is projected onto XY.  The semantics are worth stating
+//! because the obvious alternative is wrong:
 //!
 //! - A blocker painted on a **horizontal overhang** blocks support at that
 //!   overhang, and nowhere else.
@@ -25,9 +24,30 @@
 //! up something else entirely, several centimetres away in Z.  The user painted
 //! a surface, not a volume.
 //!
+//! # Which band a layer owns
+//!
+//! Layer `i`'s band runs from the plane of layer `i − 1` up to its own plane,
+//! `[z(i−1), z(i)]` — **not** the slab of material it prints, `z(i) ± h/2`.
+//! Support reads paint where it detects overhangs, and the overhang of layer
+//! `i` is whatever its cross-section adds over layer `i − 1`'s: exactly the
+//! surface lying between the two sampling planes.  A slab centred on the plane
+//! sees only the upper half of that surface plus half of the next layer's:
+//!
+//! - a flat ledge whose underside sits above a plane, say at z = 10.15 with
+//!   planes at 10.1 and 10.3, lands in the slab of 10.1 while its overhang is
+//!   detected at 10.3 — a blocker there removed nothing, and an enforcer
+//!   added nothing;
+//! - a shallow slope steps out further per layer than half a slab reaches, so
+//!   a fully blocked one still left a strip of support along every layer.
+//!
+//! The band is closed at both ends.  A facet lying exactly on a plane belongs
+//! to both neighbours, which costs nothing — the upper one finds no new
+//! overhang there — and keeps a flat face that sits on a plane from depending
+//! on which side rounding puts it.
+//!
 //! # Thin features
 //!
-//! A facet is not obliged to span a whole slab.  A steep triangle can cross a
+//! A facet is not obliged to span a whole band.  A steep triangle can cross a
 //! layer in a sliver only microns tall, which projects to a degenerate ribbon
 //! that Clipper2 rounds away to nothing.  Every layer a painted facet touches
 //! at all therefore gets that facet's footprint widened to at least a bead, so
@@ -39,6 +59,7 @@ use clipper2::*;
 use crate::mesh::paint::{FacetPaint, PaintState};
 use crate::mesh::types::{Face, Mesh};
 
+use super::slicer::SLICE_EPSILON;
 use super::types::SliceLayer;
 
 /// Per-layer 2D regions derived from a mesh's support paint.
@@ -79,7 +100,7 @@ impl SupportPaintMasks {
 
 /// Minimum half-width, in bead multiples, given to a painted facet's footprint.
 ///
-/// A facet crossing a slab in a sliver projects to a ribbon far thinner than
+/// A facet crossing a band in a sliver projects to a ribbon far thinner than
 /// the nozzle, which is not a printable instruction and which Clipper2 will
 /// discard outright.  Widening to half a bead makes a stroke on a steep wall
 /// mean something on every layer it touches.
@@ -87,14 +108,14 @@ const MIN_FOOTPRINT_BEAD_MULT: f64 = 0.5;
 
 /// Project a mesh's support paint onto its layer stack.
 ///
-/// `layers` supplies the Z of each slice plane; `layer_height` and
-/// `first_layer_height` describe the slab each one owns.  Returns empty masks
-/// when nothing is painted, so callers can skip the whole feature cheaply.
+/// `layers` supplies the Z of each slice plane, which bounds the band each one
+/// owns; `first_layer_height` gives layer 0, which has no plane below it, its
+/// floor.  Returns empty masks when nothing is painted, so callers can skip the
+/// whole feature cheaply.
 pub fn project_support_paint(
     mesh: &Mesh,
     paint: &FacetPaint,
     layers: &[SliceLayer],
-    layer_height: f64,
     first_layer_height: f64,
     nozzle_diameter_mm: f64,
 ) -> SupportPaintMasks {
@@ -121,7 +142,7 @@ pub fn project_support_paint(
                 continue;
             };
             let (lo, hi) = face_z_span(face);
-            let (first, last) = slab_range(lo, hi, layers, layer_height, first_layer_height);
+            let (first, last) = band_range(lo, hi, layers, first_layer_height);
             let last = last.min(n.saturating_sub(1));
             if first > last {
                 continue;
@@ -132,9 +153,8 @@ pub fn project_support_paint(
                 .skip(first)
                 .take(last - first + 1)
             {
-                let (slab_lo, slab_hi) =
-                    slab_bounds(layer_index, layers, layer_height, first_layer_height);
-                if let Some(path) = clip_face_to_slab(face, slab_lo, slab_hi) {
+                let (band_lo, band_hi) = band_bounds(layer_index, layers, first_layer_height);
+                if let Some(path) = clip_face_to_band(face, band_lo, band_hi) {
                     layer_paths.push(path);
                 }
             }
@@ -182,43 +202,34 @@ fn face_z_span(face: &Face) -> (f64, f64) {
     (lo, hi)
 }
 
-/// Z bounds of the slab layer `index` prints.
+/// Z bounds of the band layer `index` owns: from the plane below it up to its
+/// own (see the module docs for why it is not the slab the layer prints).
 ///
-/// Layer planes are sampled at the *middle* of the material each layer lays
-/// down (see `slice_mesh_with_first_layer`), so a slab is centred on its plane
-/// — except layer 0, which may be thicker than the rest.
-fn slab_bounds(
-    index: usize,
-    layers: &[SliceLayer],
-    layer_height: f64,
-    first_layer_height: f64,
-) -> (f64, f64) {
-    let z = layers[index].z;
-    let h = if index == 0 {
-        first_layer_height.max(1e-6)
-    } else {
-        layer_height.max(1e-6)
+/// Both ends sit [`SLICE_EPSILON`] above the nominal plane, because that is
+/// where the slicer actually samples: a face lying between the nominal plane
+/// and the sample is already part of the layer's cross-section, so its paint
+/// must be too.  Layer 0 has no plane below it and runs from the bottom of the
+/// material it prints.
+fn band_bounds(index: usize, layers: &[SliceLayer], first_layer_height: f64) -> (f64, f64) {
+    let top = layers[index].z + SLICE_EPSILON;
+    let bottom = match index.checked_sub(1) {
+        Some(below) => layers[below].z + SLICE_EPSILON,
+        None => layers[0].z - first_layer_height.max(1e-6) * 0.5,
     };
-    (z - h * 0.5, z + h * 0.5)
+    (bottom, top)
 }
 
-/// Layer indices whose slabs a `[lo, hi]` Z span can touch.
+/// Layer indices whose bands a `[lo, hi]` Z span can touch.
 ///
 /// Scanned rather than solved: the plane spacing is uniform except for layer 0,
 /// and a binary search over a few hundred entries saves nothing measurable
 /// against the clipping that follows.
-fn slab_range(
-    lo: f64,
-    hi: f64,
-    layers: &[SliceLayer],
-    layer_height: f64,
-    first_layer_height: f64,
-) -> (usize, usize) {
+fn band_range(lo: f64, hi: f64, layers: &[SliceLayer], first_layer_height: f64) -> (usize, usize) {
     let mut first = usize::MAX;
     let mut last = 0usize;
     for index in 0..layers.len() {
-        let (slab_lo, slab_hi) = slab_bounds(index, layers, layer_height, first_layer_height);
-        if slab_hi < lo || slab_lo > hi {
+        let (band_lo, band_hi) = band_bounds(index, layers, first_layer_height);
+        if band_hi < lo || band_lo > hi {
             continue;
         }
         if first == usize::MAX {
@@ -233,12 +244,12 @@ fn slab_range(
     }
 }
 
-/// The XY footprint of `face` within the Z slab `[lo, hi]`, or `None` when it
+/// The XY footprint of `face` within the Z band `[lo, hi]`, or `None` when it
 /// does not meaningfully intersect.
 ///
 /// Sutherland–Hodgman against the two horizontal planes, which for a triangle
 /// yields at most a pentagon.
-fn clip_face_to_slab(face: &Face, lo: f64, hi: f64) -> Option<Path> {
+fn clip_face_to_band(face: &Face, lo: f64, hi: f64) -> Option<Path> {
     let mut poly: Vec<[f64; 3]> = face.vertices.iter().map(|v| [v.x, v.y, v.z]).collect();
 
     // Above the floor, then below the ceiling.
@@ -324,7 +335,8 @@ mod tests {
         ])
     }
 
-    /// A stack of `n` layers 0.2mm apart, planes at the middle of each slab.
+    /// A stack of `n` layers 0.2mm apart, planes at the middle of the material
+    /// each one prints.
     fn layers(n: usize) -> Vec<SliceLayer> {
         (0..n)
             .map(|i| SliceLayer::new(0.1 + i as f64 * 0.2))
@@ -338,7 +350,7 @@ mod tests {
     #[test]
     fn nothing_painted_produces_no_masks() {
         let mesh = Mesh::new();
-        let masks = project_support_paint(&mesh, &FacetPaint::new(), &layers(10), 0.2, 0.2, 0.4);
+        let masks = project_support_paint(&mesh, &FacetPaint::new(), &layers(10), 0.2, 0.4);
         assert!(masks.is_empty());
         assert!(masks.enforcers.is_empty(), "no allocation when unpainted");
     }
@@ -354,12 +366,12 @@ mod tests {
         paint.set(0, PaintState::Enforcer, 1);
 
         let stack = layers(20);
-        let masks = project_support_paint(&mesh, &paint, &stack, 0.2, 0.2, 0.4);
+        let masks = project_support_paint(&mesh, &paint, &stack, 0.2, 0.4);
 
         let hit: Vec<usize> = (0..stack.len())
             .filter(|&i| !masks.enforcers[i].is_empty())
             .collect();
-        assert_eq!(hit.len(), 1, "a flat facet occupies exactly one slab");
+        assert_eq!(hit.len(), 1, "a flat facet occupies exactly one band");
         assert!(
             (stack[hit[0]].z - 1.1).abs() <= 0.11,
             "landed at z={} for a facet at 1.1",
@@ -388,7 +400,7 @@ mod tests {
         paint.set(1, PaintState::Blocker, 2);
 
         let stack = layers(20);
-        let masks = project_support_paint(&mesh, &paint, &stack, 0.2, 0.2, 0.4);
+        let masks = project_support_paint(&mesh, &paint, &stack, 0.2, 0.4);
 
         let hit = (0..stack.len())
             .filter(|&i| !masks.blockers[i].is_empty())
@@ -401,7 +413,7 @@ mod tests {
 
     #[test]
     fn paint_never_reaches_below_the_geometry_it_was_painted_on() {
-        // The reason for slabs rather than a downward shadow: a blocker high up
+        // The reason for bands rather than a downward shadow: a blocker high up
         // must not delete a column holding something else near the bed.
         let mut mesh = Mesh::new();
         mesh.faces
@@ -410,7 +422,7 @@ mod tests {
         paint.set(0, PaintState::Blocker, 1);
 
         let stack = layers(30);
-        let masks = project_support_paint(&mesh, &paint, &stack, 0.2, 0.2, 0.4);
+        let masks = project_support_paint(&mesh, &paint, &stack, 0.2, 0.4);
 
         for (index, layer) in stack.iter().enumerate() {
             if layer.z < 2.8 {
@@ -435,7 +447,7 @@ mod tests {
         paint.set(1, PaintState::Blocker, 2);
 
         let stack = layers(20);
-        let masks = project_support_paint(&mesh, &paint, &stack, 0.2, 0.2, 0.4);
+        let masks = project_support_paint(&mesh, &paint, &stack, 0.2, 0.4);
 
         let enforcer_layers: Vec<usize> = (0..stack.len())
             .filter(|&i| !masks.enforcers[i].is_empty())
@@ -464,21 +476,21 @@ mod tests {
             .push(tri([0.0, 0.0, 99.0], [5.0, 0.0, 99.0], [5.0, 5.0, 99.0]));
         let mut paint = FacetPaint::new();
         paint.set(0, PaintState::Enforcer, 1);
-        let masks = project_support_paint(&mesh, &paint, &layers(10), 0.2, 0.2, 0.4);
+        let masks = project_support_paint(&mesh, &paint, &layers(10), 0.2, 0.4);
         assert!(masks.is_empty());
     }
 
     #[test]
-    fn clipping_a_triangle_that_straddles_a_slab_keeps_only_the_middle() {
+    fn clipping_a_triangle_that_straddles_a_band_keeps_only_the_middle() {
         let face = tri([0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 10.0, 10.0]);
-        let clipped = clip_face_to_slab(&face, 4.0, 6.0).expect("straddles the slab");
+        let clipped = clip_face_to_band(&face, 4.0, 6.0).expect("straddles the band");
         let points: Vec<(f64, f64)> = clipped.iter().map(|p| (p.x(), p.y())).collect();
         assert!(points.len() >= 3);
         // The band at 4..6 of a triangle rising to z=10 at y=10 sits at y≈4..6.
         for (_, y) in &points {
             assert!(
                 (3.9..=6.1).contains(y),
-                "clipped vertex at y={y} escaped the slab"
+                "clipped vertex at y={y} escaped the band"
             );
         }
     }
@@ -487,6 +499,72 @@ mod tests {
     fn an_edge_on_facet_is_dropped_rather_than_emitted_as_a_line() {
         // Zero-area input is what makes Clipper2 throw or return junk.
         let face = tri([0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [5.0, 0.0, 1.0]);
-        assert!(clip_face_to_slab(&face, -1.0, 2.0).is_none());
+        assert!(clip_face_to_band(&face, -1.0, 2.0).is_none());
+    }
+
+    #[test]
+    fn a_ledge_between_planes_lands_on_the_layer_that_detects_it() {
+        // Planes at 1.1 and 1.3: the underside at 1.15 sits above the first, so
+        // the ledge first appears in the cross-section at 1.3 and that is where
+        // its overhang is detected. Its paint must land there too — the slab of
+        // material printed at 1.1 (1.0–1.2) contains the face, and putting the
+        // paint on it is what let a blocked ledge keep its whole column.
+        let mut mesh = Mesh::new();
+        mesh.faces
+            .push(tri([0.0, 0.0, 1.15], [10.0, 0.0, 1.15], [10.0, 10.0, 1.15]));
+        let mut paint = FacetPaint::new();
+        paint.set(0, PaintState::Blocker, 1);
+
+        let stack = layers(20);
+        let masks = project_support_paint(&mesh, &paint, &stack, 0.2, 0.4);
+
+        let hit: Vec<usize> = (0..stack.len())
+            .filter(|&i| !masks.blockers[i].is_empty())
+            .collect();
+        assert_eq!(hit.len(), 1, "a flat face lies in exactly one band");
+        assert!(
+            (stack[hit[0]].z - 1.3).abs() < 1e-9,
+            "landed on the layer at z={} instead of the first plane above the face",
+            stack[hit[0]].z
+        );
+    }
+
+    #[test]
+    fn a_shallow_slope_is_covered_from_one_plane_to_the_next() {
+        // A ramp rising 2 mm over 20 mm steps out 2 mm per 0.2 mm layer. Each
+        // layer's overhang is the strip between the two planes it straddles, so
+        // that whole strip must be painted on that layer — a band centred on the
+        // plane covered only its middle and left a blocked ramp a strip of
+        // support along every layer.
+        let mut mesh = Mesh::new();
+        mesh.faces
+            .push(tri([0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [10.0, 20.0, 2.0]));
+        mesh.faces
+            .push(tri([0.0, 0.0, 0.0], [10.0, 20.0, 2.0], [0.0, 20.0, 2.0]));
+        let mut paint = FacetPaint::new();
+        paint.set(0, PaintState::Blocker, 2);
+        paint.set(1, PaintState::Blocker, 2);
+
+        let stack = layers(10);
+        let masks = project_support_paint(&mesh, &paint, &stack, 0.2, 0.4);
+
+        // Layer 5 sits at z=1.1, so its band is 0.9–1.1: y from 9 to 11 on the
+        // ramp, before widening.
+        let probe = |y: f64| {
+            let mut p = Path::new(vec![]);
+            p.push(Point::new(4.0, y - 0.05));
+            p.push(Point::new(6.0, y - 0.05));
+            p.push(Point::new(6.0, y + 0.05));
+            p.push(Point::new(4.0, y + 0.05));
+            Paths::new(vec![p])
+        };
+        for y in [9.1, 10.0, 10.9] {
+            let inside = intersect(masks.blockers[5].clone(), probe(y), FillRule::NonZero)
+                .unwrap_or_default();
+            assert!(
+                area_of(&inside) > 0.19,
+                "layer 5 must cover the ramp at y={y}, between its two planes"
+            );
+        }
     }
 }

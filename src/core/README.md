@@ -550,7 +550,7 @@ flow-compensated with the rest of the layer.
 
 The mechanism — overhang detection, downward projection with XY and Z clearance,
 interface layers, and the two column styles — is documented in that module's own
-doc comments. Four things are worth knowing from outside it:
+doc comments. Five things are worth knowing from outside it:
 
 - **Footprints come from a pristine perimeter snapshot, never the live layer.**
   `classify_overhang_perimeters` retags an overhanging wall as
@@ -561,12 +561,20 @@ doc comments. Four things are worth knowing from outside it:
   **Any test for support behaviour must go through `process_mesh`**
   ([tests/support_slice.rs](../../tests/support_slice.rs)) — a test that builds
   `SliceLayer`s by hand cannot see this class of bug, and did not.
+- **Paint is read from the band between two layer planes, not from the slab a
+  layer prints.** Layer `i`'s overhang is the surface between plane `i − 1` and
+  plane `i`, so [`support_paint.rs`](support_paint.rs) projects each layer's
+  paint from exactly that band — measured at the slicer's own sampling offset,
+  `SLICE_EPSILON` above each plane. Moving the planes or that offset moves
+  where paint lands; a slab centred on the plane missed ledges between planes
+  and left a strip along every layer of a blocked shallow slope.
 - **`Normal` carries the full overhang footprint down; `Tree` is a node-drop
   simulation** whose tips migrate toward their local centroid, merge when they
-  meet, and reject any step entering the model. Tree costs markedly less
-  filament. It is a pragmatic approximation, **not** a collision-avoiding
-  branching tree with base flaring — the limitation is surfaced by
-  `unsupported_feature_warnings()`.
+  meet, and reject any step entering the model. Both stop where they come down
+  onto the model, so support never passes through solid material into a cavity
+  below. Tree costs markedly less filament. It is a pragmatic approximation,
+  **not** a collision-avoiding branching tree with base flaring — the
+  limitation is surfaced by `unsupported_feature_warnings()`.
 - **`ExtrusionRole::forms_closed_loops` is one definition** shared by the G-code
   generator and the path orderer. The two disagreeing about whether `Support`
   closes silently drops the segment that closes each island back to its start.

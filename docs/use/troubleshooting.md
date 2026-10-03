@@ -43,8 +43,9 @@ setting, the result _will_ differ.
 **Sparse or missing top surfaces** — increase top layers (Process → Surfaces),
 or infill density so the top has something to build on.
 
-**Supports where I don't want them** — raise the overhang threshold angle, or
-switch support type. Check the preview again afterwards.
+**Supports where I don't want them** — paint a blocker (`B`) over the overhang
+they hold up, raise the overhang threshold angle, or switch support type. Check
+the preview again afterwards.
 
 **Stringing between parts** — enable travel moves in the preview to see the
 paths, then look at Retraction on the printer profile.
