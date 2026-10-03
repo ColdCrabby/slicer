@@ -63,20 +63,14 @@ describe('field relevance gates', () => {
 
   it('hides a field whose own gate is hidden', () => {
     // Tree settings are gated on the style, the style on supports being on.
-    const visible = (values: Record<string, unknown>) =>
+    const shows = (values: Record<string, unknown>) =>
       filterRelevantGroups(parsed.groups, values)
         .flatMap((g) => g.fields)
-        .map((f) => f.key);
+        .some((f) => f.key === 'support_tree_branch_angle');
 
-    expect(visible({ support_enabled: true, support_type: 'tree' })).toContain(
-      'support_tree_branch_angle',
-    );
-    expect(visible({ support_enabled: true, support_type: 'normal' })).not.toContain(
-      'support_tree_branch_angle',
-    );
-    expect(visible({ support_enabled: false, support_type: 'tree' })).not.toContain(
-      'support_tree_branch_angle',
-    );
+    expect(shows({ support_enabled: true, support_type: 'tree' })).toBe(true);
+    expect(shows({ support_enabled: true, support_type: 'normal' })).toBe(false);
+    expect(shows({ support_enabled: false, support_type: 'tree' })).toBe(false);
   });
 
   it('leaves an ungated field always relevant', () => {
