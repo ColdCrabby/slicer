@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { RouteProgress } from '../../components/route-progress/route-progress';
+import { OmniboxService } from '../../omnibox/omnibox-service';
+import { OmniboxPalette } from '../../omnibox/omnibox';
 import { Viewport } from '../../services/viewport';
 import { NavRail } from '../nav-rail/nav-rail';
 import { NexusTitlebar } from '../titlebar/titlebar';
@@ -20,7 +22,10 @@ import { NexusTitlebar } from '../titlebar/titlebar';
  */
 @Component({
   selector: 'nexus-shell',
-  imports: [RouterOutlet, NexusTitlebar, NavRail, RouteProgress],
+  // The omnibox palette is in the template behind `@defer (when omnibox.open())`
+  // — listed here for the compiler, which is what keeps it out of the eager
+  // bundle and in its own chunk until the palette is first asked for.
+  imports: [RouterOutlet, NexusTitlebar, NavRail, RouteProgress, OmniboxPalette],
   templateUrl: './shell.html',
   styleUrl: './shell.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -36,4 +41,14 @@ export class AppShell {
    * device on the dashboard would leave the class stale.
    */
   private readonly viewport = inject(Viewport);
+
+  /**
+   * Whether the omnibox palette should be on screen.
+   *
+   * The shell never renders the palette itself — the template's `@defer` does,
+   * when this turns true — but the trigger has to live somewhere eager, because
+   * the keyboard shortcuts must reach the palette from any route before its
+   * chunk has ever loaded.
+   */
+  protected readonly omnibox = inject(OmniboxService);
 }
