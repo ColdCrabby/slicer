@@ -505,7 +505,6 @@ pub fn process_mesh_with_paint(
             mesh,
             paint,
             &layers,
-            params.layer_height,
             resolved_first_layer_height(params),
             params.nozzle_diameter_mm,
         );

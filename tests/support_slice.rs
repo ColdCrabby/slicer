@@ -8,9 +8,10 @@
 //! 50 footprints empty and produced no support at any threshold, while every
 //! hand-built unit test passed. Only the pipeline path can catch that.
 
-use slicer_engine::core::{process_mesh, ExtrusionRole, SliceLayer};
+use slicer_engine::core::{process_mesh, process_mesh_with_paint, ExtrusionRole, SliceLayer};
 use slicer_engine::gcode::{GcodeFlavor, GcodeGenerator};
 use slicer_engine::logging::NullLogger;
+use slicer_engine::mesh::paint::{FacetPaint, PaintState};
 use slicer_engine::mesh::types::{Face, Mesh, Vertex};
 use slicer_engine::settings::params::{AdhesionType, SlicingParams, SupportType};
 
@@ -26,7 +27,12 @@ fn quad(m: &mut Mesh, a: Vertex, b: Vertex, c: Vertex, d: Vertex) {
 /// A square frustum whose side walls lean `slope_deg` from vertical: the
 /// canonical "does this slicer support an overhang" shape.
 fn frustum(slope_deg: f64) -> Mesh {
-    let h = 10.0;
+    frustum_of_height(slope_deg, 10.0)
+}
+
+/// [`frustum`] at a chosen height, so a near-horizontal slope stays a
+/// reasonable size.
+fn frustum_of_height(slope_deg: f64, h: f64) -> Mesh {
     let b = 2.0;
     let t = b + slope_deg.to_radians().tan() * h;
     let (cx, cy) = (25.0, 25.0);
@@ -607,4 +613,86 @@ fn the_debug_pipeline_generates_the_same_support_as_the_real_one() {
         support_len(&dbg) > 100.0,
         "the debug pipeline must generate support too"
     );
+}
+
+/// Paint every facet of `mesh` with `state`.
+fn paint_every_facet(mesh: &Mesh, state: PaintState) -> FacetPaint {
+    let mut paint = FacetPaint::new();
+    let faces = mesh.faces.len();
+    for face in 0..faces {
+        paint.set(face, state, faces);
+    }
+    paint
+}
+
+/// [`mushroom`] with the cap's underside at 10.15 mm: between the layer planes
+/// at 10.1 and 10.3, so its overhang is detected on the upper one while the
+/// material printed on the lower one contains the face.
+fn mushroom_between_planes() -> Mesh {
+    let mut m = Mesh::new();
+    add_box(&mut m, (12.0, 12.0, 0.0), (18.0, 18.0, 10.15));
+    add_box(&mut m, (0.0, 0.0, 10.15), (30.0, 30.0, 12.15));
+    m.vertices = m.faces.iter().flat_map(|f| f.vertices).collect();
+    m.calculate_aabb();
+    m
+}
+
+#[test]
+fn blocking_every_facet_leaves_no_support() {
+    // Each case left support behind under a model painted end to end: the
+    // ledge kept its whole column, and the shallow slope a strip along every
+    // layer, because paint was read from the slab a layer prints rather than
+    // the surface its overhang comes from.
+    for ty in [SupportType::Normal, SupportType::Tree] {
+        let params = SlicingParams {
+            support_type: ty,
+            ..support_params(45.0)
+        };
+        for (name, mesh) in [
+            ("ledge between planes", mushroom_between_planes()),
+            ("80° slope", frustum_of_height(80.0, 2.0)),
+        ] {
+            assert!(
+                support_len(&process_mesh(&mesh, &params, &NullLogger)) > 100.0,
+                "{ty:?} {name}: unpainted, the overhang must be supported"
+            );
+            let blocked = process_mesh_with_paint(
+                &mesh,
+                &params,
+                &NullLogger,
+                &paint_every_facet(&mesh, PaintState::Blocker),
+            );
+            assert_eq!(
+                support_len(&blocked),
+                0.0,
+                "{ty:?} {name}: painted with blockers everywhere, no support may remain"
+            );
+        }
+    }
+}
+
+#[test]
+fn an_enforcer_supports_a_slope_the_angle_rule_passes_over() {
+    // 30° from vertical is self-supporting, so the rule leaves it alone — and
+    // an enforcer must still put support there, with automatic detection on or
+    // off. Measured against the threshold step, it never added anything.
+    let mesh = frustum(30.0);
+    let enforced = paint_every_facet(&mesh, PaintState::Enforcer);
+    for auto in [true, false] {
+        let params = SlicingParams {
+            support_auto: auto,
+            ..support_params(45.0)
+        };
+        assert_eq!(
+            support_len(&process_mesh(&mesh, &params, &NullLogger)),
+            0.0,
+            "unpainted, a self-supporting slope gets no support (auto = {auto})"
+        );
+        let layers = process_mesh_with_paint(&mesh, &params, &NullLogger, &enforced);
+        assert!(
+            support_len(&layers) > 100.0,
+            "an enforced slope must be supported (auto = {auto}, got {:.1} mm)",
+            support_len(&layers)
+        );
+    }
 }

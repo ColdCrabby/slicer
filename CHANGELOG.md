@@ -28,6 +28,16 @@ See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Painted support enforcers work on any slope** — paint one under a gentle
+  overhang and it gets support, whether automatic detection is on or off.
+- **Painted support blockers clear everything they cover** — no column left
+  under a blocked ledge, no strip of support along a blocked slope.
+- **No more stray support specks** — support stops where it lands on the model
+  instead of resurfacing in recesses below it, and slivers too thin to print are
+  gone.
+
 ## [0.6.0] - 2026-10-01
 
 Your models get a library, and your prints come off faster. Every model you've
