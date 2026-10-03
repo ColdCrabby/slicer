@@ -8,3 +8,9 @@
     <router-outlet />
   </div>
 </div>
+
+<!-- The omnibox palette: deferred so its chunk (and nothing it pulls) loads
+     only once the palette is first opened, then stays mounted while open. -->
+@defer (when omnibox.open(); prefetch on idle) {
+  <nexus-omnibox />
+}
