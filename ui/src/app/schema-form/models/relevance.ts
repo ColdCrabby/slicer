@@ -39,6 +39,11 @@ export function isFieldRelevant(field: FieldDef, values: Record<string, unknown>
  * Filter a list of groups down to only the fields that are currently relevant
  * given `values`, dropping any group that loses all of its fields.
  *
+ * Gates chain: a field is relevant only while the field gating it is relevant
+ * too. The tree-support settings are gated on the support style, which is
+ * itself gated on supports being on — without the chain, switching supports
+ * off left the tree settings on screen under a style picker that had gone.
+ *
  * Pure and non-mutating — returns fresh group objects so callers can safely
  * memoise the result. Field order within each group is preserved.
  */
@@ -46,10 +51,28 @@ export function filterRelevantGroups(
   groups: SchemaGroup[],
   values: Record<string, unknown>,
 ): SchemaGroup[] {
+  const byKey = new Map<string, FieldDef>();
+  for (const group of groups) {
+    for (const field of group.fields) {
+      byKey.set(field.key, field);
+    }
+  }
+  const relevant = (field: FieldDef, visited: Set<string>): boolean => {
+    if (!isFieldRelevant(field, values)) {
+      return false;
+    }
+    const gate = field.relevantWhen ? byKey.get(field.relevantWhen.field) : undefined;
+    // A gate outside these groups, or a cycle, ends the chain.
+    if (!gate || visited.has(gate.key)) {
+      return true;
+    }
+    visited.add(field.key);
+    return relevant(gate, visited);
+  };
   return groups
     .map((group) => ({
       name: group.name,
-      fields: group.fields.filter((f) => isFieldRelevant(f, values)),
+      fields: group.fields.filter((f) => relevant(f, new Set())),
     }))
     .filter((group) => group.fields.length > 0);
 }

@@ -11,6 +11,7 @@
 use slicer_engine::core::{process_mesh, process_mesh_with_paint, ExtrusionRole, SliceLayer};
 use slicer_engine::gcode::{GcodeFlavor, GcodeGenerator};
 use slicer_engine::logging::NullLogger;
+use slicer_engine::mesh::paint::{FacetPaint, PaintState};
 use slicer_engine::mesh::types::{Face, Mesh, Vertex};
 use slicer_engine::settings::params::{AdhesionType, SlicingParams, SupportType};
 
@@ -26,7 +27,12 @@ fn quad(m: &mut Mesh, a: Vertex, b: Vertex, c: Vertex, d: Vertex) {
 /// A square frustum whose side walls lean `slope_deg` from vertical: the
 /// canonical "does this slicer support an overhang" shape.
 fn frustum(slope_deg: f64) -> Mesh {
-    let h = 10.0;
+    frustum_of_height(slope_deg, 10.0)
+}
+
+/// [`frustum`] at a chosen height, so a near-horizontal slope stays a
+/// reasonable size.
+fn frustum_of_height(slope_deg: f64, h: f64) -> Mesh {
     let b = 2.0;
     let t = b + slope_deg.to_radians().tan() * h;
     let (cx, cy) = (25.0, 25.0);
@@ -633,5 +639,186 @@ fn the_debug_pipeline_generates_the_same_support_as_the_real_one() {
     assert!(
         support_len(&dbg) > 100.0,
         "the debug pipeline must generate support too"
+    );
+}
+
+/// Paint every facet of `mesh` with `state`.
+fn paint_every_facet(mesh: &Mesh, state: PaintState) -> FacetPaint {
+    let mut paint = FacetPaint::new();
+    let faces = mesh.faces.len();
+    for face in 0..faces {
+        paint.set(face, state, faces);
+    }
+    paint
+}
+
+/// [`mushroom`] with the cap's underside at 10.15 mm: between the layer planes
+/// at 10.1 and 10.3, so its overhang is detected on the upper one while the
+/// material printed on the lower one contains the face.
+fn mushroom_between_planes() -> Mesh {
+    let mut m = Mesh::new();
+    add_box(&mut m, (12.0, 12.0, 0.0), (18.0, 18.0, 10.15));
+    add_box(&mut m, (0.0, 0.0, 10.15), (30.0, 30.0, 12.15));
+    m.vertices = m.faces.iter().flat_map(|f| f.vertices).collect();
+    m.calculate_aabb();
+    m
+}
+
+#[test]
+fn blocking_every_facet_leaves_no_support() {
+    // Each case left support behind under a model painted end to end: the
+    // ledge kept its whole column, and the shallow slope a strip along every
+    // layer, because paint was read from the slab a layer prints rather than
+    // the surface its overhang comes from.
+    for ty in [SupportType::Normal, SupportType::Tree] {
+        let params = SlicingParams {
+            support_type: ty,
+            ..support_params(45.0)
+        };
+        for (name, mesh) in [
+            ("ledge between planes", mushroom_between_planes()),
+            ("80° slope", frustum_of_height(80.0, 2.0)),
+        ] {
+            assert!(
+                support_len(&process_mesh(&mesh, &params, &NullLogger)) > 100.0,
+                "{ty:?} {name}: unpainted, the overhang must be supported"
+            );
+            let blocked = process_mesh_with_paint(
+                &mesh,
+                &params,
+                &NullLogger,
+                &paint_every_facet(&mesh, PaintState::Blocker),
+            );
+            assert_eq!(
+                support_len(&blocked),
+                0.0,
+                "{ty:?} {name}: painted with blockers everywhere, no support may remain"
+            );
+        }
+    }
+}
+
+#[test]
+fn an_enforcer_supports_a_slope_the_angle_rule_passes_over() {
+    // 30° from vertical is self-supporting, so the rule leaves it alone — and
+    // an enforcer must still put support there, with automatic detection on or
+    // off. Measured against the threshold step, it never added anything.
+    let mesh = frustum(30.0);
+    let enforced = paint_every_facet(&mesh, PaintState::Enforcer);
+    for auto in [true, false] {
+        let params = SlicingParams {
+            support_auto: auto,
+            ..support_params(45.0)
+        };
+        assert_eq!(
+            support_len(&process_mesh(&mesh, &params, &NullLogger)),
+            0.0,
+            "unpainted, a self-supporting slope gets no support (auto = {auto})"
+        );
+        let layers = process_mesh_with_paint(&mesh, &params, &NullLogger, &enforced);
+        assert!(
+            support_len(&layers) > 100.0,
+            "an enforced slope must be supported (auto = {auto}, got {:.1} mm)",
+            support_len(&layers)
+        );
+    }
+}
+
+/// A block on the bed, a thin post on the block, and a wide cap on the post:
+/// the cap's support must find its way down past the block.
+fn tiered() -> Mesh {
+    let mut m = Mesh::new();
+    add_box(&mut m, (-8.0, -8.0, 0.0), (8.0, 8.0, 4.0));
+    add_box(&mut m, (-2.0, -2.0, 4.0), (2.0, 2.0, 20.0));
+    add_box(&mut m, (-14.0, -14.0, 20.0), (14.0, 14.0, 22.0));
+    m.vertices = m.faces.iter().flat_map(|f| f.vertices).collect();
+    m.calculate_aabb();
+    m
+}
+
+/// Support vertices on layers whose plane lies in `z_range`, as
+/// `(x, y, z)`.
+fn support_points(layers: &[SliceLayer], z_range: std::ops::Range<f64>) -> Vec<(f64, f64, f64)> {
+    let mut out = Vec::new();
+    for layer in layers.iter().filter(|l| z_range.contains(&l.z)) {
+        for (i, path) in layer.paths.iter().enumerate() {
+            if layer.role_for_path(i) == ExtrusionRole::Support {
+                out.extend(path.iter().map(|p| (p.x(), p.y(), layer.z)));
+            }
+        }
+    }
+    out
+}
+
+/// Distance from `(x, y)` to the axis-aligned square of half-width `half`
+/// centred on the origin — negative inside it.
+fn to_square(x: f64, y: f64, half: f64) -> f64 {
+    let (dx, dy) = (x.abs() - half, y.abs() - half);
+    if dx <= 0.0 && dy <= 0.0 {
+        dx.max(dy)
+    } else {
+        dx.max(0.0).hypot(dy.max(0.0))
+    }
+}
+
+#[test]
+fn tree_branches_keep_their_clearance_and_reach_the_bed_around_the_model() {
+    let params = SlicingParams {
+        support_type: SupportType::Tree,
+        ..support_params(45.0)
+    };
+    let layers = process_mesh(&tiered(), &params, &NullLogger);
+    assert!(
+        !support_points(&layers, 0.0..0.3).is_empty(),
+        "branches from the cap must reach the bed"
+    );
+
+    // Checked on bead centrelines against the XY clearance itself. A centreline
+    // sits half a bead further out than the material it lays, which leaves room
+    // for the clearance being measured round the wall centreline at a convex
+    // corner — a little less there than on a flat face, for either style.
+    let keep_out = params.support_xy_distance_mm;
+    for (x, y, z) in support_points(&layers, 0.0..19.9) {
+        let model_half = if z < 4.0 { 8.0 } else { 2.0 };
+        let gap = to_square(x, y, model_half);
+        assert!(
+            gap >= keep_out,
+            "support at ({x:.2}, {y:.2}, z={z:.2}) is {gap:.2} mm from the model; \
+             at least {keep_out:.2} mm expected"
+        );
+    }
+}
+
+#[test]
+fn tree_branches_never_stand_on_the_model_under_build_plate_only() {
+    let params = SlicingParams {
+        support_type: SupportType::Tree,
+        support_on_build_plate_only: true,
+        ..support_params(45.0)
+    };
+    let layers = process_mesh(&tiered(), &params, &NullLogger);
+    assert!(
+        !support_points(&layers, 0.0..0.3).is_empty(),
+        "the cap reaches past the block, so branches still reach the bed"
+    );
+    // A branch standing on the block would sit right above its top, over its
+    // interior. Branches may graze its edge on their way past to the bed, but
+    // the layer of air above the block stays clear, and so does everything over
+    // its interior in the first millimetre up.
+    let over = |z: std::ops::Range<f64>, inset: f64| {
+        support_points(&layers, z)
+            .into_iter()
+            .filter(|&(x, y, _)| to_square(x, y, 8.0) < -inset)
+            .count()
+    };
+    assert_eq!(
+        over(4.0..4.2, 0.0),
+        0,
+        "the air gap above the block must stay clear"
+    );
+    assert_eq!(
+        over(4.0..5.0, 1.0),
+        0,
+        "no branch may stand on the block under build-plate-only"
     );
 }

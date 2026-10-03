@@ -28,6 +28,23 @@ See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 
 ## [Unreleased]
 
+### Changed
+
+- **Organic tree supports** — branches grow from small tips under the overhang,
+  merge into trunks, steer around your model and thicken toward the plate,
+  standing on the model only where the plate is out of reach. Shape them with
+  the new branch angle and diameter settings under Support.
+
+### Fixed
+
+- **Painted support enforcers work on any slope** — paint one under a gentle
+  overhang and it gets support, whether automatic detection is on or off.
+- **Painted support blockers clear everything they cover** — no column left
+  under a blocked ledge, no strip of support along a blocked slope.
+- **No more stray support specks** — support stops where it lands on the model
+  instead of resurfacing in recesses below it, and slivers too thin to print are
+  gone.
+
 ## [0.6.0] - 2026-10-01
 
 Your models get a library, and your prints come off faster. Every model you've

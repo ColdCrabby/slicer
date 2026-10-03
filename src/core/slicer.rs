@@ -10,7 +10,10 @@ use super::types::{ExtrusionRole, SliceLayer};
 /// many vertices land on the plane at once and yields a degenerate,
 /// order-dependent cross-section.  ~1 µm is far below any printable feature yet
 /// large enough to clear f32 vertex quantisation.
-const SLICE_EPSILON: f64 = 1e-3;
+///
+/// Support paint measures each layer's band from these sampled planes, so it
+/// reads this too.
+pub(super) const SLICE_EPSILON: f64 = 1e-3;
 
 /// Interpolate the XY intersection point of a triangle edge with a Z plane.
 ///

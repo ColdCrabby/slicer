@@ -149,6 +149,15 @@ default, which suits typical PLA. Your filament's label wins over any default.
 has overhangs steeper than about 45°. Check the preview afterwards: supports
 that touch nothing are wasted plastic and a worse surface.
 
+Two styles. **Normal** builds a straight grid column under every overhang.
+**Tree** grows branches from small tips under the overhang down to the plate,
+merging them into trunks and steering them around the model, so it touches the
+print in fewer places and comes away more easily. Trees save the most under
+overhangs well above the plate — outstretched arms, a roof — and little under a
+broad slope or a wide shelf close to the plate, where a grid is just as lean.
+Under Advanced, **Branch Angle**, **Tip Diameter** and **Branch Diameter** shape
+the branches.
+
 Supports normally stand wherever they are needed, including on the model
 itself. **Only from build plate** restricts them to columns that can reach the
 bed through open space. Anything that would have to rest on the print is
@@ -156,7 +165,8 @@ dropped, so those overhangs print unsupported — a deliberate trade you make
 when a support landing on the model would scar a surface you care about, or sit
 somewhere you could never get a tool into. Expect to lose coverage: on a shelf
 overhanging a wider base, the part beyond the base is still supported and the
-part above it is not.
+part above it is not. Tree branches can lean out past the base to reach the
+plate, so trees keep more of that coverage.
 
 ## Advanced and Expert
 
@@ -221,7 +231,7 @@ still reaches everything, and nothing is hidden from you at any level.
 | **Layer** | Layer height, first-layer height |
 | **Walls** | Wall count, wall generator, thin walls, extra perimeters, ordering, seam behaviour, fuzzy skin |
 | **Infill** | Density, pattern, angle |
-| **Support** | On/off, type, density, overhang threshold, interface layers, clearances, whether support may only start from the build plate |
+| **Support** | On/off, type, density, overhang threshold, interface layers, clearances, whether support may only start from the build plate, the shape of tree branches |
 | **Speed** | Per-role print speeds and accelerations, travel speed, and how gently travel arrives at an outer wall |
 | **Quality** | Bridging, dimensional compensation, other accuracy options |
 | **Surfaces** | Top and bottom solid layer counts, surface fill, ironing |
