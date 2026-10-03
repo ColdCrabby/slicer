@@ -365,7 +365,12 @@ pub fn generate_supports_with_paint(
         }
         let grown_prev = poly_inflate(&footprints[i - 1], max_step);
 
-        let mut detected = if auto_detect {
+        // Two independent sources feed this layer's support. The auto-detected
+        // overhang is derived purely from geometry and is the *only* thing the
+        // `support_auto` flag controls; the painted enforcer is an explicit
+        // user instruction and must never be gated by that flag or filtered
+        // against the detected set. They are combined by union below.
+        let auto_overhang = if auto_detect {
             let raw = poly_difference(&footprints[i], &grown_prev);
             // The noise filter belongs to *detection* only. A painted enforcer
             // is an explicit instruction, however small the facet — passing it
@@ -376,40 +381,58 @@ pub fn generate_supports_with_paint(
             Paths::new(vec![])
         };
 
-        if painted {
-            let blocker = paint.blocker_at(i);
-            if !blocker.is_empty() && !detected.is_empty() {
-                detected = poly_difference(&detected, &poly_inflate(&blocker, blocker_grow));
-            }
-
+        // Painted enforcer for this layer, computed without consulting
+        // `auto_overhang` so an empty detected set (auto-detect off, or a model
+        // with no qualifying overhangs) cannot discard it. This is what makes
+        // paint-on-support work in manual mode; intersecting it with the
+        // auto-detected set would make it a silent no-op whenever that set is
+        // empty.
+        let enforced = if painted {
             let enforcer = paint.enforcer_at(i);
-            if !enforcer.is_empty() {
+            if enforcer.is_empty() {
+                Paths::new(vec![])
+            } else {
                 // Clip to the model's own cross-section: paint on a surface
                 // that is not actually exposed at this height describes no
                 // overhang, and support hanging in free air beside the part
                 // helps nobody.
-                let mut enforced = poly_intersect(&footprints[i], &enforcer);
+                let mut region = poly_intersect(&footprints[i], &enforcer);
                 // Material resting on the layer below needs nothing added under
                 // it — but *any* outward step counts, not only one past the
                 // threshold. The facet tolerance is still taken off, so a
                 // painted vertical wall does not sprout slivers from facet
                 // jitter; down a slope the rings it leaves are that tolerance
                 // apart, which the accumulation's close welds shut.
-                enforced = poly_difference(
-                    &enforced,
+                region = poly_difference(
+                    &region,
                     &poly_inflate(&footprints[i - 1], OVERHANG_FACET_TOLERANCE_MM),
                 );
                 // A blocker wins where the two overlap, so a broad enforcer can
                 // be trimmed with a few strokes rather than repainted.
+                let blocker = paint.blocker_at(i);
                 if !blocker.is_empty() {
-                    enforced = poly_difference(&enforced, &poly_inflate(&blocker, blocker_grow));
+                    region = poly_difference(&region, &poly_inflate(&blocker, blocker_grow));
                 }
-                detected = poly_union(&detected, &enforced);
-                enforced_overhang[i] = enforced;
+                region
+            }
+        } else {
+            Paths::new(vec![])
+        };
+        enforced_overhang[i] = enforced.clone();
+
+        // Auto-detected overhangs are still subject to blockers. Enforcers were
+        // already trimmed against the blocker above.
+        let mut detected = auto_overhang;
+        if painted {
+            let blocker = paint.blocker_at(i);
+            if !blocker.is_empty() && !detected.is_empty() {
+                detected = poly_difference(&detected, &poly_inflate(&blocker, blocker_grow));
             }
         }
 
-        overhang[i] = detected;
+        // The enforcer is added as its own source, never intersected with the
+        // auto set, so it forces support regardless of `support_auto`.
+        overhang[i] = poly_union(&detected, &enforced);
     }
 
     // ── 3. Register each overhang at its top-contact (activation) layer ─────
@@ -1277,6 +1300,72 @@ mod tests {
         assert!(
             support_total_len(&layers) > 0.0,
             "a painted enforcer must be supported even with no path to the plate"
+        );
+    }
+
+    /// A painted enforcer is an explicit instruction, so it must seed support
+    /// whether or not the automatic overhang rule runs. Regression guard for
+    /// T-25: an enforcer used to be intersected only against the auto-detected
+    /// overhang set, so with `support_auto` off that set was empty and the
+    /// enforcer silently produced nothing at all.
+    #[test]
+    fn painted_enforcer_is_independent_of_auto_detect() {
+        let build = || {
+            let layers = tiered_stack(20.0, 15.0);
+            let n = layers.len();
+            let mut enforcers = vec![Paths::new(vec![]); n];
+            // Layer 30 is where the cap first appears, which is where its
+            // underside overhang is registered in step 2.
+            enforcers[30] = square_paths(-20.0, 0.0, 15.0);
+            (
+                layers,
+                SupportPaintMasks {
+                    enforcers,
+                    blockers: vec![Paths::new(vec![]); n],
+                },
+            )
+        };
+
+        let params = SlicingParams {
+            support_auto: false,
+            ..params_with_supports()
+        };
+
+        // Auto-detect off and nothing painted: this geometry is all overhang,
+        // so an empty result proves the toggle really skips the angle rule.
+        let mut bare = tiered_stack(20.0, 15.0);
+        let bare_n = bare.len();
+        let empty = SupportPaintMasks {
+            enforcers: vec![Paths::new(vec![]); bare_n],
+            blockers: vec![Paths::new(vec![]); bare_n],
+        };
+        generate_supports_with_paint(&mut bare, &params, None, &empty);
+        assert_eq!(
+            support_total_len(&bare),
+            0.0,
+            "auto-detect off must skip the overhang rule entirely"
+        );
+
+        // Same geometry and settings, but the cap is painted: the enforcer is
+        // the *only* source of support and must still build a column.
+        let (mut painted, mask) = build();
+        generate_supports_with_paint(&mut painted, &params, None, &mask);
+        assert!(
+            support_total_len(&painted) > 0.0,
+            "a painted enforcer must force support with auto-detect off"
+        );
+
+        // Tree supports read the same `add_at` pads, but route through a
+        // different column builder — guard that path too.
+        let (mut tree, tree_mask) = build();
+        let tree_params = SlicingParams {
+            support_type: SupportType::Tree,
+            ..params
+        };
+        generate_supports_with_paint(&mut tree, &tree_params, None, &tree_mask);
+        assert!(
+            support_total_len(&tree) > 0.0,
+            "tree supports must honour a painted enforcer with auto-detect off"
         );
     }
 

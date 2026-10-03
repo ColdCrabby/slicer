@@ -123,6 +123,33 @@ fn a_steep_slope_is_supported_through_the_whole_pipeline() {
     );
 }
 
+/// A painted enforcer must force support through the *whole* pipeline even
+/// when the automatic overhang rule is switched off. Regression guard for
+/// T-25, end-to-end: the unit path can pass while paint is dropped at the
+/// `project_support_paint` → `process_mesh_with_paint` boundary.
+#[test]
+fn a_painted_enforcer_forces_support_without_auto_detect() {
+    use slicer_engine::mesh::paint::{FacetPaint, PaintState};
+
+    let mesh = mushroom();
+    // The cap is the second box, so its faces are 12..24; its bottom face
+    // (the z=10 underside) is the first quad — faces 12 and 13.
+    let mut paint = FacetPaint::new();
+    paint.set(12, PaintState::Enforcer, mesh.faces.len());
+    paint.set(13, PaintState::Enforcer, mesh.faces.len());
+
+    let params = SlicingParams {
+        support_auto: false,
+        ..support_params(45.0)
+    };
+    let layers = process_mesh_with_paint(&mesh, &params, &NullLogger, &paint);
+
+    assert!(
+        support_len(&layers) > 0.0,
+        "a painted enforcer must generate support with auto-detect off"
+    );
+}
+
 #[test]
 fn a_self_supporting_slope_gets_no_support() {
     // 30° from vertical is well inside the 45° rule: adding support here would
