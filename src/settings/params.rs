@@ -619,6 +619,7 @@ pub enum TriggerAction {
 /// temperatures in °C; infill density as a fraction 0.0–1.0.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(default)]
+#[schemars(extend("x-contracts" = setting_contracts_schema_value()))]
 pub struct SlicingParams {
     #[schemars(description = "Layer height in mm.
 
@@ -2916,6 +2917,108 @@ fn parse_percent(value: &serde_json::Value) -> Option<f64> {
     text.trim().parse::<f64>().ok().map(|n| n / 100.0)
 }
 
+/// The three kinds of profile, each of which owns some of the settings groups.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum SettingContract {
+    /// The machine: hardware, firmware output, retraction.
+    Printer,
+    /// The material: temperatures, cooling, flow.
+    Filament,
+    /// The print: everything a print profile presets.
+    Process,
+}
+
+/// Which profile owns each settings group (`x-group`).
+///
+/// A printer, a filament and a print profile each present exactly the settings
+/// their groups hold. That decides what each profile editor shows, and where
+/// the importer puts a value read from another slicer's file — a value written
+/// into a profile whose editor never shows it would change prints invisibly.
+///
+/// This is the one copy. It is published in the schema as `x-contracts`, which
+/// is where the UI reads its contract groups from; every group the schema
+/// declares must appear here exactly once
+/// (`every_settings_group_has_exactly_one_owner`).
+pub const SETTING_CONTRACTS: [(SettingContract, &[&str]); 3] = [
+    (
+        SettingContract::Printer,
+        &["Hardware", "Fans", "Retraction", "Output", "Time estimate"],
+    ),
+    (
+        SettingContract::Filament,
+        &[
+            "Material",
+            "Temperature",
+            "Cooling",
+            "Extrusion",
+            "Filament G-code",
+        ],
+    ),
+    (
+        SettingContract::Process,
+        &[
+            "Layer",
+            "Walls",
+            "Infill",
+            "Support",
+            "Speed",
+            "Quality",
+            "Surfaces",
+            "Adhesion",
+            "Objects",
+            "Thumbnail",
+            "Mesh",
+        ],
+    ),
+];
+
+/// [`SETTING_CONTRACTS`] as the schema publishes it: `{ "printer": [groups…], … }`.
+fn setting_contracts_schema_value() -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    for (contract, groups) in SETTING_CONTRACTS {
+        let key = serde_json::to_value(contract)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_default();
+        map.insert(key, serde_json::json!(groups));
+    }
+    serde_json::Value::Object(map)
+}
+
+/// The profile that owns settings group `group`.
+pub fn contract_for_group(group: &str) -> Option<SettingContract> {
+    SETTING_CONTRACTS
+        .iter()
+        .find(|(_, groups)| groups.contains(&group))
+        .map(|(contract, _)| *contract)
+}
+
+/// The profile that owns setting `key`, by the group its schema declares.
+pub fn contract_for_setting(key: &str) -> Option<SettingContract> {
+    static BY_SETTING: std::sync::OnceLock<std::collections::HashMap<String, SettingContract>> =
+        std::sync::OnceLock::new();
+    BY_SETTING
+        .get_or_init(|| {
+            let schema = serde_json::to_value(schemars::schema_for!(SlicingParams))
+                .unwrap_or(serde_json::Value::Null);
+            schema["properties"]
+                .as_object()
+                .map(|properties| {
+                    properties
+                        .iter()
+                        .filter_map(|(name, spec)| {
+                            let group = spec.get("x-group")?.as_str()?;
+                            Some((name.clone(), contract_for_group(group)?))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        })
+        .get(key)
+        .copied()
+}
+
 /// The settings a machine may correct per material family — the closed set a
 /// [`material overlay`] is allowed to carry.
 ///
@@ -4374,6 +4477,39 @@ mod tests {
         assert_eq!(
             annotated, DERIVED_FROM,
             "`DERIVED_FROM` and the `x-derived-from` annotations disagree"
+        );
+    }
+
+    /// A group no profile owns would never be shown in any editor, and an
+    /// imported value in it would land nowhere a user could see it.
+    #[test]
+    fn every_settings_group_has_exactly_one_owner() {
+        let json = serde_json::to_value(schemars::schema_for!(SlicingParams)).unwrap();
+        let groups: std::collections::BTreeSet<&str> = json["properties"]
+            .as_object()
+            .unwrap()
+            .values()
+            .filter_map(|spec| spec.get("x-group")?.as_str())
+            .collect();
+        for group in &groups {
+            let owners = SETTING_CONTRACTS
+                .iter()
+                .filter(|(_, owned)| owned.contains(group))
+                .count();
+            assert_eq!(owners, 1, "group `{group}` has {owners} owners");
+        }
+        assert_eq!(json["x-contracts"]["filament"][0], "Material");
+        assert_eq!(
+            contract_for_setting("nozzle_temp"),
+            Some(SettingContract::Filament)
+        );
+        assert_eq!(
+            contract_for_setting("retract_mm"),
+            Some(SettingContract::Printer)
+        );
+        assert_eq!(
+            contract_for_setting("wall_count"),
+            Some(SettingContract::Process)
         );
     }
 
