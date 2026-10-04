@@ -409,6 +409,30 @@ describe('SceneSelection', () => {
       expect(cameraListener).toHaveBeenCalledTimes(0);
     });
 
+    // The T-27 hole #373 left open, and why its tests were green: jsdom halts
+    // same-element listeners on plain `stopPropagation`, but real browsers
+    // only do so for `stopImmediatePropagation` — OrbitControls listens on the
+    // very canvas the claim stops the event at, so a plain `stopPropagation`
+    // claim let the same drag orbit the camera.
+    it('claims the press with stopImmediatePropagation, not just stopPropagation', () => {
+      selection.gizmoHandlers = {
+        delta: vi.fn(),
+        end: vi.fn(),
+        facePicked: vi.fn(),
+        paintDab: vi.fn(),
+        paintEnd: vi.fn(),
+        paintRadiusChange: vi.fn(),
+      };
+      selection.setObjectMode('translate');
+      selection.setSelectedIds(new Set(['7']));
+
+      const event = pointerEvent('pointerdown', { pointerType: 'touch' });
+      const stopImmediate = vi.spyOn(event, 'stopImmediatePropagation');
+      canvas.dispatchEvent(event);
+
+      expect(stopImmediate).toHaveBeenCalledTimes(1);
+    });
+
     it('ignores a second finger rather than dropping the drag', () => {
       const gizmoHandlers = {
         delta: vi.fn(),
@@ -614,6 +638,64 @@ describe('SceneSelection', () => {
       // Dropped, not committed: a stroke the camera interrupted opens no
       // history entry.
       expect(gizmoHandlers.paintEnd).toHaveBeenCalledTimes(0);
+    });
+
+    // The paint flavour of the T-27 hole: the press that starts a stroke is
+    // claimed, and the claim has to silence OrbitControls' `pointerdown` on
+    // this same canvas — which only `stopImmediatePropagation` can (see the
+    // direct-drag claim test above).
+    it('claims the paint press with stopImmediatePropagation', () => {
+      const event = pointerEvent('pointerdown', { clientX: CENTRE, clientY: CENTRE });
+      const stopImmediate = vi.spyOn(event, 'stopImmediatePropagation');
+      canvas.dispatchEvent(event);
+
+      expect(gizmoHandlers.paintDab).toHaveBeenCalled();
+      expect(stopImmediate).toHaveBeenCalledTimes(1);
+      expect(cameraListener).toHaveBeenCalledTimes(0);
+    });
+
+    // Rule 3 of the camera-vs-paint contract: while camera navigation is
+    // active, paint input is ignored entirely — the press reaches the camera
+    // unclaimed and no stroke is armed. Redundant reports (the controls
+    // combine several navigation sources) must not flip the gate.
+    it('ignores paint input while camera navigation is active', () => {
+      selection.onCameraNavigation(true);
+      selection.onCameraNavigation(true);
+      dispatch('pointerdown', { clientX: CENTRE, clientY: CENTRE });
+      dispatch('pointermove', { clientX: CENTRE + 5, clientY: CENTRE });
+
+      expect(gizmoHandlers.paintDab).toHaveBeenCalledTimes(0);
+      // Unclaimed, so the camera got the press — it is the camera's gesture.
+      expect(cameraListener).toHaveBeenCalled();
+
+      // Navigation ended; the very next press paints again.
+      selection.onCameraNavigation(false);
+      selection.onCameraNavigation(false);
+      dispatch('pointerup', { clientX: CENTRE + 5, clientY: CENTRE });
+      dispatch('pointerdown', { clientX: CENTRE, clientY: CENTRE });
+
+      expect(gizmoHandlers.paintDab).toHaveBeenCalledTimes(1);
+    });
+
+    // Rule 2: a stroke caught live when camera navigation takes over is
+    // discarded — its remaining moves are navigation, not dabs, and its lift
+    // opens no history entry. Painting resumes once navigation ends.
+    it('aborts a live stroke when camera navigation takes over', () => {
+      dispatch('pointerdown', { clientX: CENTRE, clientY: CENTRE });
+      dispatch('pointermove', { clientX: CENTRE + 5, clientY: CENTRE });
+      const dabsBefore = gizmoHandlers.paintDab.mock.calls.length;
+      expect(dabsBefore).toBeGreaterThanOrEqual(2);
+
+      selection.onCameraNavigation(true);
+      dispatch('pointermove', { clientX: CENTRE + 12, clientY: CENTRE });
+      dispatch('pointerup', { clientX: CENTRE + 12, clientY: CENTRE });
+
+      expect(gizmoHandlers.paintDab.mock.calls.length).toBe(dabsBefore);
+      expect(gizmoHandlers.paintEnd).toHaveBeenCalledTimes(0);
+
+      selection.onCameraNavigation(false);
+      dispatch('pointerdown', { clientX: CENTRE, clientY: CENTRE });
+      expect(gizmoHandlers.paintDab.mock.calls.length).toBeGreaterThan(dabsBefore);
     });
   });
 

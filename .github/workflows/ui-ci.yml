@@ -14,13 +14,16 @@ on:
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - ".github/workflows/ui-ci.yml"
+      - "scripts/bundle-diff.mjs"
   pull_request:
     branches: [main, develop]
     paths: *ui-paths
 
-# Least privilege: this workflow only needs to read the repo.
+# Least privilege: read the repo, and read Actions so the bundle report can
+# fetch the base branch's stats artifact.
 permissions:
   contents: read
+  actions: read
 
 # Cancel superseded PR runs to save minutes; let branch pushes finish.
 concurrency:
@@ -73,9 +76,49 @@ jobs:
       # ui/src/generated + ui/src/schemas are gitignored, so the scene WASM
       # bindings and generated TS types MUST be produced before `ng build`.
       - name: Hydrate (WASM bindings + generated types)
+        id: hydrate
         run: pnpm run hydrate
+      # Lets UI-only work skip the Rust toolchain entirely:
+      #   gh run download <run-id> -n ui-hydrated -D ui/src
+      - name: Upload generated sources
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-hydrated
+          path: |
+            ui/src/schemas
+            ui/src/generated
       - name: Build UI
-        run: pnpm --filter slicer-ui build
+        run: pnpm --filter slicer-ui build --stats-json
+      # Names the modules behind the initial-bundle size in the job summary, and
+      # on a PR ranks what moved against the base branch's latest green run. A
+      # tripped budget writes no output at all, so that case rebuilds without
+      # budgets to get the stats. Informational: it never fails the job.
+      - name: Bundle report
+        if: ${{ !cancelled() && steps.hydrate.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          stats=ui/dist/slicer-ui/browser-stats.json
+          [ -f "$stats" ] || pnpm --filter slicer-ui exec ng build -c production,bundle-report || exit 0
+          base=()
+          if [ -n "$BASE_REF" ]; then
+            run=$(gh run list --workflow ui-ci.yml --branch "$BASE_REF" --event push --status success \
+              --limit 1 --json databaseId -q '.[0].databaseId' || true)
+            if [ -n "$run" ] && gh run download "$run" -n ui-bundle-stats -D base-stats; then
+              base=(--base base-stats/browser-stats.json)
+            fi
+          fi
+          node scripts/bundle-diff.mjs "${base[@]}" "$stats" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload bundle stats
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-bundle-stats
+          path: ui/dist/slicer-ui/browser-stats.json
+          if-no-files-found: ignore
       # `@angular/build:unit-test` runs on Node + jsdom via Vitest; --watch=false
       # guarantees a single run even if a TTY is present. Skip cleanly until the
       # repo has its first spec — the builder errors ("No tests found") on an

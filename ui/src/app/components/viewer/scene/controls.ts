@@ -269,6 +269,24 @@ export class SceneControls {
   /** See {@link setPanZoomGestureSink}. */
   private panZoomGestureSink: (() => void) | null = null;
 
+  /** See {@link setCancelDragSink}. */
+  private cancelDragSink: (() => void) | null = null;
+
+  /** See {@link setNavigationSink}. */
+  private navigationSink: ((active: boolean) => void) | null = null;
+
+  /**
+   * Individual navigation-source flags, combined and forwarded to
+   * {@link navigationSink} by {@link emitNavigationChange} on every
+   * transition. Kept separate (rather than a single counter) so sources
+   * starting and ending independently — e.g. an orbit drag beginning while a
+   * two-finger gesture is still tearing down — cannot desynchronise the
+   * combined signal.
+   */
+  private navOrbit = false;
+  private navTwoFinger = false;
+  private navAutoscroll = false;
+
   /** Handlers for the rotate snap-breakout detector, retained for cleanup. */
   private rotateBreakoutPointerDownHandler: ((event: PointerEvent) => void) | null = null;
   private rotateBreakoutPointerMoveHandler: ((event: PointerEvent) => void) | null = null;
@@ -281,15 +299,10 @@ export class SceneControls {
    */
   private twoFingerTeardown: (() => void) | null = null;
 
-  /**
-   * @param cancelDragCallback  Called when a two-finger gesture begins so
-   *   any in-flight single-finger selection drag can be abandoned cleanly.
-   */
   constructor(
     private readonly camera: PerspectiveCamera,
     private readonly controls: OrbitControls,
     private readonly renderer: WebGLRenderer,
-    private readonly cancelDragCallback: () => void,
   ) {
     // Wheel dispatch is platform-specific. On macOS the wheel channel carries
     // trackpad gestures (two-finger swipe, pinch, ⌥+swipe) and must be
@@ -301,9 +314,15 @@ export class SceneControls {
     this.installTouchOrbitTuning();
     this.installCustomTwoFingerControls();
     this.installAutoscrollZoom();
-    this.installAlwaysOnWheelZoom();
     this.installWebKitGestureZoom();
     this.installRotateBreakoutDetection();
+    // {@link installAlwaysOnWheelZoom} is deliberately NOT called here: its
+    // capture-phase listener must register *after* SceneSelection's capture
+    // listeners so the paint-mode brush-radius wheel keeps precedence. The
+    // construction order in `scene/index.ts` therefore constructs
+    // {@link SceneControls} before {@link SceneSelection} (which also puts the
+    // two-finger capture listener ahead of selection's capture listeners) and
+    // calls {@link installAlwaysOnWheelZoom} afterwards.
     // Orbit is the fixed cursor mode: left-drag rotates, right-drag pans.
     // Middle mouse is reserved for autoscroll zoom; disable OrbitControls' drag-dolly.
     const MIDDLE = null as unknown as MOUSE;
@@ -348,6 +367,43 @@ export class SceneControls {
 
   private emitPanZoomGesture(): void {
     this.panZoomGestureSink?.();
+  }
+
+  /**
+   * Register the callback invoked when a two-finger gesture begins so any
+   * in-flight single-finger selection drag or paint stroke can be abandoned
+   * cleanly (the camera gesture is adopting the pointer). Pass `null` to
+   * clear.
+   */
+  setCancelDragSink(sink: (() => void) | null): void {
+    this.cancelDragSink = sink;
+  }
+
+  /**
+   * Register a callback fired whenever camera navigation becomes active or
+   * ends, where "navigation" is any camera-motion gesture with a span:
+   * an OrbitControls rotate or pan drag, a custom two-finger pinch/pan/roll
+   * gesture, or middle-button autoscroll zoom. Plain wheel zoom is an
+   * instantaneous axis delta with no gesture span and deliberately does not
+   * bracket navigation.
+   *
+   * Used to tell selection that paint input must yield to the camera: while
+   * navigation is active a paint press must not arm a stroke, and a stroke
+   * caught live when navigation takes over is discarded.
+   */
+  setNavigationSink(sink: ((active: boolean) => void) | null): void {
+    this.navigationSink = sink;
+  }
+
+  /**
+   * Forward the combined navigation state (any of {@link navOrbit},
+   * {@link navTwoFinger}, {@link navAutoscroll}) to
+   * {@link navigationSink}. Called on every source transition; redundant
+   * calls with an unchanged combined value are expected and must stay
+   * harmless.
+   */
+  private emitNavigationChange(): void {
+    this.navigationSink?.(this.navOrbit || this.navTwoFinger || this.navAutoscroll);
   }
 
   /** Begin a fresh breakout budget for the next rotate gesture. */
@@ -622,7 +678,15 @@ export class SceneControls {
    * swipe, pinch, ⌥+swipe), so a modifier-aware dispatcher
    * ({@link onWheelMac}) is installed instead of the plain zoom handler.
    */
-  private installAlwaysOnWheelZoom(): void {
+  /**
+   * Install the capture-phase wheel takeover. Deliberately **not** called from
+   * the constructor: the listener is capture-phase on the canvas, and capture
+   * listeners on the same element fire in registration order. It must register
+   * *after* SceneSelection's capture listeners so a plain wheel over a model
+   * in paint mode resizes the brush instead of zooming. `scene/index.ts`
+   * therefore calls this right after constructing {@link SceneSelection}.
+   */
+  installAlwaysOnWheelZoom(): void {
     this.renderer.domElement.addEventListener('wheel', this.wheelHandler, {
       passive: false,
       capture: true,
@@ -875,6 +939,8 @@ export class SceneControls {
       this.orbitVelAzimuth = 0;
       this.orbitVelPolar = 0;
       this.orbitVelTarget.set(0, 0, 0);
+      this.navOrbit = true;
+      this.emitNavigationChange();
     });
     this.controls.addEventListener('change', () => {
       if (!this.orbitInteracting) {
@@ -906,6 +972,8 @@ export class SceneControls {
     });
     this.controls.addEventListener('end', () => {
       this.orbitInteracting = false;
+      this.navOrbit = false;
+      this.emitNavigationChange();
       const sinceLastSample = (performance.now() - this.orbitLastSampleTime) / 1000;
       if (sinceLastSample > 0.08) {
         this.orbitVelAzimuth = 0;
@@ -1063,7 +1131,11 @@ export class SceneControls {
       this.orbitVelAzimuth = 0;
       this.orbitVelPolar = 0;
       this.orbitVelTarget.set(0, 0, 0);
-      this.cancelDragCallback();
+      this.cancelDragSink?.();
+      // The two-finger gesture is now the navigation that owns the contacts —
+      // selection must not arm or continue a paint stroke underneath it.
+      this.navTwoFinger = true;
+      this.emitNavigationChange();
       // Fire synthetic pointercancel events so OrbitControls clears its
       // internal pointer state before we re-disable it. They are marked so the
       // palm-rejection arbiter and the touch tuning — which model *physical*
@@ -1105,6 +1177,8 @@ export class SceneControls {
       }
       state.active = false;
       state.pair = [];
+      this.navTwoFinger = false;
+      this.emitNavigationChange();
       this.controls.enabled = state.savedControlsEnabled;
     };
 
@@ -1368,6 +1442,8 @@ export class SceneControls {
       anchorY: event.clientY,
       currentY: event.clientY,
     };
+    this.navAutoscroll = true;
+    this.emitNavigationChange();
   };
 
   private onAutoscrollPointerMove = (event: PointerEvent): void => {
@@ -1387,6 +1463,8 @@ export class SceneControls {
     }
     el.style.cursor = '';
     this.autoscroll = null;
+    this.navAutoscroll = false;
+    this.emitNavigationChange();
   };
 
   private onAutoscrollContextMenu = (event: Event): void => {
