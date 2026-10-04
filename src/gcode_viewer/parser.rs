@@ -1,4 +1,4 @@
-use super::types::{FanSample, InternalLayer, Role, FLOATS_PER_SEGMENT};
+use super::types::{FanSample, InternalLayer, Role};
 
 /// Oversize seam dots so they remain readable against overlapping extrusion
 /// paths without having to hide other roles.
@@ -374,12 +374,12 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                     // traced back to this line. A full circle ends where it
                     // started, so an arc is only skipped when it has no radius.
                     if arc_i != 0.0 || arc_j != 0.0 {
-                        let points = crate::gcode::arc::chords(
+                        let points = crate::gcode_arc::chords(
                             (f64::from(prev_x), f64::from(prev_y)),
                             (f64::from(x), f64::from(y)),
                             (f64::from(prev_x + arc_i), f64::from(prev_y + arc_j)),
                             cmd == "G2",
-                            crate::gcode::arc::READBACK_SAGITTA_MM,
+                            crate::gcode_arc::READBACK_SAGITTA_MM,
                         );
                         let count = points.len() as f32;
                         let (mut from_x, mut from_y, mut from_z) = (prev_x, prev_y, prev_z);
@@ -644,6 +644,7 @@ fn process_comment(
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::FLOATS_PER_SEGMENT;
     use super::*;
 
     const SAMPLE_GCODE: &str = r#"

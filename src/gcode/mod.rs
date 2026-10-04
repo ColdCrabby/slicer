@@ -32,7 +32,7 @@
 //! assert!(gcode.contains("START_PRINT"));
 //! ```
 
-pub mod arc;
+pub use crate::gcode_arc as arc;
 pub mod dialect;
 pub mod dialects;
 pub mod flavor;
