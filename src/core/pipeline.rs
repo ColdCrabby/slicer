@@ -6,6 +6,7 @@
 //! here rather than there is a step no plugin can reach.
 
 use crate::logging::ProcessLogger;
+use crate::mesh::paint::FacetPaint;
 use crate::mesh::types::Mesh;
 use crate::plugin::{self, Extensions, Plugin, SliceContext};
 use crate::settings::params::SlicingParams;
@@ -51,6 +52,7 @@ pub(crate) fn resolved_first_layer_height(params: &SlicingParams) -> f64 {
 /// by the plugin it installs.
 fn run_pipeline(
     mesh: &Mesh,
+    paint: &FacetPaint,
     params: &SlicingParams,
     logger: &dyn ProcessLogger,
     plugins: &[Box<dyn Plugin>],
@@ -66,7 +68,7 @@ fn run_pipeline(
     let mut registry = core_stages();
     plugin::install(&mut registry, plugins, logger);
 
-    let mut cx = SliceContext::new(mesh, normalized.as_ref(), logger);
+    let mut cx = SliceContext::new(mesh, normalized.as_ref(), logger).with_paint(paint);
     registry.run(&mut cx);
     (cx.layers, cx.state)
 }
@@ -105,7 +107,14 @@ pub fn process_mesh(
     params: &SlicingParams,
     logger: &dyn ProcessLogger,
 ) -> Vec<SliceLayer> {
-    run_pipeline(mesh, params, logger, plugin::installed()).0
+    run_pipeline(
+        mesh,
+        &FacetPaint::new(),
+        params,
+        logger,
+        plugin::installed(),
+    )
+    .0
 }
 
 /// [`process_mesh`], with an explicit plugin set instead of the built-in one.
@@ -120,24 +129,24 @@ pub fn process_mesh_with_plugins(
     logger: &dyn ProcessLogger,
     plugins: &[Box<dyn Plugin>],
 ) -> Vec<SliceLayer> {
-    run_pipeline(mesh, params, logger, plugins).0
+    run_pipeline(mesh, &FacetPaint::new(), params, logger, plugins).0
 }
 
-/// Compatibility shim for the pre-plugin `process_mesh_with_paint` API.
+/// Slice a mesh that carries per-facet support paint.
 ///
-/// Support paint is not wired into the staged pipeline in this research
-/// branch; the paint argument is accepted to keep callers compiling and is
-/// currently ignored. Support generation itself still runs, as the
-/// `support_generation` stage, with empty paint masks — byte-identical to
-/// unpainted support. The core slicing pipeline runs through the plugin stage
-/// registry.
+/// Identical to [`process_mesh`] in every respect but one: the painted facets
+/// are projected onto the layer stack and handed to support generation, so the
+/// user's enforcers and blockers override the automatic overhang rule. An empty
+/// annotation reproduces [`process_mesh`] exactly — the projection is skipped
+/// entirely rather than producing empty masks — so an unpainted slice cannot
+/// drift.
 pub fn process_mesh_with_paint(
     mesh: &Mesh,
     params: &SlicingParams,
     logger: &dyn ProcessLogger,
-    _paint: &crate::mesh::paint::FacetPaint,
+    paint: &FacetPaint,
 ) -> Vec<SliceLayer> {
-    process_mesh(mesh, params, logger)
+    run_pipeline(mesh, paint, params, logger, plugin::installed()).0
 }
 
 /// Debug variant of [`process_mesh`].
@@ -172,7 +181,7 @@ pub fn process_mesh_debug(
     debug: &mut crate::debug::DebugGeometry,
 ) -> Vec<SliceLayer> {
     let plugins: Vec<Box<dyn Plugin>> = vec![Box::new(plugin::builtin::DebugCapture)];
-    let (layers, mut state) = run_pipeline(mesh, params, logger, &plugins);
+    let (layers, mut state) = run_pipeline(mesh, &FacetPaint::new(), params, logger, &plugins);
 
     if let Some(captured) = state.remove::<crate::debug::DebugGeometry>() {
         *debug = captured;

@@ -14,8 +14,13 @@ use clipper2::Paths;
 
 use crate::core::SliceLayer;
 use crate::logging::ProcessLogger;
+use crate::mesh::paint::FacetPaint;
 use crate::mesh::types::Mesh;
 use crate::settings::params::SlicingParams;
+
+/// The annotation an unpainted run borrows, so [`SliceContext::new`] needs no
+/// paint argument and allocates nothing for it.
+static NO_PAINT: FacetPaint = FacetPaint::new();
 
 /// Inter-stage geometry that one stage computes and a later one consumes.
 ///
@@ -101,6 +106,9 @@ impl Extensions {
 pub struct SliceContext<'a> {
     /// The mesh being sliced, in its final placed orientation.
     pub mesh: &'a Mesh,
+    /// The user's per-facet support paint on `mesh`. Empty for an unpainted
+    /// slice.
+    pub paint: &'a FacetPaint,
     /// The resolved slicing parameters. Already spiral-vase normalised, so a
     /// stage never has to re-apply that itself.
     pub params: &'a SlicingParams,
@@ -119,12 +127,19 @@ impl<'a> SliceContext<'a> {
     pub fn new(mesh: &'a Mesh, params: &'a SlicingParams, logger: &'a dyn ProcessLogger) -> Self {
         Self {
             mesh,
+            paint: &NO_PAINT,
             params,
             logger,
             layers: Vec::new(),
             artifacts: Artifacts::default(),
             state: Extensions::default(),
         }
+    }
+
+    /// Slice with the user's support paint applied.
+    pub fn with_paint(mut self, paint: &'a FacetPaint) -> Self {
+        self.paint = paint;
+        self
     }
 
     /// The settings object a plugin owns, or `None` when the user has never

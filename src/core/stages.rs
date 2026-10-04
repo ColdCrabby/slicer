@@ -28,7 +28,7 @@ use crate::settings::params::{SeamPosition, SlicingParams};
 use super::infill::{add_infill_to_layers, calculate_interior_region, InfillConfig};
 use super::pipeline::resolved_first_layer_height;
 use super::slicer::slice_mesh_with_first_layer;
-use super::support_paint::SupportPaintMasks;
+use super::support_paint::project_support_paint;
 use super::supports::generate_supports_with_paint;
 use super::surfaces::{
     generate_top_bottom_surfaces_with_interior, perimeter_paths_of, prune_redundant_gap_fill,
@@ -355,8 +355,10 @@ fn infill(cx: &mut SliceContext<'_>) {
 /// slope are already gone by now, retagged and split by the classification
 /// stage above.
 ///
-/// Support paint is not wired into the staged pipeline in this research
-/// branch; empty masks reproduce unpainted support generation exactly.
+/// The user's painted facets are projected onto the layer stack here, so
+/// enforcers and blockers override the automatic overhang rule. An empty
+/// annotation skips the projection entirely, so an unpainted slice cannot
+/// drift.
 fn generate_supports(cx: &mut SliceContext<'_>) {
     let params = cx.params;
     if !params.support_enabled {
@@ -368,13 +370,15 @@ fn generate_supports(cx: &mut SliceContext<'_>) {
         params.support_threshold_angle,
         params.support_density * 100.0
     ));
-    let pristine = std::mem::take(&mut cx.artifacts.overhang_support);
-    generate_supports_with_paint(
-        &mut cx.layers,
-        params,
-        pristine.as_deref(),
-        &SupportPaintMasks::default(),
+    let paint_masks = project_support_paint(
+        cx.mesh,
+        cx.paint,
+        &cx.layers,
+        cx.artifacts.first_layer_height,
+        params.nozzle_diameter_mm,
     );
+    let pristine = std::mem::take(&mut cx.artifacts.overhang_support);
+    generate_supports_with_paint(&mut cx.layers, params, pristine.as_deref(), &paint_masks);
     cx.artifacts.overhang_support = pristine;
     cx.logger.log_debug("support generation complete");
 }

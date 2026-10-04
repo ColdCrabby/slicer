@@ -101,8 +101,14 @@ pub struct FacetPaint {
 
 impl FacetPaint {
     /// An empty annotation — nothing painted.
-    pub fn new() -> Self {
-        Self::default()
+    ///
+    /// `const` so an unpainted slice can borrow a `static` one instead of
+    /// allocating its own.
+    pub const fn new() -> Self {
+        Self {
+            states: Vec::new(),
+            painted: 0,
+        }
     }
 
     /// Whether nothing at all is painted.
