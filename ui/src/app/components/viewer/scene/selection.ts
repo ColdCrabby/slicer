@@ -160,6 +160,17 @@ export class SceneSelection {
   private paintPointerId: number | null = null;
 
   /**
+   * True while camera navigation (orbit/pan drag, two-finger gesture,
+   * autoscroll zoom) is active — reported by SceneControls through
+   * `scene/index.ts` via {@link onCameraNavigation}.
+   *
+   * While true, paint presses are neither armed nor claimed (rule 3: paint
+   * input is ignored while the camera navigates), and a stroke caught live
+   * when navigation starts is discarded (rule 2).
+   */
+  private cameraNavigationActive = false;
+
+  /**
    * Makes a plain tap toggle its object in and out of the selection, the way
    * ⌘/Ctrl-click does with a mouse. Touch has no modifier key, so without this
    * a multi-object selection could only be built from the objects list.
@@ -535,9 +546,15 @@ export class SceneSelection {
     // check above: painting is the primary button (or a pen's eraser) on a
     // model, in paint mode — nothing else. A middle/right-button press is a
     // camera pan, and it must stay one even over a model.
+    //
+    // Active camera navigation (orbit/pan drag, two-finger gesture, autoscroll
+    // — see `onCameraNavigation`) suppresses arming entirely: the press below
+    // this gate must reach the camera, not start a stroke the camera is also
+    // dragging.
     if (
       this.currentObjectMode === 'paint' &&
       hitId !== null &&
+      !this.cameraNavigationActive &&
       this.isPaintGesture(event, eraser)
     ) {
       this.paintPointerId = event.pointerId;
@@ -570,7 +587,7 @@ export class SceneSelection {
     // camera has to be kept out of it from the start, exactly like a move.
     if (boxSelect !== null) {
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
       return;
     }
 
@@ -579,11 +596,27 @@ export class SceneSelection {
       // Keep the camera out of a gesture that is about to move this object —
       // and only then.
       //
-      // `stopPropagation` in the capture phase is what decides this: at the
-      // target the DOM runs capture-flagged listeners before non-capture ones
-      // whatever the registration order, and OrbitControls listens on this same
-      // canvas without capture. So stopping here means it never starts a
-      // rotate, and no hand-off is needed once the drag begins.
+      // `stopImmediatePropagation` in the capture phase is what decides this:
+      // at the target the DOM runs capture-flagged listeners before
+      // non-capture ones whatever the registration order, and OrbitControls
+      // listens on this same canvas without capture. But `stopPropagation`
+      // alone is not enough here — it only stops the event travelling to
+      // *other* elements (the host, the document); per the DOM event-flow
+      // algorithm, listeners on the very element the event is dispatched at
+      // still all run, capture and bubble alike. OrbitControls' `pointerdown`
+      // is registered on this same canvas, so stopping propagation would leave
+      // its listener running in a real browser: the drag would orbit the
+      // camera *and* paint/move at once. `stopImmediatePropagation` is the
+      // only call that also halts same-element listeners (the wheel handler
+      // below learned the same lesson).
+      //
+      // The one same-element listener that must still see a claimed press is
+      // SceneControls' capture-phase two-finger counter — it decides when a
+      // second contact turns an in-flight stroke or drag into a camera gesture.
+      // Capture listeners fire in registration order, and SceneControls is
+      // constructed before SceneSelection (`scene/index.ts`), so the counter
+      // has already run by the time this claim executes. Anything registered
+      // *after* this listener would be silenced by a claim.
       //
       // Every other press on a model is let through, so a drag that starts on
       // something the user has not picked still orbits the view — dragging from
@@ -595,8 +628,14 @@ export class SceneSelection {
       // the same drag spins the model out from under the brush. Painting from
       // *empty bed* is deliberately still an orbit — that is how the user turns
       // the model around to reach its other side without leaving the tool.
-      if (this.currentObjectMode === 'paint' || this.claimsDirectDrag(hitId, event)) {
-        event.stopPropagation();
+      // With camera navigation already active there is nothing to claim: the
+      // press must reach the camera unimpeded (the arming gate above already
+      // kept it from starting a stroke).
+      if (
+        (this.currentObjectMode === 'paint' && !this.cameraNavigationActive) ||
+        this.claimsDirectDrag(hitId, event)
+      ) {
+        event.stopImmediatePropagation();
       }
     }
   };
@@ -633,9 +672,17 @@ export class SceneSelection {
       // the pointer that started the stroke, not to the press: a camera drag
       // sweeping across the model must pass through untouched. The lift is
       // still let through (see `onPointerUp`).
+      //
+      // `stopImmediatePropagation`, not `stopPropagation`: the camera never
+      // saw the press, but OrbitControls (same canvas, bubble phase) would
+      // still treat this pointer's moves as an active gesture if a second
+      // finger ever started one — and same-element listeners ignore plain
+      // `stopPropagation` (see the claim comment in `onPointerDown`). The
+      // two-finger counter is unaffected: its capture listener registered
+      // before this one, so it has already seen the move.
       if (this.paintPointerId === event.pointerId) {
         event.preventDefault();
-        event.stopPropagation();
+        event.stopImmediatePropagation();
       }
     }
     const ps = this.pressState;
@@ -645,16 +692,18 @@ export class SceneSelection {
     if (ps.box) {
       this.advanceBox(ps.box, event);
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
       return;
     }
     if (ps.drag) {
       this.advanceDrag(ps, event);
       // Safe to stop: a drag only exists for a press whose `pointerdown` was
       // withheld, so every bubble-phase consumer of this pointer is absent for
-      // the whole gesture rather than half of it.
+      // the whole gesture rather than half of it. `stopImmediatePropagation`
+      // for the same reason as the paint move above — same-element listeners
+      // ignore plain `stopPropagation`.
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
       return;
     }
     if (ps.moved || ps.consumed) {
@@ -670,12 +719,12 @@ export class SceneSelection {
       ps.box = this.beginBox(ps.boxSelect, ps.downEvent);
       this.advanceBox(ps.box, event);
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
       return;
     }
     if (this.beginDrag(ps, event)) {
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
     }
   };
 
@@ -1445,6 +1494,27 @@ export class SceneSelection {
   private abandonPaintStroke(): void {
     this.paintPointerId = null;
     this.cancelPendingPaint();
+  }
+
+  /**
+   * Camera navigation (orbit/pan drag, two-finger gesture, autoscroll zoom)
+   * became active or ended — fired by SceneControls for every transition,
+   * including redundant ones with an unchanged state, which must stay
+   * harmless.
+   *
+   * Starting navigation discards any stroke caught live (rule 2): the camera
+   * is now driving the pointer's motion, so letting the stroke continue would
+   * smear paint across the view. Ending it re-enables painting on the next
+   * press (rule 3 is a gate on arming, not a latch).
+   */
+  onCameraNavigation(active: boolean): void {
+    if (active === this.cameraNavigationActive) {
+      return;
+    }
+    this.cameraNavigationActive = active;
+    if (active) {
+      this.abandonPaintStroke();
+    }
   }
 
   /**

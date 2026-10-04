@@ -306,8 +306,8 @@ export class ViewerScene {
     this.controls.maxDistance = 100_000;
 
     // Construction order:
-    //   SceneCamera → GizmoManager → SceneSelection (needs gizmo)
-    //   → SceneControls (needs cancelDrag callback) → SceneGrid
+    //   SceneCamera → GizmoManager → SceneControls → SceneSelection (needs
+    //   gizmo; must come after SceneControls — see below) → SceneGrid
     this._camera = new SceneCamera(this.camera, this.controls, this.contentRoot, printArea);
     // Seed the perspective preset from the FOV the camera was actually built
     // with. Without this the preset keeps its built-in default while the camera
@@ -316,11 +316,17 @@ export class ViewerScene {
     // view to the default instead of the FOV the user chose.
     this._camera.setPerspectiveFov(this.camera.fov);
     this.gizmo = new GizmoManager(this.scene, this.camera, this.renderer);
+    this._controls = new SceneControls(this.camera, this.controls, this.renderer);
     this._selection = new SceneSelection(this.scene, this.camera, this.renderer, this.gizmo);
-
-    this._controls = new SceneControls(this.camera, this.controls, this.renderer, () =>
-      this._selection.cancelActiveDrag(),
-    );
+    // SceneControls' custom two-finger gesture listens in the capture phase on
+    // the canvas and must observe claimed touches before SceneSelection claims
+    // them — a claim stops the press from reaching the *camera*, but the
+    // two-finger controller still needs to count both contacts to abort
+    // correctly. Same-element capture listeners fire in registration order, so
+    // SceneControls is constructed first. The wheel takeover is the one
+    // capture listener that needs the *opposite* order (paint-mode brush
+    // resize must win over zoom), so it is installed after selection exists.
+    this._controls.installAlwaysOnWheelZoom();
     // A deliberate rotate dragged past the sticky intent threshold reverts the
     // viewport-cube's temporary orthographic snap; a small rotate and cube
     // gestures never fire this, so the mode only changes on a clear user
@@ -332,6 +338,13 @@ export class ViewerScene {
     // selected face) up close by panning/zooming without ever popping back to
     // perspective.
     this._controls.setPanZoomGestureSink(() => this._camera.releaseSnapPinForPanZoom());
+    // A two-finger gesture adopting the pointer abandons any in-flight
+    // selection drag or paint stroke.
+    this._controls.setCancelDragSink(() => this._selection.cancelActiveDrag());
+    // While camera navigation (orbit/pan drag, two-finger gesture, autoscroll)
+    // is active, paint input yields to the camera: no stroke may start, and a
+    // stroke caught live when navigation takes over is discarded.
+    this._controls.setNavigationSink((active) => this._selection.onCameraNavigation(active));
     this._grid = new SceneGrid(this.scene, this.camera, this.controls, this.renderer, printArea);
 
     // The loop only draws when something changed, and several sub-systems paint
