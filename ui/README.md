@@ -779,9 +779,22 @@ every release, and the reflex is to raise the budget until it means nothing.
   markdown and tooltips appear everywhere, including in dialogs drawn from the
   root outlet — moving it under a route trades bytes for a `NullInjectorError` in
   whichever surface was overlooked.
-- **Measure before concluding.** Build with `--source-map` and attribute each
-  chunk's bytes back to its modules. Chunk names are hashes; sizes alone tell you
+- **Measure before concluding.** Chunk names are hashes; sizes alone tell you
   nothing about *why* something is there.
+  [`scripts/bundle-diff.mjs`](../scripts/bundle-diff.mjs) attributes the initial
+  bytes back to modules and, given a baseline, ranks what moved and names the
+  importer that pulled each newcomer in. Frontend CI posts that report in the job
+  summary of every run, and on a PR it compares against the base branch. To run
+  it locally, the `bundle-report` configuration drops the budgets so the stats
+  are written even when the bundle is over:
+
+  ```bash
+  pnpm --filter slicer-ui exec ng build -c production,bundle-report
+  node scripts/bundle-diff.mjs ui/dist/slicer-ui/browser-stats.json
+  ```
+
+  Add `--base <file>` with main's stats, which every green run uploads as the
+  `ui-bundle-stats` artifact.
 
 ### Bytes are only half of it — what a service *does* on construction
 
