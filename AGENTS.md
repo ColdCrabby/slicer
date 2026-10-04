@@ -9,6 +9,8 @@ This file is a **map, not a reference**. Read the relevant module `README.md` be
 - Use the seeded dev launcher (`pnpm run dev`); **never hardcode dev ports**.
 - Validate changes with the relevant tests.
 - Lefthook handles Prettier and `rustfmt` automatically on commit.
+- UI-only work does not need Rust: download the `ui-hydrated` CI artifact instead of running `pnpm run hydrate` (see `DEVELOPMENT.md`).
+- A tripped bundle budget is explained in the Frontend CI job summary; read it before tracing imports by hand (see `ui/README.md`).
 - Do not bypass CI checks.
 
 ## Architecture

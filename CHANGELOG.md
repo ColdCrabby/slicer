@@ -69,6 +69,10 @@ See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 
 ### Fixed
 
+- **Painting and the camera no longer fight over a drag** — starting to orbit,
+  pan or pinch in paint mode moves the view instead of dragging paint across
+  the model, and a stroke under way is dropped the moment a camera gesture
+  takes over.
 - **Painted support enforcers work on any slope** — paint one under a gentle
   overhang and it gets support, whether automatic detection is on or off.
 - **Painted support blockers clear everything they cover** — no column left
