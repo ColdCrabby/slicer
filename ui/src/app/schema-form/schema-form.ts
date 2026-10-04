@@ -29,8 +29,20 @@ import { noticeForField } from './field-exceptions/field-exceptions';
 import { controlFor } from './models/field-control';
 import { FieldDef, SchemaGroup } from './models/field-def';
 import { parseSchema } from './models/schema-parser';
-import { filterRelevantGroups } from './models/relevance';
 import { valueAtPath } from './models/field-path';
+import {
+  type Tier,
+  deepestTier,
+  deeperOf,
+  filterRelevantGroups,
+  isFieldInTier,
+  isTierAtMost,
+  orderGroupsByTier,
+  nextTier,
+  shallowestTier,
+  tierOf,
+} from './models/relevance';
+import { SettingsDetailPreference } from '../services/settings-detail-preference';
 
 export interface FieldChangeEvent {
   key: string;
@@ -353,7 +365,7 @@ export class SchemaForm {
     const keys = new Set<string>();
     for (const group of this.relevantGroups()) {
       for (const field of group.fields) {
-        if (noticeForField(field, values[field.key], values) !== null) {
+        if (noticeForField(field, valueAtPath(values, field.key), values) !== null) {
           keys.add(field.key);
         }
       }
@@ -651,22 +663,14 @@ export class SchemaForm {
    * stays absent, so the sparse override diff sent to the engine is unchanged.
    */
   protected valueFor(field: FieldDef): unknown {
-    const current = this.value()[field.key];
+    // Addressed by path: a plain lookup for the flat majority of settings;
+    // plugin settings are namespaced, so they sit one level deeper.
+    const current = valueAtPath(this.value(), field.key);
     return current === undefined || current === null ? field.default : current;
   }
 
   protected onFieldChange(key: string, value: unknown): void {
     this.fieldChange.emit({ key, value });
-  }
-
-  /**
-   * The current value of a field, addressed by path.
-   *
-   * Identical to a plain lookup for the flat majority of settings; plugin
-   * settings are namespaced, so they are one level deeper.
-   */
-  protected valueAt(key: string): unknown {
-    return valueAtPath(this.value(), key);
   }
 
   /**

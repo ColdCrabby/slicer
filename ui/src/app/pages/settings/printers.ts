@@ -15,12 +15,8 @@ import {
   type PrinterGcodeFlavor,
   type PrinterProfile,
 } from '../../models/printer.model';
-import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
-import { SETTING_CONTRACTS } from '../../models/setting-contract';
-import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
+import type { FieldDef } from '../../schema-form/models/field-def';
 import { patchForPath, valueAtPath } from '../../schema-form/models/field-path';
-import { parseSchema } from '../../schema-form/models/schema-parser';
-import type { SchemaGroup } from '../../schema-form/models/field-def';
 import {
   CUSTOM_TEMPLATE_ID,
   GCODE_PLACEHOLDER_HINT,

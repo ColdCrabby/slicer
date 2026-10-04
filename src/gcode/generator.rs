@@ -3257,8 +3257,10 @@ impl GcodeGenerator {
                 // branch is a flat-loop optimisation that emits XY-only moves,
                 // so routing a path with per-vertex Z through it would silently
                 // flatten the very shape that made it non-planar.
-                let apply_coasting =
-                    is_closed_loop && params.coasting_distance_mm > 0.0 && !non_planar;
+                let apply_coasting = is_closed_loop
+                    && role.coasts_into_seam()
+                    && params.coasting_distance_mm > 0.0
+                    && !non_planar;
 
                 // ── Print contour segments ────────────────────────────────────
                 if apply_coasting {
