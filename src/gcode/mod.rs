@@ -13,6 +13,7 @@
 //!
 //! | Module        | Contents                                              |
 //! |---------------|-------------------------------------------------------|
+//! | `arc`         | `G2`/`G3` geometry: fitting arcs, reading them back   |
 //! | `flavor`      | [`GcodeFlavor`] enum + `FromStr` / `Display`          |
 //! | `dialect`     | [`GcodeDialect`] trait (incl. `header`) + [`WarnFn`]  |
 //! | `generator`   | [`GcodeGenerator`] façade + [`generate_gcode`]        |
@@ -31,6 +32,7 @@
 //! assert!(gcode.contains("START_PRINT"));
 //! ```
 
+pub mod arc;
 pub mod dialect;
 pub mod dialects;
 pub mod flavor;

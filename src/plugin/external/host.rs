@@ -37,9 +37,10 @@ use crate::settings::params::SlicingParams;
 
 /// Ceiling on a module's linear memory.
 ///
-/// A program is a few hundred thousand records at ~72 bytes each, so a filter
-/// needs single-digit megabytes; the rest is headroom. Enforced because an
-/// unbounded guest could otherwise exhaust the host's memory.
+/// A program is a few hundred thousand records of
+/// [`RECORD_BYTES`](super::abi::RECORD_BYTES) each, so a filter needs a few
+/// tens of megabytes; the rest is headroom. Enforced because an unbounded
+/// guest could otherwise exhaust the host's memory.
 const MEMORY_LIMIT_BYTES: usize = 256 * 1024 * 1024;
 
 /// Wall-clock ceiling on one filter call, after which the guest is interrupted.

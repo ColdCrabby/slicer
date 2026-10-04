@@ -382,11 +382,31 @@ may change between releases. Nothing in this group affects a print until you
 enable it — with everything switched off, the G-code is exactly what it would
 have been.
 
-**Hello world** is the one that ships today, and it exists to be turned on
-once. It writes a greeting as a comment at the top of the G-code and reports
-what it saw while slicing, which is a quick way to confirm the machinery is
-working before you trust it with anything real. It changes nothing about how
-the part prints.
+**Arc fitting** prints curved walls as true arcs — one `G2`/`G3` move — where
+the slicer would otherwise send dozens of short straight ones. Files get
+smaller (about a sixth on a Benchy) and the printer has far fewer commands to
+read and plan, which is what makes a curve stutter on a slow serial link or a
+small planner buffer. Only walls are fitted, and a wall never moves further
+than **Arc tolerance** (0.025 mm by default) from where it would have printed;
+walls roughened by fuzzy skin are left alone.
+
+Your printer has to understand arcs, and the slicer cannot check that for you:
+
+- **Marlin** needs firmware built with `ARC_SUPPORT` (on in most recent
+  builds).
+- **Klipper** needs a `[gcode_arcs]` section in `printer.cfg`. Set its
+  `resolution` to `0.1` or lower — at the default `1.0`, Klipper redraws every
+  arc as 1 mm straight pieces, so small holes come out faceted and arcs
+  shorter than that print as a straight line.
+- **RepRapFirmware** accepts arcs as shipped.
+
+Without that support the curved walls print wrong or not at all, so try it on
+a small part first.
+
+**Hello world** exists to be turned on once. It writes a greeting as a comment
+at the top of the G-code and reports what it saw while slicing, which is a
+quick way to confirm the machinery is working before you trust it with
+anything real. It changes nothing about how the part prints.
 
 ## Where your settings are saved
 

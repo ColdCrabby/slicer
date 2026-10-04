@@ -307,7 +307,7 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                     }
                 }
             }
-            "G0" | "G1" => {
+            "G0" | "G1" | "G2" | "G3" => {
                 let prev_x = x;
                 let prev_y = y;
                 let prev_z = z;
@@ -319,6 +319,11 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                 let mut new_e = e;
                 let mut new_f = feedrate;
                 let mut has_e = false;
+                // An arc's centre, as an offset from where it starts — always
+                // relative, whatever the positioning mode.
+                let arc = matches!(cmd.as_str(), "G2" | "G3");
+                let mut arc_i: f32 = 0.0;
+                let mut arc_j: f32 = 0.0;
 
                 for param in parts {
                     if param.is_empty() {
@@ -337,6 +342,8 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                             new_e = if absolute_e { val } else { e + val };
                         }
                         "F" => new_f = val,
+                        "I" => arc_i = val,
+                        "J" => arc_j = val,
                         _ => {}
                     }
                 }
@@ -362,10 +369,43 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                 // the speed gradient in the units printers are configured in.
                 let speed = feedrate / 60.0;
 
-                let moved = (x - prev_x).abs() > 1e-6
+                if arc {
+                    // Drawn as the chords a printer steps through, every one
+                    // traced back to this line. A full circle ends where it
+                    // started, so an arc is only skipped when it has no radius.
+                    if arc_i != 0.0 || arc_j != 0.0 {
+                        let points = crate::gcode::arc::chords(
+                            (f64::from(prev_x), f64::from(prev_y)),
+                            (f64::from(x), f64::from(y)),
+                            (f64::from(prev_x + arc_i), f64::from(prev_y + arc_j)),
+                            cmd == "G2",
+                            crate::gcode::arc::READBACK_SAGITTA_MM,
+                        );
+                        let count = points.len() as f32;
+                        let (mut from_x, mut from_y, mut from_z) = (prev_x, prev_y, prev_z);
+                        for (k, (to_x, to_y)) in points.into_iter().enumerate() {
+                            let to_z = prev_z + (z - prev_z) * (k + 1) as f32 / count;
+                            current.push_segment(
+                                seg_role,
+                                from_x,
+                                from_y,
+                                from_z,
+                                to_x as f32,
+                                to_y as f32,
+                                to_z,
+                                width,
+                                height,
+                                speed,
+                                acceleration,
+                                source_line,
+                            );
+                            (from_x, from_y, from_z) = (to_x as f32, to_y as f32, to_z);
+                        }
+                    }
+                } else if (x - prev_x).abs() > 1e-6
                     || (y - prev_y).abs() > 1e-6
-                    || (z - prev_z).abs() > 1e-6;
-                if moved {
+                    || (z - prev_z).abs() > 1e-6
+                {
                     current.push_segment(
                         seg_role,
                         prev_x,
@@ -713,6 +753,57 @@ G1 X20 Y20 E2.0
                 );
             }
         }
+    }
+
+    /// An arc is drawn as the chords a printer steps through: it ends where
+    /// the line says, every chord lies on the circle, every chord points back
+    /// at the arc's own line, and the move after it starts from its end.
+    #[test]
+    fn arcs_are_drawn_round_and_hand_on_their_end() {
+        let gcode = "\
+;TYPE:Outer wall
+G1 X10 Y0 Z0.2 F1800
+G3 X-10 Y0 I-10 J0 E1.5
+G1 X-10 Y-5 E2.0
+";
+        let layers = parse_gcode_bytes(gcode.as_bytes());
+        let walls: Vec<_> = layers
+            .iter()
+            .flat_map(|l| l.blocks.iter())
+            .filter(|b| b.role == Role::OuterWall)
+            .collect();
+        let segments: Vec<(&[f32], u32)> = walls
+            .iter()
+            .flat_map(|b| {
+                b.data
+                    .chunks(FLOATS_PER_SEGMENT)
+                    .zip(b.lines.iter().copied())
+            })
+            .collect();
+
+        let arc: Vec<&[f32]> = segments
+            .iter()
+            .filter(|(_, line)| *line == 3)
+            .map(|(seg, _)| *seg)
+            .collect();
+        assert!(
+            arc.len() > 8,
+            "a half circle is many chords, got {}",
+            arc.len()
+        );
+        for seg in &arc {
+            let radius = seg[3].hypot(seg[4]);
+            assert!(
+                (radius - 10.0).abs() < 1e-3,
+                "chord end off the circle: {radius}"
+            );
+            assert!(seg[4] >= -1e-4, "G3 from +X to -X passes above the X axis");
+        }
+        let last = arc.last().unwrap();
+        assert!((last[3] + 10.0).abs() < 1e-4 && last[4].abs() < 1e-4);
+
+        let next = segments.iter().find(|(_, line)| *line == 4).unwrap().0;
+        assert!((next[0] + 10.0).abs() < 1e-4 && next[1].abs() < 1e-4);
     }
 
     #[test]

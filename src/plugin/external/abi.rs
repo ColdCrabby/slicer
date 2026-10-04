@@ -31,10 +31,22 @@ use crate::gcode::{Move, MoveProgram};
 pub const MAGIC: u32 = 0x4d56_5031; // "MVP1"
 
 /// Version of the record layout. Bumped whenever a field moves.
-pub const ABI_VERSION: u32 = 1;
+///
+/// v2 appended the arc centre to every record, for [`kind::ARC`].
+pub const ABI_VERSION: u32 = 2;
 
 /// Bytes per record.
-pub const RECORD_BYTES: usize = 72;
+///
+/// | Bytes | Field |
+/// | --- | --- |
+/// | 0 | kind |
+/// | 1 | role |
+/// | 2 | `z` is set |
+/// | 3 | an arc turns clockwise |
+/// | 8..64 | `x`, `y`, `z`, `e`, `de`, feedrate, width — `f64` each |
+/// | 64..72 | raw-fragment id, comment id — `u32` each |
+/// | 72..88 | an arc's centre offset `i`, `j` — `f64` each |
+pub const RECORD_BYTES: usize = 88;
 
 /// Bytes in the header: magic, version, count, reserved.
 pub const HEADER_BYTES: usize = 16;
@@ -54,6 +66,8 @@ pub mod kind {
     pub const EXTRUDER: u8 = 3;
     /// [`crate::gcode::Move::Raw`] — opaque, referenced by id.
     pub const RAW: u8 = 4;
+    /// [`crate::gcode::Move::Arc`].
+    pub const ARC: u8 = 5;
 }
 
 /// The host-side strings a projected program refers to by id.
@@ -146,6 +160,9 @@ pub fn encode(program: &MoveProgram) -> (Vec<u8>, SideTable) {
 
     for m in moves {
         let mut rec = [0u8; RECORD_BYTES];
+        // The arc-only fields: centre offset and direction. Zero for every
+        // other kind.
+        let mut arc = (0.0, 0.0, false);
         let (k, role, has_z, x, y, z, e, de, feed, width, raw_id, comment_id) = match m {
             Move::Extrude {
                 x,
@@ -171,6 +188,35 @@ pub fn encode(program: &MoveProgram) -> (Vec<u8>, SideTable) {
                 NO_ID,
                 side.intern_comment(comment),
             ),
+            Move::Arc {
+                x,
+                y,
+                i,
+                j,
+                clockwise,
+                e,
+                de,
+                feed_mm_min,
+                role,
+                width_mm,
+                comment,
+            } => {
+                arc = (*i, *j, *clockwise);
+                (
+                    kind::ARC,
+                    role_code(*role),
+                    0,
+                    *x,
+                    *y,
+                    0.0,
+                    *e,
+                    *de,
+                    *feed_mm_min,
+                    *width_mm,
+                    NO_ID,
+                    side.intern_comment(comment),
+                )
+            }
             Move::Travel {
                 x,
                 y,
@@ -246,12 +292,15 @@ pub fn encode(program: &MoveProgram) -> (Vec<u8>, SideTable) {
         rec[0] = k;
         rec[1] = role;
         rec[2] = has_z;
+        rec[3] = u8::from(arc.2);
         for (i, v) in [x, y, z, e, de, feed, width].iter().enumerate() {
             let at = 8 + i * 8;
             rec[at..at + 8].copy_from_slice(&v.to_le_bytes());
         }
         rec[64..68].copy_from_slice(&raw_id.to_le_bytes());
         rec[68..72].copy_from_slice(&comment_id.to_le_bytes());
+        rec[72..80].copy_from_slice(&arc.0.to_le_bytes());
+        rec[80..88].copy_from_slice(&arc.1.to_le_bytes());
         buf.extend_from_slice(&rec);
     }
 
@@ -336,6 +385,19 @@ pub fn decode(buf: &[u8], side: &SideTable) -> Result<MoveProgram, DecodeError> 
                 width_mm: width,
                 comment,
             },
+            kind::ARC => Move::Arc {
+                x,
+                y,
+                i: f64::from_le_bytes(rec[72..80].try_into().unwrap()),
+                j: f64::from_le_bytes(rec[80..88].try_into().unwrap()),
+                clockwise: rec[3] != 0,
+                e,
+                de,
+                feed_mm_min: feed,
+                role: role_from(rec[1]),
+                width_mm: width,
+                comment,
+            },
             kind::TRAVEL => Move::Travel {
                 x,
                 y,
@@ -388,6 +450,19 @@ mod tests {
             width_mm: 0.42,
             comment: None,
         });
+        p.push(Move::Arc {
+            x: 5.0,
+            y: 4.0,
+            i: 1.0,
+            j: -0.5,
+            clockwise: true,
+            e: 0.75,
+            de: 0.25,
+            feed_mm_min: 1500.0,
+            role: ExtrusionRole::OuterWall,
+            width_mm: 0.45,
+            comment: None,
+        });
         p.push(Move::Extruder {
             e: -1.0,
             de: -1.0,
@@ -408,7 +483,7 @@ mod tests {
     #[test]
     fn every_record_is_the_same_size() {
         let (buf, _) = encode(&sample());
-        assert_eq!(buf.len(), HEADER_BYTES + 4 * RECORD_BYTES);
+        assert_eq!(buf.len(), HEADER_BYTES + 5 * RECORD_BYTES);
     }
 
     #[test]

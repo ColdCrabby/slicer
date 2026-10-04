@@ -32,17 +32,30 @@ use clipper2::{Path, Paths};
 use crate::core::{ExtrusionRole, SliceLayer};
 use crate::settings::params::SlicingParams;
 
-/// Perturb every layer's outer-wall paths — `OuterWall`, open or closed, and
-/// `OverhangPerimeter` (the overhang-graded split of an outer or inner wall)
-/// — per [`SlicingParams::fuzzy_skin`].
+/// Whether fuzzy skin is switched on with something to do: the option set and
+/// both magnitudes non-zero.
+pub fn is_active(params: &SlicingParams) -> bool {
+    params.fuzzy_skin
+        && params.fuzzy_skin_thickness_mm > 0.0
+        && params.fuzzy_skin_point_dist_mm > 0.0
+}
+
+/// Whether fuzzy skin roughens paths of `role` — `OuterWall`, open or closed,
+/// and `OverhangPerimeter` (the overhang-graded split of an outer or inner
+/// wall).
+pub fn roughens(role: ExtrusionRole) -> bool {
+    matches!(
+        role,
+        ExtrusionRole::OuterWall | ExtrusionRole::OverhangPerimeter
+    )
+}
+
+/// Perturb every layer's outer-wall paths — every role [`roughens`] names —
+/// per [`SlicingParams::fuzzy_skin`].
 ///
-/// No-op when the option is off or either magnitude resolves to nothing, so
-/// the default configuration never allocates.
+/// No-op unless [`is_active`], so the default configuration never allocates.
 pub fn apply(layers: &mut [SliceLayer], params: &SlicingParams) {
-    if !params.fuzzy_skin
-        || params.fuzzy_skin_thickness_mm <= 0.0
-        || params.fuzzy_skin_point_dist_mm <= 0.0
-    {
+    if !is_active(params) {
         return;
     }
 
@@ -69,12 +82,7 @@ pub fn apply(layers: &mut [SliceLayer], params: &SlicingParams) {
             let widths = layer.path_vertex_widths.get(i).cloned().flatten();
             let vertex_z = layer.path_vertex_z.get(i).cloned().flatten();
             let role = layer.role_for_path(i);
-            let is_fuzzable_wall = matches!(
-                role,
-                ExtrusionRole::OuterWall | ExtrusionRole::OverhangPerimeter
-            );
-
-            if is_fuzzable_wall {
+            if roughens(role) {
                 let seed = path_seed(path, layer.z, i);
                 let fuzzed = if layer.is_path_open(i) {
                     fuzz_open_path(

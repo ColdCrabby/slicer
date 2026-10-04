@@ -26,6 +26,12 @@ printf '[slicing]\nwall_generator = "classic"\n' > /tmp/classic.toml
 ./target/debug/slicer-engine slice -i 3DBenchy.stl --config /tmp/classic.toml -o /tmp/classic.gcode
 ```
 
+Arcs (`G2`/`G3`, from the arc-fitting experiment or another slicer) are read
+as the short chords a printer steps through, by the parser in `voids.py` that
+`render.py`, `zoom.py`, `overlap.py`, `wallbands.py` and `beaddiff.py` share.
+`coincident.py` and `widthdist.py` keep their own parsers and still read
+`G0`/`G1` only — slice with arc fitting off for those.
+
 ## Scripts
 
 | Script | What it measures | Usage |
