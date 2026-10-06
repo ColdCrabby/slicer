@@ -33,6 +33,41 @@ export interface OmniboxEntry {
   readonly keywords?: string;
   /** The scope provider's say in how high this result floats. */
   readonly rank?: number;
+  /**
+   * Markdown blurb shown under the title where a description is expected — the
+   * schema's own `description`, unaltered. A row renders it as Markdown.
+   */
+  readonly description?: string;
+  /** Library entry whose thumbnail the row should show, if any. */
+  readonly imageId?: string;
+  /**
+   * The row's thumbnail right now, if one is ready. A closure over the
+   * library's signal map rather than a baked URL, so a thumbnail that lands
+   * while the palette is open flips the row when it arrives — and the library
+   * module itself stays out of the palette until a scope that needs it loads.
+   */
+  readonly thumbnail?: () => string | null;
+  /**
+   * Kicks thumbnail production for the entry — fetching it if the library has
+   * one, rendering it if it does not. Called for the row the user is pointed
+   * at, not for every result: rendering a whole library of previews because a
+   * query mentioned one of them is work nobody asked for.
+   */
+  readonly ensureThumbnail?: () => void;
+
+  /**
+   * `true` when acting on this changes *the view you are looking at* (the
+   * current plate, the open editor); absent or `false` means it is global —
+   * it goes somewhere else or binds app-wide. The ranking floats current-view
+   * results above global ones when both match equally.
+   */
+  readonly currentView?: boolean;
+  /**
+   * `navigate` only: `true` when the action leaves for a different route
+   * rather than editing what is already on screen. The row shows a popout
+   * glyph so "go somewhere" never reads like "change this".
+   */
+  readonly leavesView?: boolean;
 
   /** `navigate`: absolute router path, plus its query and an anchor selector. */
   readonly path?: string;
@@ -52,6 +87,17 @@ export interface OmniboxEntry {
 }
 
 export const OMNIBOX_MAX_RESULTS = 30;
+
+/**
+ * The head start a result that acts on the current view gets over a global one.
+ *
+ * Kept below the weakest title bonus (a title word hit, +20 at least) so it can
+ * only break ties between otherwise comparable matches: a clearly better global
+ * hit still outranks a weak current-view one. It exists because "the setting I
+ * am looking at" is what a user means more often than "the same-named page
+ * three routes away", and the palette should agree without hiding the other.
+ */
+export const OMNIBOX_CURRENT_VIEW_BONUS = 10;
 
 /**
  * Keep only what the locked scopes cover. No locks means everywhere, and a
@@ -76,6 +122,9 @@ function score(entry: OmniboxEntry, query: string, words: readonly string[]): nu
     return 0;
   }
   let points = 1;
+  if (entry.currentView) {
+    points += OMNIBOX_CURRENT_VIEW_BONUS;
+  }
   if (title === query) {
     points += 200;
   } else if (title.startsWith(query)) {

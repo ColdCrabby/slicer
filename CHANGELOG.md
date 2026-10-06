@@ -33,6 +33,11 @@ See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 - **Search everything** — press `E` and one palette finds settings, printers,
   filaments, presets, parameters and library models; name a scope first
   (`sett` + `Tab`) to keep the search to it, and change a parameter on the spot.
+- **Search from the title bar** — a magnifier next to Help opens the same
+  palette, for hands on glass that have no `E` to press.
+- **Workbench scope** — ask the palette for `workbench` (or `plate`) and switch
+  the open plate's printer, filament or process beside its own parameters, so a
+  preset swap and a one-off tweak are one search apart.
 
 ### Changed
 
@@ -43,6 +48,13 @@ See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 
 ### Fixed
 
+- **The search palette always answers Escape** — it closes from wherever focus
+  sits, not only while the search box has it, and a click on the darkened
+  surround puts it away without pressing what is behind it.
+- **The search palette fits the screen** — on tall windows it no longer ran
+  past the bottom edge; it now fills the space it is given and scrolls inside.
+- **Library models in search show their thumbnails** — the same previews the
+  library draws, made for the row you are pointed at.
 - **Painting and the camera no longer fight over a drag** — starting to orbit,
   pan or pinch in paint mode moves the view instead of dragging paint across
   the model, and a stroke under way is dropped the moment a camera gesture

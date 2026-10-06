@@ -1,4 +1,4 @@
-<div class="overlay" (pointerdown)="onBackdrop($event)">
+<div class="overlay" (click)="onBackdrop($event)">
   <section
     class="palette"
     role="dialog"
@@ -28,7 +28,8 @@
       </header>
 
       @if (entry.field?.description; as description) {
-        <p class="editor-desc">{{ description }}</p>
+        <!-- The schema's own words are Markdown; they are rendered, not quoted. -->
+        <markdown class="editor-desc" [data]="description" />
       }
 
       <div class="editor-field">
@@ -130,13 +131,22 @@
                 <span class="row-where">{{ scope.hint }}</span>
                 <kbd class="key">Tab</kbd>
               } @else {
-                <nexus-icon class="row-icon" [name]="row.entry!.icon" aria-hidden="true" />
+                @if (row.entry!.thumbnail?.(); as thumb) {
+                  <img class="row-thumb" [src]="thumb" alt="" loading="lazy" />
+                } @else {
+                  <nexus-icon class="row-icon" [name]="row.entry!.icon" aria-hidden="true" />
+                }
                 <span class="row-text">
                   <span class="row-title">{{ row.entry!.title }}</span>
                   <span class="row-where">{{ row.entry!.where }}</span>
                 </span>
                 @if (row.entry!.kind === 'quickset') {
                   <span class="row-value">{{ describe(row.entry!) }}</span>
+                }
+                @if (row.entry!.leavesView) {
+                  <!-- Says "this goes somewhere else", so a navigation never
+                       reads as an edit to what is on screen. -->
+                  <nexus-icon class="row-leave" name="open-in-window" aria-hidden="true" />
                 }
               }
             </button>

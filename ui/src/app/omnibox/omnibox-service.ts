@@ -25,6 +25,11 @@ export class OmniboxService {
   }
 
   hide(): void {
+    // An open that never happened must not dress the next one. A prefill set
+    // for a palette that was dismissed before it could ask — the chunk still
+    // loading, a second press of `e` — would otherwise surface as somebody
+    // else's query on a later bare open.
+    this.#prefill = null;
     this.isOpen.set(false);
   }
 
