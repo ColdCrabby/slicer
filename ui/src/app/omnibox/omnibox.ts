@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { Icon } from '@coldcrabby/ui';
+import { MarkdownComponent } from 'ngx-markdown';
 import { FieldHost } from '../schema-form/field-host/field-host';
 import { focusConfigureTarget } from '../pages/settings/configure-scroll';
 import { Slicer } from '../services/slicer';
@@ -53,7 +54,7 @@ interface OmniboxRow {
  */
 @Component({
   selector: 'nexus-omnibox',
-  imports: [Icon, FieldHost],
+  imports: [Icon, FieldHost, MarkdownComponent],
   templateUrl: './omnibox.html',
   styleUrl: './omnibox.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -132,6 +133,7 @@ export class OmniboxPalette {
   });
 
   private readonly input = viewChild<ElementRef<HTMLInputElement>>('omniboxInput');
+  private readonly host = inject(ElementRef<HTMLElement>);
 
   constructor() {
     // Fresh start every open — the last search is a stranger's context.
@@ -155,6 +157,41 @@ export class OmniboxPalette {
       });
       // The palette mounts through `@defer`; the input exists a tick later.
       setTimeout(() => this.input()?.nativeElement.focus({ preventScroll: true }));
+    });
+
+    // Escape has to work even when the palette holds no focus at all — a click
+    // on its chrome, a focus stolen by a popover, a screen-reader shortcut —
+    // and the input's and panel's own handlers never see those keys. This
+    // listener sits on the document in the *capture* phase so it also runs
+    // ahead of the global shortcut table (whose Escape presses would otherwise
+    // act on the app behind the palette in the same stroke), and steps aside
+    // whenever focus is inside the palette, where Escape is staged — editor
+    // first, then close — by the handlers that own it.
+    effect((onCleanup) => {
+      if (!this.state.open()) {
+        return;
+      }
+      const onKey = (event: KeyboardEvent): void => {
+        if (event.key !== 'Escape') {
+          return;
+        }
+        const focus = document.activeElement;
+        if (focus instanceof Node && this.host.nativeElement.contains(focus)) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        this.state.hide();
+      };
+      document.addEventListener('keydown', onKey, { capture: true });
+      onCleanup(() => document.removeEventListener('keydown', onKey, { capture: true }));
+    });
+
+    // A thumbnail is produced for the row the user is actually pointed at —
+    // hovered or walked to — never for the whole result list at once.
+    effect(() => {
+      const row = this.activeRow();
+      untracked(() => row?.entry?.ensureThumbnail?.());
     });
 
     // Keep the highlighted row honest as the list shrinks and grows.
@@ -333,7 +370,16 @@ export class OmniboxPalette {
     }
   }
 
-  protected onBackdrop(event: PointerEvent): void {
+  /**
+   * A click on the darkened surroundings puts the palette away.
+   *
+   * On `click`, not `pointerdown`: the pointer path removes the overlay before
+   * the browser's follow-up click, which then lands on whatever app control
+   * sits beneath the cursor — a dismissal that also pressed the button behind
+   * it. Click fires after the gesture is over, so the same press cannot mean
+   * both.
+   */
+  protected onBackdrop(event: MouseEvent): void {
     if (event.target === event.currentTarget) {
       this.state.hide();
     }

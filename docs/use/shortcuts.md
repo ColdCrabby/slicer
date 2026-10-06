@@ -103,14 +103,17 @@ run the same way.
 
 **Search everything** opens a palette over whatever you're looking at, and finds
 settings pages, app preferences, printers, filaments, process presets, slicing
-parameters and library models in one list. `↑` `↓` and `Enter` choose; `Esc`
-puts it away.
+parameters and library models in one list — the title bar's magnifier opens it
+too, for hands without a keyboard. `↑` `↓` and `Enter` choose; `Esc` puts it
+away, from wherever focus sits.
 
-Start a query with a scope's name — `settings`, `print`, `printers`,
-`filaments`, `processes`, `models` — and a suggestion appears; `Tab` accepts it
-and locks the search to that scope, shown as a chip. Behind a chip, results come
-from that scope only: typing `sett infill` cannot answer with a filament.
-`Backspace` on an empty query peels the last chip off.
+Start a query with a scope's name — `settings`, `workbench`, `print`,
+`printers`, `filaments`, `processes`, `models` — and a suggestion appears;
+`Tab` accepts it and locks the search to that scope, shown as a chip. Behind a
+chip, results come from that scope only: typing `sett infill` cannot answer
+with a filament. `Backspace` on an empty query peels the last chip off.
+`workbench` is the open plate's working set — its printer, filament and
+process presets beside its own parameters.
 
 | In the palette                                      | Key                           |
 | --------------------------------------------------- | ----------------------------- |

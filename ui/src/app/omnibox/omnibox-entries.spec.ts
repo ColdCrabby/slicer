@@ -111,6 +111,44 @@ describe('searchOmniboxEntries', () => {
     expect(searchOmniboxEntries([other, heat], 'heated bed')[0].id).toBe(heat.id);
   });
 
+  it('floats a current-view result above an otherwise equal global one', () => {
+    const here = entry({
+      id: 'print:bed_temp',
+      scopeId: 'print',
+      title: 'Bed Temperature',
+      where: 'This plate · Plate 1',
+      currentView: true,
+    });
+    const there = entry({
+      id: 'printers:bed_temp',
+      scopeId: 'printers',
+      title: 'Bed Temperature',
+      where: 'Printers',
+    });
+    expect(searchOmniboxEntries([there, here], 'bed temp').map((e) => e.id)).toEqual([
+      here.id,
+      there.id,
+    ]);
+  });
+
+  it('lets a clearly better global match outrank a weak current-view one', () => {
+    const here = entry({
+      id: 'print:faint',
+      scopeId: 'print',
+      title: 'Unrelated',
+      where: 'This plate · Plate 1',
+      keywords: 'bed temp',
+      currentView: true,
+    });
+    const there = entry({
+      id: 'printers:bed_temp',
+      scopeId: 'printers',
+      title: 'Bed Temperature',
+      where: 'Printers',
+    });
+    expect(searchOmniboxEntries([here, there], 'bed temp')[0].id).toBe(there.id);
+  });
+
   it('never answers an empty query', () => {
     expect(searchOmniboxEntries(ALL, '   ')).toEqual([]);
   });

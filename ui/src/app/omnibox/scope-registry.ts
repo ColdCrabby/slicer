@@ -15,7 +15,11 @@
  */
 import { type Injector } from '@angular/core';
 import type { SlicingParams } from '../../generated/slicer-engine-ws-client-message-v1';
-import { SETTING_CONTRACTS, contractForGroup } from '../models/setting-contract';
+import {
+  SETTING_CONTRACTS,
+  contractForGroup,
+  type SettingContractId,
+} from '../models/setting-contract';
 import {
   preferenceEntries,
   profileEntries,
@@ -23,6 +27,8 @@ import {
   settingEntries,
   type SearchEntry,
 } from '../pages/settings/settings-search';
+import { ActivePresets } from '../services/profiles/active-presets';
+import { ActiveSelection } from '../services/profiles/active-selection';
 import { PrintersStore } from '../services/profiles/printers-store';
 import { FilamentsStore } from '../services/profiles/filaments-store';
 import { PrintProfilesStore } from '../services/profiles/print-profiles-store';
@@ -56,6 +62,10 @@ function asEntry(entry: SearchEntry, scopeId: string, rank: number): OmniboxEntr
     path: entry.path,
     queryParams: entry.queryParams,
     target: entry.target,
+    // Navigation is the one act that takes the user away from what they were
+    // looking at, so its row must say so (finding: "go somewhere" vs "change
+    // this") and it must not out-rank a result that edits the current view.
+    leavesView: true,
   };
 }
 
@@ -67,6 +77,114 @@ const IDENTITY_KEYS: ReadonlySet<string> = new Set([
   'printer_vendor',
   'printer_model',
 ]);
+
+/**
+ * The parameters of the plate on screen, as quick-set entries.
+ *
+ * Shared by the `print` scope and the `workbench` scope — the difference
+ * between them is what *else* sits beside the parameters, not the parameters.
+ * With no plate open there is nowhere for an override to land, so the same
+ * settings come back as navigation to the profile editor that owns them.
+ */
+async function providePlateParams(injector: Injector, scopeId: string): Promise<OmniboxEntry[]> {
+  const { ALL_PARAM_GROUPS } = await import('../components/profiles/profile-param-groups');
+  const slicer = injector.get(Slicer);
+  const plate = slicer.currentRequestUuid();
+  if (!plate) {
+    const { EDITOR_PARAM_GROUPS } = await import('../components/profiles/profile-param-groups');
+    return settingEntries(EDITOR_PARAM_GROUPS).map((entry) => asEntry(entry, scopeId, 0));
+  }
+  const names = injector.get(WorkplateNames);
+  const where = `This plate · ${names.displayNameFor(plate, null)}`;
+  return ALL_PARAM_GROUPS.flatMap((group) => group.fields)
+    .filter(
+      (field) =>
+        // Fan curves and pause triggers have editors of their own; a
+        // number box would take their place and mangle them.
+        field.type !== 'array' &&
+        // The engine re-stamps these from the profiles on every slice, so
+        // a change here would be accepted and then quietly dropped.
+        !IDENTITY_KEYS.has(field.key),
+    )
+    .map((field): OmniboxEntry => {
+      const contract = SETTING_CONTRACTS.find((c) => c.id === contractForGroup(field.group ?? ''));
+      return {
+        id: `${scopeId}:${field.key}`,
+        scopeId,
+        kind: 'quickset',
+        title: field.title ?? field.key,
+        where,
+        icon: 'control-slider',
+        keywords: `${field.key.replaceAll('_', ' ')} ${field.description ?? ''}`,
+        description: field.description,
+        rank: 4,
+        // The current plate is exactly what "print settings" edits, so this
+        // is the scope the current-view bonus is named for.
+        currentView: true,
+        field,
+        fieldKey: field.key,
+        apply: (value) => slicer.updateSettings({ [field.key]: value } as Partial<SlicingParams>),
+        openInEditor: contract
+          ? { path: contract.managePath, queryParams: { focus: field.key } }
+          : undefined,
+      };
+    });
+}
+
+/**
+ * The presets the current plate would switch to, as commands.
+ *
+ * Switching a printer, filament or process is a *current-view* act — it
+ * re-pins the stack the open plate slices against — which is why these live
+ * in the workbench scope beside the plate's own parameters rather than only
+ * behind the profiles' settings pages.
+ */
+function provideWorkbenchPresets(injector: Injector): OmniboxEntry[] {
+  const selection = injector.get(ActiveSelection);
+  const active = injector.get(ActivePresets);
+  const configs: {
+    contract: SettingContractId;
+    icon: string;
+    label: string;
+    select: (id: string) => void;
+  }[] = [
+    {
+      contract: 'printer',
+      icon: 'printer',
+      label: 'Printer',
+      select: (id) => selection.selectPrinter(id),
+    },
+    {
+      contract: 'filament',
+      icon: 'droplet',
+      label: 'Filament',
+      select: (id) => selection.selectFilament(id),
+    },
+    {
+      contract: 'process',
+      icon: 'reports',
+      label: 'Process',
+      select: (id) => selection.selectProfile(id),
+    },
+  ];
+  return configs.flatMap((config) =>
+    active.options(config.contract).map((option): OmniboxEntry => {
+      const isActive = active.selectedId(config.contract) === option.value;
+      return {
+        id: `workbench:${config.contract}:${option.value}`,
+        scopeId: 'workbench',
+        kind: 'command',
+        title: option.label,
+        where: isActive ? `${config.label} · active` : `Switch ${config.label.toLowerCase()}`,
+        icon: config.icon,
+        keywords: `${config.contract} ${config.label.toLowerCase()} preset profile switch`,
+        rank: 8,
+        currentView: true,
+        run: () => config.select(option.value),
+      };
+    }),
+  );
+}
 
 /**
  * The scopes, in the order their suggestions appear. Registry order is also
@@ -83,51 +201,24 @@ export const OMNIBOX_SCOPES: readonly OmniboxScope[] = [
       tokens: ['print', 'params', 'parameters'],
       hint: 'Change a parameter on the current plate',
     },
-    provide: async (injector) => {
-      const { ALL_PARAM_GROUPS } = await import('../components/profiles/profile-param-groups');
-      const slicer = injector.get(Slicer);
-      const plate = slicer.currentRequestUuid();
-      // No plate, no place for an override to land: the parameters still
-      // answer, they just open the profile editor that owns them instead.
-      if (!plate) {
-        const { EDITOR_PARAM_GROUPS } = await import('../components/profiles/profile-param-groups');
-        return settingEntries(EDITOR_PARAM_GROUPS).map((entry) => asEntry(entry, 'print', 0));
-      }
-      const names = injector.get(WorkplateNames);
-      const where = `This plate · ${names.displayNameFor(plate, null)}`;
-      return ALL_PARAM_GROUPS.flatMap((group) => group.fields)
-        .filter(
-          (field) =>
-            // Fan curves and pause triggers have editors of their own; a
-            // number box would take their place and mangle them.
-            field.type !== 'array' &&
-            // The engine re-stamps these from the profiles on every slice, so
-            // a change here would be accepted and then quietly dropped.
-            !IDENTITY_KEYS.has(field.key),
-        )
-        .map((field): OmniboxEntry => {
-          const contract = SETTING_CONTRACTS.find(
-            (c) => c.id === contractForGroup(field.group ?? ''),
-          );
-          return {
-            id: `print:${field.key}`,
-            scopeId: 'print',
-            kind: 'quickset',
-            title: field.title ?? field.key,
-            where,
-            icon: 'control-slider',
-            keywords: `${field.key.replaceAll('_', ' ')} ${field.description ?? ''}`,
-            rank: 4,
-            field,
-            fieldKey: field.key,
-            apply: (value) =>
-              slicer.updateSettings({ [field.key]: value } as Partial<SlicingParams>),
-            openInEditor: contract
-              ? { path: contract.managePath, queryParams: { focus: field.key } }
-              : undefined,
-          };
-        });
+    provide: (injector) => providePlateParams(injector, 'print'),
+  },
+  {
+    def: {
+      id: 'workbench',
+      label: 'Workbench',
+      icon: 'tools',
+      tokens: ['workbench', 'plate', 'current'],
+      hint: 'Switch presets and edit this plate',
     },
+    // The open plate's whole working set, in one scope: which printer,
+    // filament and process it slices with, *and* the individual parameters
+    // those stack into — so a preset swap and a one-off tweak are one search
+    // apart instead of a trip to three settings pages.
+    provide: async (injector) => [
+      ...provideWorkbenchPresets(injector),
+      ...(await providePlateParams(injector, 'workbench')),
+    ],
   },
   {
     def: {
@@ -216,8 +307,14 @@ export const OMNIBOX_SCOPES: readonly OmniboxScope[] = [
         title: entry.name,
         where: 'Library',
         icon: 'box-iso',
+        imageId: entry.id,
+        thumbnail: () => library.thumbnails().get(entry.id) ?? null,
+        ensureThumbnail: () => library.ensureThumbnail(entry),
         keywords: 'model stl obj 3mf file library',
         rank: 12,
+        // Adding a model lands it on the plate you are looking at, so it is a
+        // current-view action, not a trip to another page.
+        currentView: true,
         run: () => void actions.addToPlate(entry),
       }));
     },

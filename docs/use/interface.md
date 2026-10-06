@@ -241,18 +241,28 @@ says so in the picker, and a slice reports its result — including why it faile
 ## Search everything
 
 Press `E` — or `⌘/Ctrl + Shift + P`, which also works while you're typing in a
-field — and a search palette opens over whatever you were looking at. One query
-reaches the settings pages, app preferences, your printers, filaments and
-process presets, every slicing parameter, and the models in your library.
-`Enter` opens what's highlighted; a parameter opens right there with a small
-editor, and the change lands on the plate you're slicing.
+field — and a search palette opens over whatever you were looking at. On a
+touch screen there is no `E` to press, so the title bar carries a magnifier
+next to Help that opens the same palette. One query reaches the settings pages,
+app preferences, your printers, filaments and process presets, every slicing
+parameter, and the models in your library — with the same thumbnails the
+library shows. `Enter` opens what's highlighted; a parameter opens right there
+with a small editor, and the change lands on the plate you're slicing.
 
 If you already know the neighbourhood, say so: start the query with a scope's
-name — `settings`, `print`, `printers`, `filaments`, `processes`, `models` — and
-`Tab` locks the search to it, as a chip above the results. Behind a chip, the
-search is _only_ that scope: `sett infill` will not answer with a filament. The
-suggestion appears as you type the scope's name, and `Backspace` on an empty
-query peels the last chip back off.
+name — `settings`, `workbench`, `print`, `printers`, `filaments`, `processes`,
+`models` — and `Tab` locks the search to it, as a chip above the results.
+Behind a chip, the search is _only_ that scope: `sett infill` will not answer
+with a filament. The suggestion appears as you type the scope's name, and
+`Backspace` on an empty query peels the last chip back off. The `workbench`
+scope is the open plate's working set: switch its printer, filament or process,
+or reach the same parameters the `print` scope serves.
+
+Results that edit the plate you are looking at — parameters, preset switches,
+adding a model — sort ahead of ones that take you somewhere else, and anything
+that leaves for another route carries a small popout mark so "go there" never
+reads as "change this". `Escape` closes the palette from wherever focus sits,
+and a click on the darkened surround puts it away too.
 
 ## Moving between Home, Slice and Settings
 

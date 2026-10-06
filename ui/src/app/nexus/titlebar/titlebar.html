@@ -12,6 +12,18 @@
   <button
     nexusIconButton
     size="sm"
+    class="tb-search"
+    type="button"
+    aria-label="Search everything"
+    tooltip="Search everything"
+    (click)="openSearch()"
+  >
+    <nexus-icon name="search" />
+  </button>
+
+  <button
+    nexusIconButton
+    size="sm"
     class="tb-help"
     type="button"
     aria-label="Help and links"

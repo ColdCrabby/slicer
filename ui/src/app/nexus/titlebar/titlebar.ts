@@ -21,6 +21,7 @@ import { Icon, IconButton, TooltipDirective } from '../../ui/shell-primitives';
 import { Viewport } from '../../services/viewport';
 import { openExternal } from '../../services/external-links';
 import { Feedback } from '../../services/feedback';
+import { OmniboxService } from '../../omnibox/omnibox-service';
 
 /**
  * Where a runtime's API reference lives, or `null` when it has no server.
@@ -65,6 +66,20 @@ export class NexusTitlebar {
   private readonly viewport = inject(Viewport);
   private readonly injector = inject(Injector);
   private readonly feedback = inject(Feedback);
+  private readonly omnibox = inject(OmniboxService);
+
+  /**
+   * Open the omnibox from the bar.
+   *
+   * The palette answers `e` and `F1` on a keyboard, but a hand on glass has
+   * neither, so the search needs a visible door too. The service is the same
+   * signals-only module the shell and the shortcut table already pay for —
+   * the palette itself stays in its deferred chunk until this (or a key, or a
+   * prefill hand-off) opens it.
+   */
+  protected openSearch(): void {
+    this.omnibox.show();
+  }
 
   /**
    * Everything that leaves the app, behind one button.
