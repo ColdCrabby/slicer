@@ -41,7 +41,7 @@
     "@types/three": "^0.186.0",
     "fuse.js": "^7.5.0",
     "iconoir": "^7.12.1",
-    "katex": "^0.18.9",
+    "katex": "^0.18.10",
     "marked": "^18.0.14",
     "marked-katex-extension": "^5.1.13",
     "monaco-editor": "^0.57.0",
