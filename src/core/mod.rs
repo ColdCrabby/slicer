@@ -5,6 +5,7 @@ mod infill;
 mod objects;
 mod pipeline;
 mod slicer;
+pub mod stages;
 mod support_paint;
 mod supports;
 mod surfaces;
@@ -21,7 +22,7 @@ pub use objects::{
 #[cfg(not(target_arch = "wasm32"))]
 pub use pipeline::process_mesh_debug;
 pub(crate) use pipeline::resolved_first_layer_height;
-pub use pipeline::{process_mesh, process_mesh_with_paint};
+pub use pipeline::{process_mesh, process_mesh_with_paint, process_mesh_with_plugins};
 pub use slicer::{slice_mesh, slice_mesh_with_first_layer};
 pub use support_paint::{project_support_paint, SupportPaintMasks};
 pub use supports::{generate_supports, generate_supports_with_paint};
@@ -41,7 +42,7 @@ pub(crate) use surfaces::{
     extrusion_flow_spacing_mm, outer_wall_nominal_width_mm, solid_surface_nominal_width_mm,
     sparse_infill_nominal_width_mm, support_nominal_width_mm,
 };
-pub use types::{ExtrusionRole, OverhangClass, SliceLayer};
+pub use types::{ExtrusionRole, OverhangClass, PathData, PathPick, SliceLayer, VertexOrder};
 
 #[cfg(test)]
 mod tests {

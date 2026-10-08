@@ -28,6 +28,34 @@ See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 
 ## [Unreleased]
 
+### Added
+
+- **Plugin foundation.** The slicing pipeline is now an ordered list of named
+  stages rather than one long function, and a plugin extends the engine by
+  naming a stage instead of editing it — so every stage the pipeline grows is a
+  new extension point for free. Plugin settings are namespaced and generate
+  their own UI from a JSON Schema fragment. With every plugin switched off, the
+  output is byte-identical.
+- **Non-planar extrusion.** A layer is no longer necessarily flat: a path can
+  carry a Z offset per vertex, so a bead rises and falls within its own layer
+  and the filament it needs is measured along the distance it actually travels.
+  Nothing in the default pipeline produces one — it is the groundwork features
+  like wavy overhangs need in order to exist at all.
+- **G-code is planned before it is written.** The generator now builds the
+  program as structured moves and renders it as a last step, so a plugin can
+  rewrite motion — merging, splitting or replacing it — while the role, width
+  and feedrate are still attached. That is what a native arc welder needs, and
+  what editing finished text could never offer. Output is unchanged.
+- **A "Hello world" experiment**, under Settings ▸ Experiments. It writes a
+  greeting into the G-code and reports what it saw, so you can confirm plugins
+  are running — and it is the worked example to copy when writing one. Off by
+  default.
+- **Third-party plugins, sandboxed.** An optional build can load WASM modules
+  from a plugins folder and let them rewrite the G-code program. A module is
+  granted nothing — no files, no network, no clock — is capped on memory and
+  cut off if it runs away, and cannot write G-code text of its own. One that
+  misbehaves costs its own feature, never the print. Off by default.
+
 ### Changed
 
 - **Organic tree supports** — branches grow from small tips under the overhang,
@@ -48,6 +76,10 @@ See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 - **No more stray support specks** — support stops where it lands on the model
   instead of resurfacing in recesses below it, and slivers too thin to print are
   gone.
+- **`--debug-geometry` wrote incorrect G-code.** The debug pipeline was a second
+  copy of the slicing sequence and had drifted from it, silently skipping path
+  ordering and bed adhesion — so a slice run with debug output enabled came out
+  unordered and with no skirt or brim. Both paths are now the same pipeline.
 
 ## [0.6.0] - 2026-10-01
 

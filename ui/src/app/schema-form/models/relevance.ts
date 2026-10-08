@@ -1,4 +1,5 @@
 import { FieldDef, SchemaGroup } from './field-def';
+import { valueAtPath } from './field-path';
 
 /**
  * Shared evaluation of the `x-relevant-when` schema extension.
@@ -17,6 +18,11 @@ import { FieldDef, SchemaGroup } from './field-def';
  * - `equals` — the gate field's raw current value compared with strict
  *   equality. A missing gate value therefore counts as "not equal" unless the
  *   rule's `equals` is itself `undefined`.
+ *
+ * The gate is addressed by path, not by sibling name: a plugin's fields are
+ * namespaced (`plugins.<id>.<key>`) but relevance is evaluated against the
+ * whole settings object, so a plugin gates its settings on its own
+ * `plugins.<id>.enabled` toggle.
  * - `greaterThan` — the gate field's value coerced to a number and compared.
  *   A missing or non-numeric value is not greater than anything, so the field
  *   stays hidden.
@@ -29,10 +35,10 @@ export function isFieldRelevant(field: FieldDef, values: Record<string, unknown>
     return true;
   }
   if (rule.equals === undefined && rule.greaterThan !== undefined) {
-    const value = Number(values[rule.field]);
+    const value = Number(valueAtPath(values, rule.field));
     return Number.isFinite(value) && value > rule.greaterThan;
   }
-  return values[rule.field] === rule.equals;
+  return valueAtPath(values, rule.field) === rule.equals;
 }
 
 /**
