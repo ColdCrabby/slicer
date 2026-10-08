@@ -28,6 +28,13 @@ See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 
 ## [Unreleased]
 
+### Added
+
+- **RepRapFirmware printers** — pick RepRapFirmware as a printer's firmware and
+  Duet machines get G-code in their own dialect: pauses that pause instead of
+  ending the print, height-map leveling, pressure advance, and fan and speed
+  limits in RRF's own units — plus a ready-made start and end preset.
+
 ### Changed
 
 - **Organic tree supports** — branches grow from small tips under the overhang,

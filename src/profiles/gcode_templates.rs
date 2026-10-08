@@ -3,15 +3,16 @@
 //!
 //! A **template** is the ready-made G-code for one *firmware macro convention*:
 //! plain Marlin's raw M-commands, mainline Klipper's `PRINT_START`, Klippain's
-//! `START_PRINT`. It exists so a user on one of those conventions can populate a
-//! printer's G-code blocks in one click instead of hand-writing macros.
+//! `START_PRINT`, RepRapFirmware's `start.g` / `stop.g` bracketing. It exists so
+//! a user on one of those conventions can populate a printer's G-code blocks in
+//! one click instead of hand-writing macros.
 //!
 //! # A closed set, not a catalog
 //!
 //! These are **not** the [profile catalog](super) — that is a separate feature
 //! for importing profiles, and it grows. This set does not. An entry earns its
 //! place by being a convention several machines share, so it only changes when
-//! Marlin, Klipper or Klippain themselves change.
+//! a firmware convention does — Marlin, Klipper, Klippain or RepRapFirmware.
 //!
 //! A vendor shipping its own start G-code is therefore **not** a new entry.
 //! There is no "Prusa template": that is custom start G-code, which the user
@@ -45,16 +46,7 @@
 
 use serde::Serialize;
 
-/// The firmware dialect a template targets, as the printer profile spells it.
-///
-/// Applying a template also switches the printer to this flavor, so a Klipper
-/// preset cannot be left sitting on a Marlin printer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TemplateFlavor {
-    Marlin,
-    Klipper,
-}
+use crate::gcode::GcodeFlavor;
 
 /// One selectable preset: its identity, and the three blocks it writes.
 ///
@@ -69,8 +61,9 @@ pub struct GcodeTemplate {
     pub label: &'static str,
     /// Short one-liner describing the preset.
     pub description: &'static str,
-    /// Flavor the printer is switched to when this template is applied.
-    pub flavor: TemplateFlavor,
+    /// Flavor the printer is switched to when this template is applied, so a
+    /// Klipper preset cannot be left sitting on a Marlin printer.
+    pub flavor: GcodeFlavor,
     pub start_gcode: &'static str,
     pub end_gcode: &'static str,
     /// Emitted at every layer change. Empty for templates that need none.
@@ -82,7 +75,7 @@ pub const STANDARD_MARLIN: GcodeTemplate = GcodeTemplate {
     id: "marlin-standard",
     label: "Standard Marlin",
     description: "Home, heat and wait using raw M-commands.",
-    flavor: TemplateFlavor::Marlin,
+    flavor: GcodeFlavor::Marlin,
     start_gcode: "; Cold Crabby standard Marlin start\nG21 ; millimetres\nG90 ; absolute positioning\nM82 ; extruder absolute mode\nM140 S{bed_temp_first_layer} ; set bed temperature\nM104 S{nozzle_temp_first_layer} ; set nozzle temperature\nG28 ; home all axes\nM190 S{bed_temp_first_layer} ; wait for bed temperature\nM109 S{nozzle_temp_first_layer} ; wait for nozzle temperature\nG92 E0 ; reset extruder\nG1 Z2.0 F3000 ; lift nozzle",
     end_gcode: "; Cold Crabby standard Marlin end\nG91 ; relative positioning\nG1 E-2 F2700 ; retract\nG1 Z10 F3000 ; lift\nG90 ; absolute positioning\nM104 S0 ; nozzle off\nM140 S0 ; bed off\nM84 ; disable steppers",
     layer_gcode: "",
@@ -94,7 +87,7 @@ pub const STANDARD_KLIPPER: GcodeTemplate = GcodeTemplate {
     id: "klipper-standard",
     label: "Standard Klipper",
     description: "PRINT_START / PRINT_END macros (mainline convention).",
-    flavor: TemplateFlavor::Klipper,
+    flavor: GcodeFlavor::Klipper,
     start_gcode: "PRINT_START EXTRUDER={nozzle_temp_first_layer} BED={bed_temp_first_layer}",
     end_gcode: "PRINT_END",
     layer_gcode: "",
@@ -111,14 +104,33 @@ pub const KLIPPAIN: GcodeTemplate = GcodeTemplate {
     id: "klippain",
     label: "Klippain",
     description: "START_PRINT / END_PRINT with temperature, chamber and material parameters.",
-    flavor: TemplateFlavor::Klipper,
+    flavor: GcodeFlavor::Klipper,
     start_gcode: "START_PRINT EXTRUDER_TEMP={nozzle_temp_first_layer} BED_TEMP={bed_temp_first_layer} CHAMBER_TEMP={chamber_temp} MATERIAL={filament_type}",
     end_gcode: "END_PRINT",
     layer_gcode: "_ON_LAYER_CHANGE LAYER={layer_num} Z={z}",
 };
 
+/// RepRapFirmware runs `sys/start.g` before the file and, from 3.5, `sys/stop.g`
+/// after it, so these blocks only heat, home and wait — after selecting the
+/// tool, without which RepRapFirmware will not extrude. `M116` waits for the bed
+/// and tool together.
+pub const STANDARD_REPRAPFIRMWARE: GcodeTemplate = GcodeTemplate {
+    id: "reprapfirmware-standard",
+    label: "Standard RepRapFirmware",
+    description: "Select the tool, heat and wait with M116; start.g and stop.g run around it.",
+    flavor: GcodeFlavor::RepRapFirmware,
+    start_gcode: "; Cold Crabby standard RepRapFirmware start\nG21 ; millimetres\nG90 ; absolute positioning\nM82 ; extruder absolute mode\nM140 S{bed_temp_first_layer} ; set bed temperature\nT0 ; select the tool, without which RepRapFirmware will not extrude\nM104 S{nozzle_temp_first_layer} ; set tool temperature\nG28 ; home all axes\nM116 ; wait for the bed and tool temperatures\nG92 E0 ; reset extruder\nG1 Z2.0 F3000 ; lift nozzle",
+    end_gcode: "; Cold Crabby standard RepRapFirmware end\nG91 ; relative positioning\nG1 E-2 F2700 ; retract\nG1 Z10 F3000 ; lift\nG90 ; absolute positioning\nM104 S0 ; tool heater off\nM140 S0 ; bed off\nM18 ; disable steppers",
+    layer_gcode: "",
+};
+
 /// Every selectable preset, in dropdown order.
-pub const GCODE_TEMPLATES: &[GcodeTemplate] = &[STANDARD_MARLIN, STANDARD_KLIPPER, KLIPPAIN];
+pub const GCODE_TEMPLATES: &[GcodeTemplate] = &[
+    STANDARD_MARLIN,
+    STANDARD_KLIPPER,
+    KLIPPAIN,
+    STANDARD_REPRAPFIRMWARE,
+];
 
 /// The template a from-scratch printer starts attached to.
 pub const DEFAULT_TEMPLATE_ID: &str = STANDARD_MARLIN.id;
@@ -192,6 +204,19 @@ mod tests {
             .start_gcode
             .contains("BED={bed_temp_first_layer}"));
         assert!(!STANDARD_KLIPPER.start_gcode.contains("BED_TEMP="));
+    }
+
+    /// RepRapFirmware will not extrude without a selected tool, and `M84` is
+    /// deprecated there; the preset must not inherit Marlin's habits.
+    #[test]
+    fn reprapfirmware_preset_selects_the_tool_before_heating_it() {
+        let start = STANDARD_REPRAPFIRMWARE.start_gcode;
+        let t0 = start.find("\nT0 ").expect("selects tool 0");
+        let heat = start.find("\nM104 ").expect("heats the tool");
+        assert!(t0 < heat, "{start}");
+        assert!(start.contains("\nM116 "), "{start}");
+        assert!(!STANDARD_REPRAPFIRMWARE.end_gcode.contains("M84"));
+        assert_eq!(STANDARD_REPRAPFIRMWARE.flavor, GcodeFlavor::RepRapFirmware);
     }
 
     /// Every placeholder a template uses must be one the renderer substitutes,
