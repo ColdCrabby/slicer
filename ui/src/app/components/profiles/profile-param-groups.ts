@@ -30,6 +30,14 @@ function contractGroups(id: SettingContractId): string[] {
 }
 
 /**
+ * Every group the schema defines, in schema order and with nothing dropped —
+ * the whole parameter surface in one list. The editors cut this down per
+ * contract below; the omnibox's quick-set takes it whole, since a plate
+ * override can land on any `SlicingParams` key.
+ */
+export const ALL_PARAM_GROUPS: readonly SchemaGroup[] = PARSED.groups;
+
+/**
  * The contract's groups that the editor renders, in the contract's order, with
  * `skip` fields and every `array` field removed — `nexus-param-field` renders
  * every control in the shared taxonomy except `array`, which fan curves and

@@ -1,0 +1,165 @@
+<div class="overlay" (click)="onBackdrop($event)">
+  <section
+    class="palette"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Search everything"
+    (keydown)="onPanelKey($event)"
+  >
+    @if (editing(); as entry) {
+      <header class="editor-head">
+        <button
+          type="button"
+          class="editor-back"
+          (click)="stopEditing()"
+          aria-label="Back to results"
+        >
+          <nexus-icon name="arrow-left" aria-hidden="true" />
+        </button>
+        <span class="editor-title">{{ entry.title }}</span>
+        <span class="origin" [class.origin--plate]="isPlateOverride(entry)">
+          {{ originLabel() }}
+        </span>
+        @if (entry.openInEditor; as link) {
+          <button type="button" class="editor-open" (click)="openInEditor(link)">
+            Open in settings
+          </button>
+        }
+      </header>
+
+      @if (entry.field?.description; as description) {
+        <!-- The schema's own words are Markdown; they are rendered, not quoted. -->
+        <markdown class="editor-desc" [data]="description" />
+      }
+
+      <div class="editor-field">
+        <!-- A @defer block cannot see the enclosing `as entry` alias, so the
+             editing signal is read directly; the @if keeps it non-null. -->
+        @defer (on timer(1ms)) {
+          @if (editing()?.field; as field) {
+            <se-field-host
+              [field]="field"
+              [value]="valueOf(editing()!)"
+              [siblings]="currentValues()"
+              (fieldChange)="applyQuickset(editing()!, $event)"
+            />
+          }
+        } @placeholder {
+          <p class="note">Loading editor…</p>
+        }
+      </div>
+
+      @if (applied()) {
+        <p class="editor-applied">Applied to {{ plateName() }}</p>
+      }
+
+      <footer class="hints">
+        <span><kbd class="key">Esc</kbd> back to results</span>
+      </footer>
+    } @else {
+      <div class="search">
+        <nexus-icon class="search-icon" name="search" aria-hidden="true" />
+        @if (locked().length) {
+          <div class="chips" aria-label="Scopes the search is locked to">
+            @for (id of locked(); track id) {
+              <button
+                type="button"
+                class="chip"
+                (click)="removeScope(id)"
+                [attr.aria-label]="`Stop searching only ${labelFor(id)}`"
+              >
+                <nexus-icon class="chip-icon" [name]="iconFor(id)" aria-hidden="true" />
+                {{ labelFor(id) }}
+                <nexus-icon class="chip-x" name="xmark" aria-hidden="true" />
+              </button>
+            }
+          </div>
+        }
+        <input
+          #omniboxInput
+          class="query"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="Search everything"
+          [value]="query()"
+          (input)="onQuery($event)"
+          (keydown)="onKey($event)"
+          role="combobox"
+          aria-expanded="true"
+          aria-controls="omnibox-results"
+          [attr.aria-activedescendant]="activeRow() ? 'omnibox-row-' + activeIndex() : null"
+          aria-label="Search everything"
+        />
+      </div>
+
+      @if (suggestion(); as sugg) {
+        <button type="button" class="suggestion" (click)="lockTo(parse())">
+          <nexus-icon class="suggestion-icon" [name]="sugg.icon" aria-hidden="true" />
+          <span class="suggestion-label">{{ sugg.label }}</span>
+          <span class="suggestion-hint">{{ sugg.hint }}</span>
+          <kbd class="key">Tab</kbd>
+        </button>
+      }
+
+      <div class="results" id="omnibox-results" role="listbox" aria-label="Search results">
+        @if (loading()) {
+          <p class="note">Loading…</p>
+        } @else if (rows().length === 0) {
+          <p class="note">
+            @if (rest()) {
+              Nothing matches “{{ rest() }}”
+            } @else {
+              Nothing here yet
+            }
+          </p>
+        } @else {
+          @for (row of rows(); track row.key; let i = $index) {
+            <button
+              type="button"
+              class="row"
+              [class.row--active]="i === activeIndex()"
+              [id]="'omnibox-row-' + i"
+              role="option"
+              [attr.aria-selected]="i === activeIndex()"
+              (click)="activate(row)"
+              (pointerenter)="hover(i)"
+            >
+              @if (row.scope; as scope) {
+                <nexus-icon class="row-icon" [name]="scope.icon" aria-hidden="true" />
+                <span class="row-title">{{ scope.label }}</span>
+                <span class="row-where">{{ scope.hint }}</span>
+                <kbd class="key">Tab</kbd>
+              } @else {
+                @if (row.entry!.thumbnail?.(); as thumb) {
+                  <img class="row-thumb" [src]="thumb" alt="" loading="lazy" />
+                } @else {
+                  <nexus-icon class="row-icon" [name]="row.entry!.icon" aria-hidden="true" />
+                }
+                <span class="row-text">
+                  <span class="row-title">{{ row.entry!.title }}</span>
+                  <span class="row-where">{{ row.entry!.where }}</span>
+                </span>
+                @if (row.entry!.kind === 'quickset') {
+                  <span class="row-value">{{ describe(row.entry!) }}</span>
+                }
+                @if (row.entry!.leavesView) {
+                  <!-- Says "this goes somewhere else", so a navigation never
+                       reads as an edit to what is on screen. -->
+                  <nexus-icon class="row-leave" name="open-in-window" aria-hidden="true" />
+                }
+              }
+            </button>
+          }
+        }
+      </div>
+
+      <footer class="hints">
+        <span><kbd class="key">↑</kbd><kbd class="key">↓</kbd> choose</span>
+        <span><kbd class="key">Enter</kbd> open</span>
+        <span><kbd class="key">Tab</kbd> lock a scope</span>
+        <span><kbd class="key">Esc</kbd> close</span>
+      </footer>
+    }
+  </section>
+</div>

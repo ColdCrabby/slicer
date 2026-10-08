@@ -28,6 +28,17 @@ See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 
 ## [Unreleased]
 
+### Added
+
+- **Search everything** — press `E` and one palette finds settings, printers,
+  filaments, presets, parameters and library models; name a scope first
+  (`sett` + `Tab`) to keep the search to it, and change a parameter on the spot.
+- **Search from the title bar** — a magnifier next to Help opens the same
+  palette, for hands on glass that have no `E` to press.
+- **Workbench scope** — ask the palette for `workbench` (or `plate`) and switch
+  the open plate's printer, filament or process beside its own parameters, so a
+  preset swap and a one-off tweak are one search apart.
+
 ### Changed
 
 - **Organic tree supports** — branches grow from small tips under the overhang,
@@ -37,6 +48,14 @@ See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 
 ### Fixed
 
+- **The search palette now closes when you press Escape** — it used to stay on
+  screen once opened, because the palette's mount never reacted to being
+  dismissed; Escape (from wherever focus sits) and a click on the darkened
+  surround both put it away now, without pressing what is behind it.
+- **The search palette fits the screen** — on tall windows it no longer ran
+  past the bottom edge; it now fills the space it is given and scrolls inside.
+- **Library models in search show their thumbnails** — the same previews the
+  library draws, made for the row you are pointed at.
 - **Painting and the camera no longer fight over a drag** — starting to orbit,
   pan or pinch in paint mode moves the view instead of dragging paint across
   the model, and a stroke under way is dropped the moment a camera gesture
@@ -323,7 +342,7 @@ that draws in a fraction of the time.
 - **Ironing, dimensional compensation and a real first layer height** — the
   finishing controls a print actually needs. Ironing re-melts top surfaces flat,
   XY/hole compensation corrects a machine that prints over- or under-sized, and
-  the bottom layer is finally sliced *and* extruded at the thickness the profile
+  the bottom layer is finally sliced _and_ extruded at the thickness the profile
   asks for.
 - **Elephant-foot compensation that keeps thin detail** — the flare at the base
   of a print is removed without erasing the first layer's fine geometry. Unlike a
@@ -526,7 +545,7 @@ that draws in a fraction of the time.
 
 - **Plates holding several models now slice correctly everywhere** — a workplate
   is a build plate, not a file, but only the hosted slicer treated it that way.
-  The desktop app sliced every object out of the *first* model, so a second one
+  The desktop app sliced every object out of the _first_ model, so a second one
   came out as a copy of the first; the in-browser slicer refused outright with
   "Missing mesh bytes". Each object now resolves to the file it was actually
   loaded from, in every runtime.
@@ -608,7 +627,7 @@ touch-friendly undo/redo in the 3D view and a round of Windows desktop polish.
   and undo history instead of being deleted by the next undo. History now resets
   only when the workplate is genuinely replaced.
 - **The "re-slice" hint no longer clears itself** — moving an object or changing
-  a setting *while a slice is running* used to be silently absorbed into the
+  a setting _while a slice is running_ used to be silently absorbed into the
   preview once it finished, so the "Scene changed — re-slice" hint disappeared
   even though the on-screen G-code predated your edit. The comparison baseline is
   now captured the moment you press Slice, so a mid-slice change correctly keeps
@@ -665,10 +684,10 @@ density you ask for at any line width.
 #### Multi-object build plates
 
 - **Cancel one object mid-print, or print objects one at a time** — the plate now
-  tracks which part every extrusion belongs to. *Exclude object* wraps each part
+  tracks which part every extrusion belongs to. _Exclude object_ wraps each part
   in firmware markers (Klipper `EXCLUDE_OBJECT_*`, Marlin / RepRapFirmware `M486`)
   so a failed part can be cancelled from Mainsail, Fluidd or OctoPrint while the
-  rest of the plate carries on. *Sequential printing* (Print order → by object)
+  rest of the plate carries on. _Sequential printing_ (Print order → by object)
   finishes each part front-to-back, lifting clear of everything already on the
   bed, with clearance checks reported as warnings and optional between-object
   G-code. Both off by default; with both off the plate slices exactly as before.
@@ -791,7 +810,7 @@ density you ask for at any line width.
 #### Docs & dependencies
 
 - **The documentation now leads with the product, not the architecture** — a
-  proper guide to *using* Cold Crabby plus a teams track for self-hosting and
+  proper guide to _using_ Cold Crabby plus a teams track for self-hosting and
   configuration, with the engineering docs slimmed to a map. A banner notes the
   docs are early and their structure may still change.
 - **Dependency maintenance** — cleared the Dependabot backlog: the Angular

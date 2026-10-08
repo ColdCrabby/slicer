@@ -56,18 +56,18 @@ your hand on the glass while drawing with a pencil and it's ignored.
 
 Floating under the model, this is where you manipulate what's on the plate.
 
-| Tool                | Key | What it does                                        |
-| ------------------- | --- | --------------------------------------------------- |
-| **Select & move**   | `M` | Drag handles to move; also plain selection           |
-| **Rotate**          | `R` | Spin around an axis                                  |
-| **Scale**           | `S` | Resize, uniformly or per axis                        |
-| **Pull to floor**   | `F` | Click a face; that face becomes the bottom           |
-| **Paint support**   | `B` | Brush support enforcers and blockers onto a model    |
-| **Place objects**   | `A` | Auto-arrange everything on the bed                   |
-| **Multi-select**    |     | Touch and pen only — each tap adds or removes        |
-| **Add a model**     |     | Same as dropping a file in                           |
-| **Gravity**         | `G` | Objects drop to the floor after every move           |
-| **Model / preview** | `P` | Switch between the model and the sliced G-code       |
+| Tool                | Key | What it does                                      |
+| ------------------- | --- | ------------------------------------------------- |
+| **Select & move**   | `M` | Drag handles to move; also plain selection        |
+| **Rotate**          | `R` | Spin around an axis                               |
+| **Scale**           | `S` | Resize, uniformly or per axis                     |
+| **Pull to floor**   | `F` | Click a face; that face becomes the bottom        |
+| **Paint support**   | `B` | Brush support enforcers and blockers onto a model |
+| **Place objects**   | `A` | Auto-arrange everything on the bed                |
+| **Multi-select**    |     | Touch and pen only — each tap adds or removes     |
+| **Add a model**     |     | Same as dropping a file in                        |
+| **Gravity**         | `G` | Objects drop to the floor after every move        |
+| **Model / preview** | `P` | Switch between the model and the sliced G-code    |
 
 Picking a tool opens a small card with numeric fields — exact position, rotation
 in degrees, size in millimetres or percent. Type a number if dragging isn't
@@ -118,8 +118,8 @@ Full tour: [Print settings](/use/settings).
 Every model on the plate, with its triangle count and size. Select from here
 when the 3D view gets crowded.
 
-Watch for the warning badges: *outside the build area*, and *overlaps another
-object*. Both are warnings, not blocks — you can still slice, but you probably
+Watch for the warning badges: _outside the build area_, and _overlaps another
+object_. Both are warnings, not blocks — you can still slice, but you probably
 shouldn't.
 
 Each row also has **Duplicate** and **Remove**. Remove asks once ("Click again
@@ -143,7 +143,7 @@ button disappears until you re-slice, so a stale file can't be saved or sent.
 
 Below it, a status line: `Ready to slice` → `Slicing…` → `Sliced · N layers ·
 4.9s`, or a red failure with the reason. The time in that line is how long
-*slicing* took.
+_slicing_ took.
 
 On the right of the same line sits the filament the print uses — `13 g`, plus
 the cost when the filament profile has a price per kg — and the estimated
@@ -165,7 +165,7 @@ before it starts the printer.
 
 Some plates come back in a second; some take a minute. Waiting for the button
 every time is tedious on the first kind and unavoidable on the second, so the
-slicer decides from how long *that plate's* last slice actually took. Each plate
+slicer decides from how long _that plate's_ last slice actually took. Each plate
 is judged on its own, so a heavy one can sit quiet while a light one keeps up.
 
 Once you've sliced once, a flash button appears next to the **Model | G-code**
@@ -187,7 +187,7 @@ reload the first slice is yours to press, which is what re-establishes it.
 
 An automatic re-slice waits about a second after you stop, so dragging a model
 across the bed or typing a temperature is one slice, not one per frame. While
-one is queued the status line reads *re-slicing shortly* — press **Re-Slice** if
+one is queued the status line reads _re-slicing shortly_ — press **Re-Slice** if
 you'd rather not wait.
 
 The default is Automatic, and you can change it for good in **Settings →
@@ -208,7 +208,7 @@ hidden in preview, so the next drag lands on a view that can't show it.
 | **Always**    | Every finished slice switches to preview                        |
 | **Never**     | The view never changes on its own — use the switch or `P`       |
 
-It never switches *away* from the preview, so if you're already inspecting a
+It never switches _away_ from the preview, so if you're already inspecting a
 slice you stay there whatever re-sliced it.
 
 ## The G-code inspector (right, after slicing)
@@ -237,6 +237,32 @@ sheet isn't.
 Everything else says its piece where it happened: a preset that would not import
 says so in the picker, and a slice reports its result — including why it failed
 — on the Slice button's own status line.
+
+## Search everything
+
+Press `E` — or `⌘/Ctrl + Shift + P`, which also works while you're typing in a
+field — and a search palette opens over whatever you were looking at. On a
+touch screen there is no `E` to press, so the title bar carries a magnifier
+next to Help that opens the same palette. One query reaches the settings pages,
+app preferences, your printers, filaments and process presets, every slicing
+parameter, and the models in your library — with the same thumbnails the
+library shows. `Enter` opens what's highlighted; a parameter opens right there
+with a small editor, and the change lands on the plate you're slicing.
+
+If you already know the neighbourhood, say so: start the query with a scope's
+name — `settings`, `workbench`, `print`, `printers`, `filaments`, `processes`,
+`models` — and `Tab` locks the search to it, as a chip above the results.
+Behind a chip, the search is _only_ that scope: `sett infill` will not answer
+with a filament. The suggestion appears as you type the scope's name, and
+`Backspace` on an empty query peels the last chip back off. The `workbench`
+scope is the open plate's working set: switch its printer, filament or process,
+or reach the same parameters the `print` scope serves.
+
+Results that edit the plate you are looking at — parameters, preset switches,
+adding a model — sort ahead of ones that take you somewhere else, and anything
+that leaves for another route carries a small popout mark so "go there" never
+reads as "change this". `Escape` closes the palette from wherever focus sits,
+and a click on the darkened surround puts it away too.
 
 ## Moving between Home, Slice and Settings
 
@@ -336,7 +362,7 @@ the 3D view rather than by the slicer. The **screenshot animation** is the flash
 and the little preview card that flies off to the top after each capture — turn
 it off if you'd rather the shot were taken quietly; it is still taken.
 **Thumbnail look** decides whether the model is rendered plainly or with this
-view's own shading, gloss and contact shadow. What goes *in* the picture — its
+view's own shading, gloss and contact shadow. What goes _in_ the picture — its
 angle, background and colour — is a print setting, under Process → Thumbnail.
 
 ## On a tablet

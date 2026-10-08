@@ -6,6 +6,7 @@ import { filter, map } from 'rxjs/operators';
 import { matchKeybindingPress, parseKeybinding } from 'tinykeys';
 import { Arrange } from '../arrange';
 import { LibraryFlyout } from '../library/library-flyout';
+import { OmniboxService } from '../../omnibox/omnibox-service';
 import type { GcodePreview } from '../gcode-preview';
 import { SceneEngine } from '../scene-engine';
 import { SceneHistory } from '../scene-history/scene-history';
@@ -58,6 +59,7 @@ export class KeyboardShortcuts {
   private readonly workplate = inject(WorkplateObjects);
   private readonly sceneCommand = inject(SceneCommand);
   private readonly libraryFlyout = inject(LibraryFlyout);
+  private readonly omnibox = inject(OmniboxService);
   private readonly router = inject(Router);
 
   /**
@@ -394,6 +396,33 @@ export class KeyboardShortcuts {
       displayDescription: 'Search open workplates',
       canMatch: () => this.tabStripRef !== null,
       handleAction: () => this.tabStripRef!.toggleSearch(),
+    },
+    {
+      // The omnibox is the one search that answers inside a text field too —
+      // its whole point is not having to know where you are first — but the
+      // bare `e` variant must not steal the key while a field has it, or
+      // typing "keep" would open a palette between the e and the p.
+      actionId: 'omnibox',
+      shortcut: 'e',
+      displayDescription: 'Search everything',
+      canMatch: () => !this.isTextInputFocused(),
+      handleAction: () => this.omnibox.toggle(),
+    },
+    {
+      // The editor's chord and the help key say the same thing; the plain `e`
+      // is what the shortcuts panel advertises, so these stay unlisted.
+      actionId: 'omnibox-mod',
+      shortcut: '$mod+Shift+p',
+      displayDescription: 'Search everything',
+      listed: false,
+      handleAction: () => this.omnibox.toggle(),
+    },
+    {
+      actionId: 'omnibox-f1',
+      shortcut: 'F1',
+      displayDescription: 'Search everything',
+      listed: false,
+      handleAction: () => this.omnibox.toggle(),
     },
     ...this.workplateTabShortcuts(),
   ].map((s) => ({ ...s, _parsed: parseKeybinding(s.shortcut) }));
