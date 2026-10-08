@@ -64,6 +64,16 @@ degenerate cases (empty paths, zero-area polygons, collinear runs) in tests.
 Which fill rule to use where is in
 [src/core/README.md](src/core/README.md#which-clipper2-fill-rule-and-why).
 
+**Work on the UI without Rust.** `ui/src/schemas` and `ui/src/generated` are
+git-ignored output of `pnpm run hydrate`, which needs cargo and wasm-bindgen.
+Frontend CI uploads both as the `ui-hydrated` artifact, so a UI-only change can
+download them instead of building the engine. Take them from the branch's own
+run when it changes the engine.
+
+```bash
+gh run download "$(gh run list --workflow ui-ci.yml --branch main --event push --status success --limit 1 --json databaseId -q '.[0].databaseId')" -n ui-hydrated -D ui/src
+```
+
 **Verify across platforms.** `cargo test` covers native;
 `wasm-pack test --headless --firefox` covers wasm; CI builds the
 cross-compilation targets. Use `#[cfg(...)]` for anything platform-specific, and

@@ -123,6 +123,10 @@
               "optimization": false,
               "extractLicenses": false,
               "sourceMap": true
+            },
+            "bundle-report": {
+              "budgets": [],
+              "statsJson": true
             }
           },
           "defaultConfiguration": "production"
