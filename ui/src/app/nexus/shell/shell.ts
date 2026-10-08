@@ -23,8 +23,11 @@ import { NexusTitlebar } from '../titlebar/titlebar';
 @Component({
   selector: 'nexus-shell',
   // The omnibox palette is in the template behind `@defer (when omnibox.open())`
-  // — listed here for the compiler, which is what keeps it out of the eager
-  // bundle and in its own chunk until the palette is first asked for.
+  // and an inner `@if (omnibox.open())` — listed here for the compiler, which is
+  // what keeps it out of the eager bundle and in its own chunk until the palette
+  // is first asked for. The `@if` is what mounts and unmounts the component as
+  // the signal flips; see the template comment for why the `when` trigger alone
+  // cannot close it.
   imports: [RouterOutlet, NexusTitlebar, NavRail, RouteProgress, OmniboxPalette],
   templateUrl: './shell.html',
   styleUrl: './shell.scss',

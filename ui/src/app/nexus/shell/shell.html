@@ -10,7 +10,15 @@
 </div>
 
 <!-- The omnibox palette: deferred so its chunk (and nothing it pulls) loads
-     only once the palette is first opened, then stays mounted while open. -->
+     only once the palette is first opened. The `@if` is load-bearing, not
+     redundant with the `when` trigger: a `when` condition is a one-way latch
+     (Angular docs: the block does not revert to the placeholder if the
+     condition turns falsy again), so on its own the palette would open once
+     and never leave the DOM — Escape would set `open` back to false and
+     change nothing on screen. The `@if` is what actually mounts and unmounts
+     the component; the deferred chunk stays loaded either way. -->
 @defer (when omnibox.open(); prefetch on idle) {
-  <nexus-omnibox />
+  @if (omnibox.open()) {
+    <nexus-omnibox />
+  }
 }

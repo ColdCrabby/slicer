@@ -48,9 +48,10 @@ See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 
 ### Fixed
 
-- **The search palette always answers Escape** — it closes from wherever focus
-  sits, not only while the search box has it, and a click on the darkened
-  surround puts it away without pressing what is behind it.
+- **The search palette now closes when you press Escape** — it used to stay on
+  screen once opened, because the palette's mount never reacted to being
+  dismissed; Escape (from wherever focus sits) and a click on the darkened
+  surround both put it away now, without pressing what is behind it.
 - **The search palette fits the screen** — on tall windows it no longer ran
   past the bottom edge; it now fills the space it is given and scrolls inside.
 - **Library models in search show their thumbnails** — the same previews the
