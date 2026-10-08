@@ -47,6 +47,11 @@ greeting = "sliced by a plugin"
 
 Copy the file, replace the two `run` bodies, and you have a plugin.
 
+[`builtin/arc_fitting.rs`](builtin/arc_fitting.rs) is the first experiment that
+changes how a part prints: a move filter that turns runs of straight wall moves
+into `G2`/`G3` arcs. It is the worked example of a filter that *replaces*
+motion — what it may merge, and what has to stay exactly where it was.
+
 ## The contract
 
 ```mermaid
@@ -127,6 +132,10 @@ Emission is now `plan → Vec<Move> → filters → render`
 ([ir.rs](../gcode/ir.rs)). A [`MoveFilter`](../gcode/ir.rs) sees motion with its
 role, width, feedrate and extrusion intact, and may merge, split, replace or
 drop moves before a character is produced.
+
+The emitter only ever plans straight moves. `Move::Arc` exists for filters: it
+is what arc fitting turns a run of them into, and a filter that runs later
+sees it as motion like any other.
 
 **Only motion is modelled.** Fan, temperature, markers and comments travel as
 `Move::Raw` — already-rendered text, emitted verbatim. That boundary is
@@ -222,7 +231,9 @@ same reasoning that made Tier 1 a compile-time trait. Stages are handed the
 real `SliceLayer` and the real `clipper2::Paths`; that cannot cross a sandbox
 boundary without losing fidelity or paying to marshal it per layer, per slice.
 A move is a handful of numbers, so it can — and a native arc welder, the
-motivating case, is a move filter.
+motivating case, is a move filter. Arcs cross the boundary as their own record
+kind, which is why the move ABI is at v2: v1 had no field for an arc's
+centre.
 
 What the sandbox actually rests on, all enforced rather than trusted:
 

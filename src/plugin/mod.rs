@@ -103,10 +103,12 @@ pub trait Plugin: Send + Sync {
 ///
 /// [`builtin::HelloWorld`] is the worked example — off by default, and there
 /// so the hooks are exercised by something a person can switch on rather than
-/// only by tests. [`builtin::DebugCapture`] is deliberately absent: it is
-/// installed by the one entry point that needs it rather than being always-on.
+/// only by tests. [`builtin::ArcFitting`] is the first experiment that changes
+/// how a part prints, also off by default. [`builtin::DebugCapture`] is
+/// deliberately absent: it is installed by the one entry point that needs it
+/// rather than being always-on.
 pub fn builtin_plugins() -> Vec<Box<dyn Plugin>> {
-    vec![Box::new(builtin::HelloWorld)]
+    vec![Box::new(builtin::HelloWorld), Box::new(builtin::ArcFitting)]
 }
 
 /// The plugins this process runs with, discovered once.

@@ -440,12 +440,13 @@ end this design is written to avoid. It arrives as a defaulted trait method, so
 nothing written today has to change when it does.
 
 **A first *real* experiment.** `builtin_plugins()` carries
-[`HelloWorld`](plugin/builtin/hello_world.rs) and nothing else — a worked
-example that greets the G-code and counts layers, there so the hooks are
-exercised by something a person can switch on rather than only by tests. Which
-real feature goes first is still open. Fuzzy skin and ironing both shipped their
-settings as ordinary core keys, so moving them now would churn the schema, saved
-profiles and docs for features that already work.
+[`HelloWorld`](plugin/builtin/hello_world.rs) — a worked example that greets the
+G-code and counts layers, there so the hooks are exercised by something a person
+can switch on rather than only by tests — and
+[`ArcFitting`](plugin/builtin/arc_fitting.rs), the motivating case for the move
+IR: a move filter that prints curved walls as `G2`/`G3` arcs. Fuzzy skin and
+ironing both shipped their settings as ordinary core keys, so moving them now
+would churn the schema, saved profiles and docs for features that already work.
 
 One rule held throughout and still holds: **with no plugin active, output is
 byte-identical.** The QA baselines are the gate, and
@@ -509,11 +510,6 @@ changed **no hook signature**.
 
 ## Open questions
 
-- **Which feature is the first real experiment?** `builtin_plugins()` carries
-  only the hello-world demo. Fuzzy skin and ironing both shipped their settings
-  as ordinary core keys, so they would be migrations rather than first
-  experiments; a new infill pattern would exercise the registry family instead,
-  once that exists.
 - **Do existing features migrate to plugins**, or do plugins stay purely
   additive? Migrating one churns the schema, saved profiles and docs for
   something that already works, so it needs a better reason than tidiness.
@@ -539,4 +535,4 @@ changed **no hook signature**.
 - [settings/params.rs](settings/params.rs) — `SlicingParams`, `cache_fingerprint`
 - [logging.rs](logging.rs) — `phases`, `ProcessLogger`
 - [../ui/src/app/schema-form/](../ui/src/app/schema-form/) — the schema-driven form
-- [issue #32](https://github.com/max-scopp/slicer-engine/issues/32) — native arc welder, the motivating case for the move IR
+- [plugin/builtin/arc_fitting.rs](plugin/builtin/arc_fitting.rs) — native arc fitting, the motivating case for the move IR

@@ -63,10 +63,11 @@
 //!
 //! # Non-goals
 //!
-//! * **Not a G-code interpreter.** Only linear moves (`G0`/`G1`), homing
-//!   (`G28`), the extruder reset (`G92`) and the two acceleration commands are
-//!   understood; arcs, dwell (`G4`) and heating waits are ignored (heating time
-//!   is unknowable from the toolpath and is firmware/ambient dependent).
+//! * **Not a G-code interpreter.** Only linear moves (`G0`/`G1`), arcs
+//!   (`G2`/`G3`, timed as the chords they are read back as), homing (`G28`),
+//!   the extruder reset (`G92`) and the two acceleration commands are
+//!   understood; dwell (`G4`) and heating waits are ignored (heating time is
+//!   unknowable from the toolpath and is firmware/ambient dependent).
 //! * **No per-axis machine limits.** A single acceleration and one cornering
 //!   constant stand in for a full `M201`/`M203` machine-limit profile.
 //! * **It does not change any moves.** This is a pure measurement pass; the
@@ -276,6 +277,14 @@ pub(crate) fn estimate_print_time(body: &str, cfg: &EstimatorConfig) -> TimeEsti
                     current.push(mv);
                 }
             }
+            "G2" | "G3" => {
+                current.extend(plan_arc_moves(
+                    code,
+                    cmd_up == "G2",
+                    &mut state,
+                    cfg.max_velocity_mm_s,
+                ));
+            }
             "G28" => {
                 // Homing parks the axes at the origin; a bare `G28` homes all.
                 let homed_x = axis_value(code, 'X').is_some();
@@ -358,12 +367,85 @@ fn plan_linear_move(
     let ny = axis_value(code, 'Y').unwrap_or(state.y);
     let nz = axis_value(code, 'Z').unwrap_or(state.z);
     let ne = axis_value(code, 'E').unwrap_or(state.e);
+    take_feedrate(code, state);
+    plan_motion_to(nx, ny, nz, ne, state, max_velocity_mm_s)
+}
+
+/// Turn one `G2`/`G3` line into the [`PlannedMove`]s of the chords it is read
+/// back as, advancing `state` to the arc's end.
+///
+/// Timed as chords ([`crate::gcode::arc::chords`]) so a tight curve pays the
+/// same junction slow-downs the polyline it may have replaced did — which is
+/// what keeps the estimate from jumping when arc fitting is switched on. Any Z
+/// and E the arc carries are spread along it in proportion to length.
+fn plan_arc_moves(
+    code: &str,
+    clockwise: bool,
+    state: &mut MotionState,
+    max_velocity_mm_s: f64,
+) -> Vec<PlannedMove> {
+    let start = (state.x, state.y);
+    let end = (
+        axis_value(code, 'X').unwrap_or(state.x),
+        axis_value(code, 'Y').unwrap_or(state.y),
+    );
+    // I and J are offsets from the start, whatever the positioning mode.
+    let center = (
+        start.0 + axis_value(code, 'I').unwrap_or(0.0),
+        start.1 + axis_value(code, 'J').unwrap_or(0.0),
+    );
+    let (z0, z1) = (state.z, axis_value(code, 'Z').unwrap_or(state.z));
+    let (e0, e1) = (state.e, axis_value(code, 'E').unwrap_or(state.e));
+    take_feedrate(code, state);
+
+    let points = crate::gcode::arc::chords(
+        start,
+        end,
+        center,
+        clockwise,
+        crate::gcode::arc::READBACK_SAGITTA_MM,
+    );
+    let mut lengths = Vec::with_capacity(points.len());
+    let mut previous = start;
+    for &p in &points {
+        lengths.push((p.0 - previous.0).hypot(p.1 - previous.1));
+        previous = p;
+    }
+    let total: f64 = lengths.iter().sum();
+
+    let mut moves = Vec::with_capacity(points.len());
+    let mut travelled = 0.0;
+    for (&(x, y), length) in points.iter().zip(&lengths) {
+        travelled += length;
+        let t = if total > EPS { travelled / total } else { 1.0 };
+        let z = z0 + (z1 - z0) * t;
+        let e = e0 + (e1 - e0) * t;
+        if let Some(mv) = plan_motion_to(x, y, z, e, state, max_velocity_mm_s) {
+            moves.push(mv);
+        }
+    }
+    moves
+}
+
+/// Adopt a line's `F`, which is sticky until the next one.
+fn take_feedrate(code: &str, state: &mut MotionState) {
     if let Some(f) = axis_value(code, 'F') {
         if f > 0.0 {
             state.feed_mm_min = f;
         }
     }
+}
 
+/// Plan the straight motion from `state` to `(nx, ny, nz)` with the extruder
+/// at `ne`, advancing `state` there.
+fn plan_motion_to(
+    nx: f64,
+    ny: f64,
+    nz: f64,
+    ne: f64,
+    state: &mut MotionState,
+    max_velocity_mm_s: f64,
+) -> Option<PlannedMove> {
     let dx = nx - state.x;
     let dy = ny - state.y;
     let dz = nz - state.z;
@@ -868,5 +950,44 @@ G1 X10 Y0 E1 F6000 ; extrude
         let est = estimate_print_time(body, &EstimatorConfig::default());
         assert_eq!(est.per_layer_s.len(), 1);
         assert!(est.per_layer_s[0] > 0.0);
+    }
+
+    #[test]
+    fn an_arc_takes_as_long_as_the_chords_it_stands_for() {
+        // A half circle of radius 10, once as an arc and once as the polyline
+        // it reads back as. Same path, same corners, so the same time.
+        let arc = "G1 X10 Y0 F6000\nG3 X-10 Y0 I-10 J0 E5 F3000\n";
+        let mut lines = String::from("G1 X10 Y0 F6000\n");
+        let chords = crate::gcode::arc::chords(
+            (10.0, 0.0),
+            (-10.0, 0.0),
+            (0.0, 0.0),
+            false,
+            crate::gcode::arc::READBACK_SAGITTA_MM,
+        );
+        for (x, y) in &chords {
+            lines.push_str(&format!("G1 X{x} Y{y} F3000\n"));
+        }
+        let cfg = EstimatorConfig::default();
+        let as_arc = estimate_print_time(arc, &cfg).total_s;
+        let as_lines = estimate_print_time(&lines, &cfg).total_s;
+        assert!(as_arc > 0.0);
+        assert!((as_arc - as_lines).abs() < 1e-9, "{as_arc} vs {as_lines}");
+        // And not the straight chord across: 11.4 mm more path at 50 mm/s.
+        let straight = estimate_print_time("G1 X10 Y0 F6000\nG1 X-10 Y0 E5 F3000\n", &cfg).total_s;
+        assert!(as_arc - straight > 0.15, "{as_arc} vs {straight}");
+    }
+
+    #[test]
+    fn a_move_after_an_arc_starts_where_the_arc_ended() {
+        // Ignoring the arc would measure the next move from (10, 0): 20 mm
+        // instead of the 0 it is.
+        let cfg = EstimatorConfig::default();
+        let with_next = estimate_print_time(
+            "G1 X10 Y0 F6000\nG3 X-10 Y0 I-10 J0 F3000\nG1 X-10 Y0\n",
+            &cfg,
+        );
+        let without = estimate_print_time("G1 X10 Y0 F6000\nG3 X-10 Y0 I-10 J0 F3000\n", &cfg);
+        assert!((with_next.total_s - without.total_s).abs() < 1e-9);
     }
 }

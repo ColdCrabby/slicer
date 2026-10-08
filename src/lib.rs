@@ -19,6 +19,8 @@ pub mod core;
 pub mod flow;
 #[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
 pub mod gcode;
+#[path = "gcode/arc.rs"]
+pub mod gcode_arc;
 #[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
 pub mod infill;
 /// The object library: every model ever put on a plate, once, with a

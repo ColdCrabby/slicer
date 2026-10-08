@@ -8,13 +8,15 @@
 //!   an ordinary set of stages.
 //! - **Experiments** — optional, opinionated features shipped in every build
 //!   and off by default, listed by [`crate::plugin::builtin_plugins`].
-//!   [`HelloWorld`] is the worked example; which *real* feature goes first is
-//!   still an open question.
+//!   [`HelloWorld`] is the worked example; [`ArcFitting`] is the first real
+//!   feature, and the one the move-filter hook was built for.
 
+mod arc_fitting;
 #[cfg(not(target_arch = "wasm32"))]
 mod debug_capture;
 mod hello_world;
 
+pub use arc_fitting::ArcFitting;
 #[cfg(not(target_arch = "wasm32"))]
 pub use debug_capture::DebugCapture;
 pub use hello_world::HelloWorld;

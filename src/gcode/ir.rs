@@ -63,6 +63,37 @@ pub enum Move {
         /// Trailing comment, without the leading `;`.
         comment: Option<String>,
     },
+    /// Deposit material along a circular arc — `G2` clockwise, `G3`
+    /// counter-clockwise.
+    ///
+    /// The emitter plans straight moves only; an arc is what a filter makes
+    /// of a run of them. It carries what an extrusion does, plus the two
+    /// things `G2`/`G3` add: the centre, as an offset from where the arc
+    /// starts, and the direction.
+    Arc {
+        /// Destination X.
+        x: f64,
+        /// Destination Y.
+        y: f64,
+        /// Centre X, relative to the start of the arc.
+        i: f64,
+        /// Centre Y, relative to the start of the arc.
+        j: f64,
+        /// `true` for `G2` (clockwise), `false` for `G3`.
+        clockwise: bool,
+        /// The E value to print.
+        e: f64,
+        /// The incremental filament length `e` represents.
+        de: f64,
+        /// Feedrate in mm/min.
+        feed_mm_min: f64,
+        /// What this extrusion is for.
+        role: ExtrusionRole,
+        /// The bead width in mm this arc was charged at.
+        width_mm: f64,
+        /// Trailing comment, without the leading `;`.
+        comment: Option<String>,
+    },
     /// Move without depositing material.
     Travel {
         /// Destination X.
@@ -107,7 +138,7 @@ impl Move {
     /// them: welding arcs across a wall and across an infill dash are not the
     /// same decision.
     pub fn with_role(mut self, path_role: crate::core::ExtrusionRole, width: f64) -> Self {
-        if let Move::Extrude { role, width_mm, .. } = &mut self {
+        if let Move::Extrude { role, width_mm, .. } | Move::Arc { role, width_mm, .. } = &mut self {
             *role = path_role;
             *width_mm = width;
         }
@@ -119,6 +150,7 @@ impl Move {
         let text = text.into();
         match &mut self {
             Move::Extrude { comment, .. }
+            | Move::Arc { comment, .. }
             | Move::Travel { comment, .. }
             | Move::ZMove { comment, .. }
             | Move::Extruder { comment, .. } => *comment = Some(text),
@@ -129,13 +161,15 @@ impl Move {
 
     /// Whether this move deposits material.
     pub fn is_extrusion(&self) -> bool {
-        matches!(self, Move::Extrude { .. })
+        matches!(self, Move::Extrude { .. } | Move::Arc { .. })
     }
 
     /// The destination XY, for the moves that have one.
     pub fn end_xy(&self) -> Option<(f64, f64)> {
         match self {
-            Move::Extrude { x, y, .. } | Move::Travel { x, y, .. } => Some((*x, *y)),
+            Move::Extrude { x, y, .. } | Move::Arc { x, y, .. } | Move::Travel { x, y, .. } => {
+                Some((*x, *y))
+            }
             _ => None,
         }
     }
@@ -143,7 +177,7 @@ impl Move {
     /// The incremental filament length, for the moves that carry one.
     pub fn delta_e(&self) -> f64 {
         match self {
-            Move::Extrude { de, .. } | Move::Extruder { de, .. } => *de,
+            Move::Extrude { de, .. } | Move::Arc { de, .. } | Move::Extruder { de, .. } => *de,
             _ => 0.0,
         }
     }
@@ -170,6 +204,20 @@ impl Move {
                 };
                 with_comment(line, comment)
             }
+            Move::Arc {
+                x,
+                y,
+                i,
+                j,
+                clockwise,
+                e,
+                feed_mm_min,
+                comment,
+                ..
+            } => with_comment(
+                dialect.arc_extrude(*x, *y, *i, *j, *e, *feed_mm_min, *clockwise),
+                comment,
+            ),
             Move::Travel {
                 x,
                 y,

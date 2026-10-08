@@ -30,6 +30,10 @@ See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 
 ### Added
 
+- **Arc fitting** (Settings ▸ Experiments, off by default) prints curved walls
+  as true `G2`/`G3` arcs — about a sixth smaller files and far fewer commands to
+  plan, with no wall moved more than 0.025 mm. Needs firmware that accepts arcs:
+  Marlin with `ARC_SUPPORT`, Klipper with `[gcode_arcs]`, or RepRapFirmware.
 - **Plugin foundation.** The slicing pipeline is now an ordered list of named
   stages rather than one long function, and a plugin extends the engine by
   naming a stage instead of editing it — so every stage the pipeline grows is a
@@ -76,6 +80,9 @@ See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 - **No more stray support specks** — support stops where it lands on the model
   instead of resurfacing in recesses below it, and slivers too thin to print are
   gone.
+- **G-code with arcs previews and estimates correctly** — `G2`/`G3` moves, from
+  this slicer or another, used to be skipped, so the curve vanished from the
+  preview and the next move was drawn and timed from the wrong place.
 - **`--debug-geometry` wrote incorrect G-code.** The debug pipeline was a second
   copy of the slicing sequence and had drifted from it, silently skipping path
   ordering and bed adhesion — so a slice run with debug output enabled came out

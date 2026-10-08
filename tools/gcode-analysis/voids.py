@@ -14,6 +14,32 @@ from collections import deque
 RES = 0.08  # mm/cell
 NOZ = 0.40
 GAP_MAX = 2.5 * NOZ  # 1.0 mm: voids thinner than this are wall-zone gaps
+ARC_SAGITTA = 0.005  # mm: how far an arc's chords may bow off its circle
+
+
+def arc_points(x0, y0, x1, y1, cx, cy, clockwise):
+    """Chord ends that follow a G2/G3 arc from (x0, y0) to (x1, y1) about
+    (cx, cy): everything after the start, ending exactly at the end.
+
+    Read the way firmware reads an arc: the radius is the start's, the turn
+    runs in the commanded direction, and an end equal to the start is a full
+    circle."""
+    r = math.hypot(x0 - cx, y0 - cy)
+    a0 = math.atan2(y0 - cy, x0 - cx)
+    turn = (math.atan2(y1 - cy, x1 - cx) - a0) % math.tau
+    if clockwise:
+        turn = (math.tau - turn) % math.tau
+    if turn == 0.0:
+        turn = math.tau if (x0, y0) == (x1, y1) else 0.0
+    if r <= 0.0 or turn == 0.0:
+        return [(x1, y1)]
+    step = 2.0 * math.acos(1.0 - ARC_SAGITTA / r) if ARC_SAGITTA < r else math.pi / 2
+    n = max(1, min(1024, math.ceil(turn / step)))
+    sign = -1.0 if clockwise else 1.0
+    pts = [(cx + r * math.cos(a0 + sign * turn * k / n), cy + r * math.sin(a0 + sign * turn * k / n))
+           for k in range(1, n)]
+    pts.append((x1, y1))
+    return pts
 
 
 def parse_layers(path):
@@ -34,9 +60,11 @@ def parse_layers(path):
             continue
         if not line or line[0] == ";":
             continue
-        if line[0] == "G" and (line[:2] in ("G1", "G0")):
+        cmd = line.split(None, 1)[0]
+        if cmd in ("G0", "G1", "G2", "G3"):
             px, py = x, y
             e = None
+            i = j = 0.0
             for tok in line.split()[1:]:
                 c = tok[0]
                 try:
@@ -51,8 +79,24 @@ def parse_layers(path):
                     z = v
                 elif c == "E":
                     e = v
-            if e is not None and e > 0 and (x != px or y != py):
-                buckets.setdefault(round(z, 2), []).append((px, py, x, y, w, typ))
+                elif c == "I":
+                    i = v
+                elif c == "J":
+                    j = v
+            if e is None or e <= 0:
+                continue
+            # An arc becomes the chords a printer follows, so every script
+            # measures the bead it actually lays.
+            if cmd in ("G2", "G3"):
+                ends = arc_points(px, py, x, y, px + i, py + j, cmd == "G2")
+            elif x != px or y != py:
+                ends = [(x, y)]
+            else:
+                ends = []
+            sx, sy = px, py
+            for ex, ey in ends:
+                buckets.setdefault(round(z, 2), []).append((sx, sy, ex, ey, w, typ))
+                sx, sy = ex, ey
     return [buckets[k] for k in sorted(buckets)]
 
 

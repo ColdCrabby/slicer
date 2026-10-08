@@ -19,7 +19,7 @@ use slicer_engine::settings::params::SlicingParams;
 const ECHO_WAT: &str = r#"
 (module
   (memory (export "memory") 16)
-  (func (export "plugin_abi_version") (result i32) i32.const 1)
+  (func (export "plugin_abi_version") (result i32) i32.const 2)
   (func (export "plugin_alloc") (param i32) (result i32) i32.const 1024)
   (func (export "plugin_filter_moves") (param i32 i32) (result i64)
     local.get 0 i64.extend_i32_u (i64.const 32) i64.shl
@@ -32,7 +32,7 @@ const ECHO_WAT: &str = r#"
 const DROP_LAST_WAT: &str = r#"
 (module
   (memory (export "memory") 16)
-  (func (export "plugin_abi_version") (result i32) i32.const 1)
+  (func (export "plugin_abi_version") (result i32) i32.const 2)
   (func (export "plugin_alloc") (param i32) (result i32) i32.const 1024)
   (func (export "plugin_filter_moves") (param i32 i32) (result i64)
     ;; header count lives at ptr+8
@@ -40,7 +40,7 @@ const DROP_LAST_WAT: &str = r#"
       (i32.add (local.get 0) (i32.const 8))
       (i32.sub (i32.load (i32.add (local.get 0) (i32.const 8))) (i32.const 1)))
     local.get 0 i64.extend_i32_u (i64.const 32) i64.shl
-    (i64.extend_i32_u (i32.sub (local.get 1) (i32.const 72)))
+    (i64.extend_i32_u (i32.sub (local.get 1) (i32.const 88)))
     i64.or))
 "#;
 
@@ -48,7 +48,7 @@ const DROP_LAST_WAT: &str = r#"
 const OUT_OF_BOUNDS_WAT: &str = r#"
 (module
   (memory (export "memory") 1)
-  (func (export "plugin_abi_version") (result i32) i32.const 1)
+  (func (export "plugin_abi_version") (result i32) i32.const 2)
   (func (export "plugin_alloc") (param i32) (result i32) i32.const 1024)
   (func (export "plugin_filter_moves") (param i32 i32) (result i64)
     (i64.or
@@ -60,7 +60,7 @@ const OUT_OF_BOUNDS_WAT: &str = r#"
 const SPIN_WAT: &str = r#"
 (module
   (memory (export "memory") 1)
-  (func (export "plugin_abi_version") (result i32) i32.const 1)
+  (func (export "plugin_abi_version") (result i32) i32.const 2)
   (func (export "plugin_alloc") (param i32) (result i32) i32.const 1024)
   (func (export "plugin_filter_moves") (param i32 i32) (result i64)
     (loop (br 0))
@@ -80,7 +80,7 @@ const WRONG_ABI_WAT: &str = r#"
 const INCOMPLETE_WAT: &str = r#"
 (module
   (memory (export "memory") 1)
-  (func (export "plugin_abi_version") (result i32) i32.const 1))
+  (func (export "plugin_abi_version") (result i32) i32.const 2))
 "#;
 
 fn plugin_dir(modules: &[(&str, &str)]) -> tempfile::TempDir {

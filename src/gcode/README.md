@@ -9,6 +9,7 @@ Converts `Vec<SliceLayer>` → a firmware-ready G-code `String`.
 ```
 gcode/
 ├── mod.rs          re-exports; module-level docs
+├── arc.rs          G2/G3 geometry: fitting an arc, reading one back as chords
 ├── flavor.rs       GcodeFlavor enum (Marlin | Klipper)
 ├── dialect.rs      GcodeDialect trait + WarnFn + header()
 ├── generator.rs    GcodeGenerator façade + generate_gcode()
@@ -415,8 +416,12 @@ moves are known); its `;LAYER_TIME:` placeholder is overwritten afterward with
 the trapezoidal figure. On a 30 mm calibration cube the naive model
 under-estimated by ~57 % (≈35 min vs the realistic ≈81 min).
 
+Arcs (`G2`/`G3`) are timed as the chords they are read back as — see
+[Arc fitting](#arc-fitting) — so a curve pays the same corner slow-downs
+whether it was written as an arc or as lines.
+
 > **Not modelled:** heating waits (a coarse `warmup`/`cooldown` allowance stands
-> in — not a thermal model), arcs, dwell, and *per-axis* jerk (one scalar
+> in — not a thermal model), dwell, and *per-axis* jerk (one scalar
 > square-corner velocity, not an X/Y/E profile). The slicer does not yet slow a
 > layer to meet a minimum layer time, so there is no min-layer-time slowdown to
 > account for — the day that feature lands, the estimator picks it up for free
@@ -743,12 +748,43 @@ When adding a new feature that emits paths through `GcodeGenerator`:
   per-path loop, so any new path source (new infill pattern, support, brim,
   ironing pass, …) automatically benefits.
 - ⚠️ **Bypass deliberately when curvature must be preserved point-for-point**
-  (e.g. arc-fitting / `G2`/`G3` emission, exact-position commands). Either set
-  `path_tolerance = 0.0` for that pass or perform the special-case emission
-  before the generic generator loop.
+  (e.g. exact-position commands). Either set `path_tolerance = 0.0` for that
+  pass or perform the special-case emission before the generic generator loop.
+  Arc fitting does *not* need this: it runs on the simplified moves, whose
+  vertices still sit on the curve.
 - ⚠️ **Don't simplify upstream of geometry ops.** Calling `simplify_path`
   on Clipper2 paths _before_ offset/clip/intersect operations will cascade
   precision loss into walls and infill. Keep it strictly at the output layer.
+
+---
+
+## Arc fitting
+
+An experiment, off by default
+([`plugin/builtin/arc_fitting.rs`](../plugin/builtin/arc_fitting.rs)): a move
+filter that replaces runs of straight wall extrusions with `G2`/`G3` arcs,
+written by [`GcodeDialect::arc_extrude`](dialect.rs). The geometry — fitting
+an arc, and reading one back — is in [`arc.rs`](arc.rs), shared by everything
+that touches arcs so they agree on what one is.
+
+- **The rule:** no point of the straight path, vertex or mid-segment, ends up
+  further than the tolerance from the arc. Vertices alone are not enough —
+  every vertex of a hexagon lies on one circle.
+- **Only what one arc can say.** An arc carries one role, width, feedrate and
+  filament-per-mm, so a run breaks wherever any of those changes, and at any
+  comment, raw text, travel or non-planar move. Nothing is reordered.
+- **Filament is conserved.** An arc deposits exactly what the moves it
+  replaced did, so totals, statistics and later absolute `E` values stay put.
+- **Fitted on written positions** (three decimals), because a `G2`/`G3` starts
+  wherever the previous line left the nozzle. An arc never closes on itself:
+  firmware reads an arc whose end is its start as a full circle.
+- **Read back as chords** by the time estimator, the viewer parser and
+  [`tools/gcode-analysis`](../../tools/gcode-analysis/README.md), at the
+  default path tolerance's sagitta, so toggling the experiment barely moves
+  the estimate or the preview. The firmware decides how finely it really
+  prints an arc — Klipper's default `resolution` of 1 mm is coarse for small
+  holes, which is the user's to configure (see
+  [Settings ▸ Experiments](../../docs/use/settings.md#experiments)).
 
 ---
 
