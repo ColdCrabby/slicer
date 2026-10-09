@@ -18,6 +18,7 @@ This file is a **map, not a reference**. Read the relevant module `README.md` be
 - Follow existing architecture and single sources of truth. Do not introduce parallel implementations or shortcuts.
 - Placement goes through the scene engine; do not directly transform meshes.
 - `slice_plate` is the single slicing entry point.
+- New pipeline steps are stages in `src/core/stages.rs`, and optional features plug in through `src/plugin/` — never by editing `pipeline.rs`.
 - Slice requests reference profiles by ID; profiles remain engine-side.
 - Printer traffic goes through the slicer, never directly from the browser.
 - Preserve WASM/iOS platform boundaries.

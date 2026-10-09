@@ -16,6 +16,7 @@ import {
   type PrinterProfile,
 } from '../../models/printer.model';
 import type { FieldDef } from '../../schema-form/models/field-def';
+import { patchForPath, valueAtPath } from '../../schema-form/models/field-path';
 import {
   CUSTOM_TEMPLATE_ID,
   GCODE_PLACEHOLDER_HINT,

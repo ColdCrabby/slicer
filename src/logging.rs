@@ -84,10 +84,36 @@ pub mod phases {
     pub const SURFACES: &str = "surfaces";
     /// Sparse and solid infill pattern generation phase.
     pub const INFILL: &str = "infill";
+    /// Support strand generation under overhangs steeper than the threshold
+    /// angle.
+    pub const SUPPORT_GENERATION: &str = "support_generation";
     /// G-code program construction phase.
     pub const GCODE_GENERATION: &str = "gcode_generation";
     /// Writing the G-code output file to disk phase.
     pub const FILE_WRITE: &str = "file_write";
+    /// XY size / hole dimensional compensation on the raw contours.
+    pub const COMPENSATION: &str = "compensation";
+    /// Snapshot of the raw layer contours as the material footprint, taken
+    /// after dimensional compensation and before elephant-foot compensation
+    /// and wall generation replace them.
+    pub const SLICE_OUTLINE_SNAPSHOT: &str = "slice_outline_snapshot";
+    /// Snapshot of pristine outer walls taken as the footprint support
+    /// generation measures its strands against.
+    pub const OVERHANG_SUPPORT_SNAPSHOT: &str = "overhang_support_snapshot";
+    /// Grading of wall segments that cross unsupported air.
+    pub const OVERHANG_CLASSIFICATION: &str = "overhang_classification";
+    /// Removal of gap-fill beads a solid surface already covers.
+    pub const GAP_FILL_PRUNE: &str = "gap_fill_prune";
+    /// Greedy-TSP path ordering and seam placement.
+    pub const PATH_ORDERING: &str = "path_ordering";
+    /// Extrusion scaling where wall beads overlap.
+    pub const FLOW_COMPENSATION: &str = "flow_compensation";
+    /// Cosmetic outer-wall texture pass.
+    pub const FUZZY_SKIN: &str = "fuzzy_skin";
+    /// Skirt / brim / raft generation.
+    pub const BED_ADHESION: &str = "bed_adhesion";
+    /// Charging the object's bottom layer at the first-layer height.
+    pub const FIRST_LAYER_HEIGHT: &str = "first_layer_height";
 }
 
 /// Unified logging interface for the slicing pipeline.
