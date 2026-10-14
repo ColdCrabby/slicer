@@ -9,7 +9,7 @@
         "docs:preview": "vitepress preview"
     },
     "devDependencies": {
-        "@types/node": "^26.6.4",
+        "@types/node": "^26.6.5",
         "mermaid": "^12.1.0",
         "sass": "^1.105.1",
         "vitepress": "^1.6.3",
