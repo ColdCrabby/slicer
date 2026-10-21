@@ -10,8 +10,8 @@
     },
     "devDependencies": {
         "@types/node": "^26.6.5",
-        "mermaid": "^12.1.0",
-        "sass": "^1.105.1",
+        "mermaid": "^12.2.0",
+        "sass": "^1.105.2",
         "vitepress": "^1.6.3",
         "vitepress-plugin-mermaid": "^2.0.17"
     }
