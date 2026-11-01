@@ -2903,6 +2903,65 @@ pub fn resolve_derived_values(document: &mut serde_json::Value) {
     }
 }
 
+/// Settings a profile may state as a **percentage of another setting**, and the
+/// setting each one is a percentage of.
+///
+/// A bead width pinned to `0.44` mm is right on a 0.4 mm nozzle and under-fills
+/// a 0.6 by a quarter, so a process profile shared across machines cannot hold
+/// one. Stating `"110%"` instead lets the same recipe be correct on every
+/// nozzle the user owns — which is the whole reason a process profile is
+/// separate from a printer profile.
+///
+/// The base of a derived setting must itself be absolute, so one pass resolves
+/// everything; `no_derived_setting_is_the_base_of_another` holds that.
+///
+/// This is deliberately **not** [`RelativeSpeed`]: that type carries a
+/// percentage all the way to the point of use, because the speed it is a
+/// fraction of is chosen per *segment* (by overhang degree) and is not known
+/// until then. These are resolved once, against a sibling in the same document,
+/// and every consumer keeps reading a plain `f64`.
+pub const DERIVED_FROM: [(&str, &str); 7] = [
+    ("first_layer_height", "layer_height"),
+    ("inner_wall_line_width", "nozzle_diameter_mm"),
+    ("line_width", "nozzle_diameter_mm"),
+    ("outer_wall_line_width", "nozzle_diameter_mm"),
+    ("sparse_infill_line_width", "nozzle_diameter_mm"),
+    ("support_line_width", "nozzle_diameter_mm"),
+    ("top_surface_line_width", "nozzle_diameter_mm"),
+];
+
+/// Replace every `"NN%"` in `document` with its resolved number, in place.
+///
+/// Runs on the **merged** document, after every profile layer and the user's
+/// overrides, so a percentage always resolves against the nozzle (or layer
+/// height) that actually won — not the one the profile stating it happened to
+/// be written beside.
+///
+/// A percentage whose base is missing or not a number is left alone rather than
+/// guessed at; `SlicingParams` deserialization then rejects it, which is the
+/// honest outcome for a document that asks for a fraction of nothing.
+pub fn resolve_derived_values(document: &mut serde_json::Value) {
+    let Some(map) = document.as_object() else {
+        return;
+    };
+    let mut resolved: Vec<(String, f64)> = Vec::new();
+    for (field, base_field) in DERIVED_FROM {
+        let Some(percent) = map.get(field).and_then(parse_percent) else {
+            continue;
+        };
+        let Some(base) = map.get(base_field).and_then(serde_json::Value::as_f64) else {
+            continue;
+        };
+        resolved.push((field.to_string(), percent * base));
+    }
+    let Some(map) = document.as_object_mut() else {
+        return;
+    };
+    for (field, value) in resolved {
+        map.insert(field, serde_json::Value::from(value));
+    }
+}
+
 /// `"110%"` → `Some(1.1)`. Anything else — including a plain number — is `None`.
 fn parse_percent(value: &serde_json::Value) -> Option<f64> {
     let text = value.as_str()?.trim().strip_suffix('%')?;
