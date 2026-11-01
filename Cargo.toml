@@ -23,7 +23,7 @@ glam = { version = "0.34", features = ["serde"] }
 thiserror = "2.0"
 serde_bytes = "0.11"
 tobj = "4.0"
-zip = { version = "8.6", default-features = false, features = ["deflate"] }
+zip = { version = "9.2", default-features = false, features = ["deflate"] }
 getrandom = { version = "0.3.4", features = ["wasm_js"] }
 sha2 = "0.11"
 
