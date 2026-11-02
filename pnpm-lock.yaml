@@ -13,6 +13,7 @@ overrides:
   immutable@>=5.0.0-beta.1 <5.1.8: 5.1.9
   ip-address@<10.3.1: 10.3.1
   js-yaml@>=4.0.0 <4.3.2: 4.3.2
+  mermaid@11>katex: 0.18.10
   nanoid@<3.3.18: 3.3.18
   postcss@<8.5.23: 8.5.26
   qs@>=6.11.1 <6.15.2: 6.15.3
@@ -2632,10 +2633,6 @@ packages:
     resolution: {integrity: sha512-QrWXB+ZQSVPmIWIhtEO9H+gwHaMGYiF5ChvoJ+K9ZGHG/sVsa6yiesAD1GC/x46sET00Xlwo1u49RVVVzvcSkw==}
     engines: {node: '>= 10'}
 
-  commander@8.3.0:
-    resolution: {integrity: sha512-OkTL9umf+He2DZkUq8f8J9of7yL6RJKI24dVITBmNfZBmri9zYZQrKkuXiKhyfPSu8tUhnVBB1iKXevvnlR4Ww==}
-    engines: {node: '>= 12'}
-
   confbox@0.2.4:
     resolution: {integrity: sha512-ysOGlgTFbN2/Y6Cg3Iye8YKulHw+R2fNXHrgSmXISQdMnomY6eNDprVdW9R5xBguEqI954+S6709UyiO7B+6OQ==}
 
@@ -3196,10 +3193,6 @@ packages:
 
   jsonc-parser@3.3.1:
     resolution: {integrity: sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ==}
-
-  katex@0.16.47:
-    resolution: {integrity: sha512-Eeo8Ys1doU1z+x8AZsPpQu+p/QcZBI5PeOo7QGQdy2x2m0MU/hYagBbGOmXwr5KVbEfVuWv9LpnQWeehogurjg==}
-    hasBin: true
 
   katex@0.18.10:
     resolution: {integrity: sha512-/B6p9eY9DX7aHBfpkHdpirDTZ5QH9xTwL9y837PWuzuv41O5jFdqNQwVQEQsimY0/iVNkwBY4+4hMfhQ7d4Dbw==}
@@ -6398,9 +6391,6 @@ snapshots:
 
   commander@7.2.0: {}
 
-  commander@8.3.0:
-    optional: true
-
   confbox@0.2.4: {}
 
   convert-source-map@1.9.0: {}
@@ -7018,11 +7008,6 @@ snapshots:
 
   jsonc-parser@3.3.1: {}
 
-  katex@0.16.47:
-    dependencies:
-      commander: 8.3.0
-    optional: true
-
   katex@0.18.10:
     dependencies:
       commander: 15.0.0
@@ -7238,7 +7223,7 @@ snapshots:
       dompurify: 3.4.17
       es-toolkit: 1.53.0
       fastdom: 1.0.12
-      katex: 0.16.47
+      katex: 0.18.10
       khroma: 2.1.0
       marked: 16.4.2
       roughjs: 4.6.6
