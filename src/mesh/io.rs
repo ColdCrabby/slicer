@@ -569,14 +569,19 @@ fn parse_3mf_model(
     let mut model_name = None;
     for i in 0..archive.len() {
         let file = archive
-            .by_index(i)
+            .by_index_with_options(i, zip::ZipReadOptions::new().enforce_header_consistency(true))
             .map_err(|e| format!("Cannot open 3MF archive entry {i}: {e}"))?;
-        let name = file
-            .name()
-            .map_err(|e| format!("Cannot decode 3MF archive entry {i} name: {e}"))?;
-        if name.ends_with(".model") {
-            model_name = Some(name.into_owned());
-            break;
+        let name = if file.flags().as_u16() & (1 << 11) != 0 {
+            std::str::from_utf8(file.name_raw())
+                .map_err(|e| format!("Cannot decode 3MF archive entry {i} name: {e}"))?
+                .to_owned()
+        } else {
+            file.name()
+                .map_err(|e| format!("Cannot decode 3MF archive entry {i} name: {e}"))?
+                .into_owned()
+        };
+        if model_name.is_none() && name.ends_with(".model") {
+            model_name = Some(name);
         }
     }
     let model_name = model_name.ok_or("No .model file found inside 3MF archive")?;
@@ -1277,25 +1282,27 @@ mod tests {
     fn test_read_3mf_rejects_invalid_utf8_entry_names() {
         let xml = model_xml_with_unit("millimeter");
         for name in ["méta.txt", "3D/pièce.model"] {
-            let mut bytes = zip_entries(
-                &[(name, &xml), ("3D/valid.model", &xml)],
-                zip::CompressionMethod::Stored,
-            );
-            let offsets = zip_name_offsets(&bytes, name);
-            let mut invalid_name = name.as_bytes().to_vec();
-            let invalid_offset = invalid_name
-                .iter()
-                .position(|byte| !byte.is_ascii())
-                .unwrap();
-            invalid_name[invalid_offset] = 0xff;
-            for offset in offsets {
-                bytes[offset..offset + name.len()].copy_from_slice(&invalid_name);
+            for (entries, bad_idx) in [
+                ([(name, xml.as_slice()), ("3D/valid.model", xml.as_slice())], 0),
+                ([("3D/valid.model", xml.as_slice()), (name, xml.as_slice())], 1),
+            ] {
+                let mut bytes = zip_entries(&entries, zip::CompressionMethod::Stored);
+                let offsets = zip_name_offsets(&bytes, name);
+                let mut invalid_name = name.as_bytes().to_vec();
+                let invalid_offset = invalid_name
+                    .iter()
+                    .position(|byte| !byte.is_ascii())
+                    .unwrap();
+                invalid_name[invalid_offset] = 0xff;
+                for offset in offsets {
+                    bytes[offset..offset + name.len()].copy_from_slice(&invalid_name);
+                }
+                let error = read_3mf_from_bytes(&bytes).unwrap_err().to_string();
+                assert!(
+                    error.contains(&format!("Cannot decode 3MF archive entry {bad_idx} name")),
+                    "{error}"
+                );
             }
-            let error = read_3mf_from_bytes(&bytes).unwrap_err().to_string();
-            assert!(
-                error.contains("Cannot decode 3MF archive entry 0 name"),
-                "{error}"
-            );
         }
     }
 
@@ -1304,19 +1311,24 @@ mod tests {
     fn test_read_3mf_rejects_mismatched_local_and_central_names() {
         let xml = model_xml_with_unit("millimeter");
         for name in ["méta.txt", "3D/pièce.model"] {
-            let mut bytes = zip_entries(
-                &[(name, &xml), ("3D/valid.model", &xml)],
-                zip::CompressionMethod::Stored,
-            );
-            let [local, central] = zip_name_offsets(&bytes, name);
-            bytes[local] = b'x';
-            assert_ne!(
-                &bytes[local..local + name.len()],
-                &bytes[central..central + name.len()]
-            );
-            let error = read_3mf_from_bytes(&bytes).unwrap_err().to_string();
-            assert!(error.contains("Cannot open 3MF archive entry 0"), "{error}");
-            assert!(error.contains("filename mismatch"), "{error}");
+            for (entries, bad_idx) in [
+                ([(name, xml.as_slice()), ("3D/valid.model", xml.as_slice())], 0),
+                ([("3D/valid.model", xml.as_slice()), (name, xml.as_slice())], 1),
+            ] {
+                let mut bytes = zip_entries(&entries, zip::CompressionMethod::Stored);
+                let [local, central] = zip_name_offsets(&bytes, name);
+                bytes[local] = b'x';
+                assert_ne!(
+                    &bytes[local..local + name.len()],
+                    &bytes[central..central + name.len()]
+                );
+                let error = read_3mf_from_bytes(&bytes).unwrap_err().to_string();
+                assert!(
+                    error.contains(&format!("Cannot open 3MF archive entry {bad_idx}")),
+                    "{error}"
+                );
+                assert!(error.contains("filename mismatch"), "{error}");
+            }
         }
     }
 
