@@ -29,6 +29,7 @@ import { noticeForField } from './field-exceptions/field-exceptions';
 import { controlFor } from './models/field-control';
 import { FieldDef, SchemaGroup } from './models/field-def';
 import { parseSchema } from './models/schema-parser';
+import { valueAtPath } from './models/field-path';
 import {
   type Tier,
   deepestTier,
@@ -364,7 +365,7 @@ export class SchemaForm {
     const keys = new Set<string>();
     for (const group of this.relevantGroups()) {
       for (const field of group.fields) {
-        if (noticeForField(field, values[field.key], values) !== null) {
+        if (noticeForField(field, valueAtPath(values, field.key), values) !== null) {
           keys.add(field.key);
         }
       }
@@ -662,7 +663,9 @@ export class SchemaForm {
    * stays absent, so the sparse override diff sent to the engine is unchanged.
    */
   protected valueFor(field: FieldDef): unknown {
-    const current = this.value()[field.key];
+    // Addressed by path: a plain lookup for the flat majority of settings;
+    // plugin settings are namespaced, so they sit one level deeper.
+    const current = valueAtPath(this.value(), field.key);
     return current === undefined || current === null ? field.default : current;
   }
 

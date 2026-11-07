@@ -53,12 +53,21 @@ pub fn apply(layers: &mut [SliceLayer], params: &SlicingParams) {
         if layer.path_vertex_widths.len() < layer.paths.len() {
             layer.path_vertex_widths.resize(layer.paths.len(), None);
         }
+        // Resampling rewrites the vertex list, so any per-vertex Z profile has
+        // to be resampled with it or it is left describing vertices that no
+        // longer exist. Empty stays empty — an ordinary print is flat.
+        let has_vertex_z = !layer.path_vertex_z.is_empty();
+        if has_vertex_z && layer.path_vertex_z.len() < layer.paths.len() {
+            layer.path_vertex_z.resize(layer.paths.len(), None);
+        }
 
         let mut new_paths: Vec<Path> = Vec::with_capacity(layer.paths.len());
         let mut new_widths: Vec<Option<Vec<f64>>> = Vec::with_capacity(layer.paths.len());
+        let mut new_z: Vec<Option<Vec<f64>>> = Vec::with_capacity(layer.paths.len());
 
         for (i, path) in layer.paths.iter().enumerate() {
             let widths = layer.path_vertex_widths.get(i).cloned().flatten();
+            let vertex_z = layer.path_vertex_z.get(i).cloned().flatten();
             let role = layer.role_for_path(i);
             let is_fuzzable_wall = matches!(
                 role,
@@ -68,22 +77,41 @@ pub fn apply(layers: &mut [SliceLayer], params: &SlicingParams) {
             if is_fuzzable_wall {
                 let seed = path_seed(path, layer.z, i);
                 let fuzzed = if layer.is_path_open(i) {
-                    fuzz_open_path(path, widths.as_deref(), point_dist, thickness, seed)
+                    fuzz_open_path(
+                        path,
+                        widths.as_deref(),
+                        vertex_z.as_deref(),
+                        point_dist,
+                        thickness,
+                        seed,
+                    )
                 } else {
-                    fuzz_closed_path(path, widths.as_deref(), point_dist, thickness, seed)
+                    fuzz_closed_path(
+                        path,
+                        widths.as_deref(),
+                        vertex_z.as_deref(),
+                        point_dist,
+                        thickness,
+                        seed,
+                    )
                 };
-                if let Some((fuzzed_path, fuzzed_widths)) = fuzzed {
+                if let Some((fuzzed_path, fuzzed_widths, fuzzed_z)) = fuzzed {
                     new_paths.push(fuzzed_path);
                     new_widths.push(fuzzed_widths);
+                    new_z.push(fuzzed_z);
                     continue;
                 }
             }
             new_paths.push(path.clone());
             new_widths.push(widths);
+            new_z.push(vertex_z);
         }
 
         layer.paths = Paths::new(new_paths);
         layer.path_vertex_widths = new_widths;
+        if has_vertex_z {
+            layer.path_vertex_z = new_z;
+        }
     }
 }
 
@@ -113,19 +141,22 @@ fn path_seed(path: &Path, z: f64, path_index: usize) -> u64 {
 ///
 /// Returns `None` for a degenerate path (fewer than 3 vertices, or zero
 /// perimeter), leaving the caller to keep the original geometry untouched.
+#[allow(clippy::type_complexity)]
 fn fuzz_closed_path(
     path: &Path,
     source_widths: Option<&[f64]>,
+    source_z: Option<&[f64]>,
     point_dist_mm: f64,
     thickness_mm: f64,
     seed: u64,
-) -> Option<(Path, Option<Vec<f64>>)> {
+) -> Option<(Path, Option<Vec<f64>>, Option<Vec<f64>>)> {
     let source: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
     let n = source.len();
     if n < 3 {
         return None;
     }
     let source_widths = source_widths.filter(|w| w.len() == n);
+    let source_z = source_z.filter(|v| v.len() == n);
 
     let mut arc = Vec::with_capacity(n);
     let mut total = 0.0;
@@ -145,6 +176,12 @@ fn fuzz_closed_path(
     let mut rng = SplitMix64::new(seed);
     let mut points = Vec::with_capacity(sample_count);
     let mut widths = source_widths.map(|_| Vec::with_capacity(sample_count));
+    // Per-vertex Z is resampled exactly like width: a resampled vertex sits
+    // between two source vertices, so it takes the same fraction of the Z
+    // profile that it takes of the width profile. Without this a fuzzed
+    // non-planar wall would keep a stale array of the wrong length and lose
+    // its shape entirely.
+    let mut zs = source_z.map(|_| Vec::with_capacity(sample_count));
 
     let mut seg = 0usize;
     for k in 0..sample_count {
@@ -174,9 +211,13 @@ fn fuzz_closed_path(
             let (wa, wb) = (sw[seg], sw[(seg + 1) % n]);
             out.push(wa + (wb - wa) * t);
         }
+        if let (Some(sz), Some(out)) = (source_z, zs.as_mut()) {
+            let (za, zb) = (sz[seg], sz[(seg + 1) % n]);
+            out.push(za + (zb - za) * t);
+        }
     }
 
-    Some((points.into(), widths))
+    Some((points.into(), widths, zs))
 }
 
 /// Resample an **open** wall arc the same way as [`fuzz_closed_path`], except
@@ -190,19 +231,22 @@ fn fuzz_closed_path(
 ///
 /// Returns `None` for a degenerate path (fewer than 2 vertices, or zero
 /// length).
+#[allow(clippy::type_complexity)]
 fn fuzz_open_path(
     path: &Path,
     source_widths: Option<&[f64]>,
+    source_z: Option<&[f64]>,
     point_dist_mm: f64,
     thickness_mm: f64,
     seed: u64,
-) -> Option<(Path, Option<Vec<f64>>)> {
+) -> Option<(Path, Option<Vec<f64>>, Option<Vec<f64>>)> {
     let source: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
     let n = source.len();
     if n < 2 {
         return None;
     }
     let source_widths = source_widths.filter(|w| w.len() == n);
+    let source_z = source_z.filter(|v| v.len() == n);
 
     let mut arc = Vec::with_capacity(n);
     arc.push(0.0);
@@ -223,10 +267,14 @@ fn fuzz_open_path(
     let mut rng = SplitMix64::new(seed);
     let mut points = Vec::with_capacity(sample_count);
     let mut widths = source_widths.map(|_| Vec::with_capacity(sample_count));
+    let mut zs = source_z.map(|_| Vec::with_capacity(sample_count));
 
     points.push(source[0]);
     if let (Some(sw), Some(out)) = (source_widths, widths.as_mut()) {
         out.push(sw[0]);
+    }
+    if let (Some(sz), Some(out)) = (source_z, zs.as_mut()) {
+        out.push(sz[0]);
     }
 
     let mut seg = 0usize;
@@ -257,14 +305,21 @@ fn fuzz_open_path(
             let (wa, wb) = (sw[seg], sw[seg + 1]);
             out.push(wa + (wb - wa) * t);
         }
+        if let (Some(sz), Some(out)) = (source_z, zs.as_mut()) {
+            let (za, zb) = (sz[seg], sz[seg + 1]);
+            out.push(za + (zb - za) * t);
+        }
     }
 
     points.push(source[n - 1]);
     if let (Some(sw), Some(out)) = (source_widths, widths.as_mut()) {
         out.push(sw[n - 1]);
     }
+    if let (Some(sz), Some(out)) = (source_z, zs.as_mut()) {
+        out.push(sz[n - 1]);
+    }
 
-    Some((points.into(), widths))
+    Some((points.into(), widths, zs))
 }
 
 /// SplitMix64 — the same cheap, well-mixed generator used for deterministic
