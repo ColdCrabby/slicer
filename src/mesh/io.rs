@@ -566,15 +566,20 @@ fn parse_3mf_model(
         zip::ZipArchive::new(cursor).map_err(|e| format!("Not a valid 3MF (ZIP) file: {}", e))?;
 
     // Find the primary model file — search for a name ending in .model
-    let model_name = (0..archive.len())
-        .find_map(|i| {
-            archive
-                .by_index(i)
-                .ok()
-                .filter(|f| f.name().ends_with(".model"))
-                .map(|f| f.name().to_owned())
-        })
-        .ok_or("No .model file found inside 3MF archive")?;
+    let mut model_name = None;
+    for i in 0..archive.len() {
+        let file = archive
+            .by_index(i)
+            .map_err(|e| format!("Cannot open 3MF archive entry {i}: {e}"))?;
+        let name = file
+            .name()
+            .map_err(|e| format!("Cannot decode 3MF archive entry {i} name: {e}"))?;
+        if name.ends_with(".model") {
+            model_name = Some(name.into_owned());
+            break;
+        }
+    }
+    let model_name = model_name.ok_or("No .model file found inside 3MF archive")?;
 
     let mut model_file = archive
         .by_name(&model_name)
@@ -1147,6 +1152,172 @@ mod tests {
             zw.finish().unwrap();
         }
         zip_buf
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn zip_entries(entries: &[(&str, &[u8])], compression: zip::CompressionMethod) -> Vec<u8> {
+        use std::io::Write;
+
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default().compression_method(compression);
+        for (name, contents) in entries {
+            writer.start_file(*name, options).unwrap();
+            writer.write_all(contents).unwrap();
+        }
+        writer.finish().unwrap().into_inner()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn model_xml_with_unit(unit: &str) -> Vec<u8> {
+        use std::io::Read;
+
+        let bytes = build_3mf_with_unit(unit);
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+        let mut xml = Vec::new();
+        archive
+            .by_name("3D/3dmodel.model")
+            .unwrap()
+            .read_to_end(&mut xml)
+            .unwrap();
+        xml
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn zip_name_offsets(bytes: &[u8], name: &str) -> [usize; 2] {
+        [(b"PK\x03\x04", 30, 6), (b"PK\x01\x02", 46, 8)].map(
+            |(signature, name_offset, flags_offset)| {
+                let headers: Vec<_> = bytes
+                    .windows(4)
+                    .enumerate()
+                    .filter(|(offset, window)| {
+                        *window == signature
+                            && bytes.get(offset + name_offset..offset + name_offset + name.len())
+                                == Some(name.as_bytes())
+                    })
+                    .map(|(offset, _)| offset)
+                    .collect();
+                assert_eq!(headers.len(), 1);
+                let header = headers[0];
+                let flags = u16::from_le_bytes([
+                    bytes[header + flags_offset],
+                    bytes[header + flags_offset + 1],
+                ]);
+                assert_ne!(flags & (1 << 11), 0);
+                header + name_offset
+            },
+        )
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_read_3mf_stored_and_deflated_unicode_model_after_unrelated_entry() {
+        let xml = model_xml_with_unit("centimeter");
+        for compression in [
+            zip::CompressionMethod::Stored,
+            zip::CompressionMethod::Deflated,
+        ] {
+            let bytes = zip_entries(
+                &[("metadata.txt", b"not model XML"), ("3D/模型.model", &xml)],
+                compression,
+            );
+            let mesh = read_3mf_from_bytes(&bytes).unwrap();
+            assert_eq!(
+                mesh.vertices,
+                vec![
+                    Vertex::new(0.0, 0.0, 0.0),
+                    Vertex::new(20.0, 0.0, 0.0),
+                    Vertex::new(20.0, 20.0, 20.0),
+                ],
+                "{compression:?}"
+            );
+            assert_eq!(
+                mesh.faces,
+                vec![Face::new(mesh.vertices.clone().try_into().unwrap())]
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_read_3mf_selects_first_case_sensitive_model_entry() {
+        let first = model_xml_with_unit("centimeter");
+        let second = model_xml_with_unit("meter");
+        let bytes = zip_entries(
+            &[
+                ("3D/ignored.MODEL", b"not model XML"),
+                ("3D/first.model", &first),
+                ("3D/second.model", &second),
+            ],
+            zip::CompressionMethod::Stored,
+        );
+        let mesh = read_3mf_from_bytes(&bytes).unwrap();
+        assert_eq!(mesh.vertices.len(), 3);
+        assert_eq!(mesh.faces.len(), 1);
+        assert_eq!(mesh.vertices[1], Vertex::new(20.0, 0.0, 0.0));
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_read_3mf_missing_model_entry() {
+        for entries in [
+            Vec::new(),
+            vec![
+                ("metadata.txt", b"metadata".as_slice()),
+                ("3D/ignored.MODEL", b"XML"),
+            ],
+        ] {
+            let bytes = zip_entries(&entries, zip::CompressionMethod::Stored);
+            let error = read_3mf_from_bytes(&bytes).unwrap_err().to_string();
+            assert_eq!(error, "No .model file found inside 3MF archive");
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_read_3mf_rejects_invalid_utf8_entry_names() {
+        let xml = model_xml_with_unit("millimeter");
+        for name in ["méta.txt", "3D/pièce.model"] {
+            let mut bytes = zip_entries(
+                &[(name, &xml), ("3D/valid.model", &xml)],
+                zip::CompressionMethod::Stored,
+            );
+            let offsets = zip_name_offsets(&bytes, name);
+            let mut invalid_name = name.as_bytes().to_vec();
+            let invalid_offset = invalid_name
+                .iter()
+                .position(|byte| !byte.is_ascii())
+                .unwrap();
+            invalid_name[invalid_offset] = 0xff;
+            for offset in offsets {
+                bytes[offset..offset + name.len()].copy_from_slice(&invalid_name);
+            }
+            let error = read_3mf_from_bytes(&bytes).unwrap_err().to_string();
+            assert!(
+                error.contains("Cannot decode 3MF archive entry 0 name"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_read_3mf_rejects_mismatched_local_and_central_names() {
+        let xml = model_xml_with_unit("millimeter");
+        for name in ["méta.txt", "3D/pièce.model"] {
+            let mut bytes = zip_entries(
+                &[(name, &xml), ("3D/valid.model", &xml)],
+                zip::CompressionMethod::Stored,
+            );
+            let [local, central] = zip_name_offsets(&bytes, name);
+            bytes[local] = b'x';
+            assert_ne!(
+                &bytes[local..local + name.len()],
+                &bytes[central..central + name.len()]
+            );
+            let error = read_3mf_from_bytes(&bytes).unwrap_err().to_string();
+            assert!(error.contains("Cannot open 3MF archive entry 0"), "{error}");
+            assert!(error.contains("filename mismatch"), "{error}");
+        }
     }
 
     #[test]

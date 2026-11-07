@@ -61,7 +61,7 @@ jobs:
           echo "${GITHUB_WORKSPACE}/wasi-sdk-33.0-x86_64-linux/bin" >> "${GITHUB_PATH}"
 
       - name: Install wasm-bindgen-cli
-        run: cargo install --locked wasm-bindgen-cli
+        run: cargo install --locked wasm-bindgen-cli --version 0.2.129
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
