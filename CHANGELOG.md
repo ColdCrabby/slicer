@@ -11,64 +11,58 @@ verbatim as the body of each GitHub Release. See [RELEASING.md](RELEASING.md) fo
 the workflow that keeps those in sync.
 
 <!--
-Maintainers: keep an `## [Unreleased]` section at the top and add a short entry
-there for every user-visible change. Before a release it is always freshened up
-— rewritten short, enticing and useful to someone printing, not a list of how
-things were done — then renamed to `## [x.y.z] - YYYY-MM-DD` with a fresh empty
-`## [Unreleased]` above it. A release candidate (`x.y.z-rc.N`) shows that
-section; it never gets one of its own. The `release` skill (say "prepare a
-release") runs the whole flow, and RELEASING.md describes it.
+Maintainers: keep an `## [Unreleased]
 
-Style: one or two tight lines per entry with a bold **Feature name** lead,
-biggest change first, `#### Theme` groups when a category runs long, and never
-issue/PR numbers or repo links. Each GitHub Release links every commit
-automatically — never list them here; this file ships inside the app.
-See the tone rules in .claude/skills/release/SKILL.md for the full voice.
--->
+## [0.7.0] - 2026-11-07
 
-## [Unreleased]
+One search bar reaches every corner of the slicer, and tree supports now grow
+like real branches — steering around your part from the plate instead of sitting
+on top of it.
+
+### Highlights
+
+- **Search everything** — press `E` (or tap the magnifier in the title bar) to
+  find any setting, printer, filament, preset or library model, and change a
+  value or swap the active plate's profiles on the spot.
+- **Organic tree supports** — branches split into fine tips under the overhang,
+  merge into sturdy trunks as they descend, and steer around the model to stand
+  on the build plate whenever they can reach it.
 
 ### Added
 
-- **Search everything** — press `E` and one palette finds settings, printers,
-  filaments, presets, parameters and library models; name a scope first
-  (`sett` + `Tab`) to keep the search to it, and change a parameter on the spot.
-- **Search from the title bar** — a magnifier next to Help opens the same
-  palette, for hands on glass that have no `E` to press.
-- **Workbench scope** — ask the palette for `workbench` (or `plate`) and switch
-  the open plate's printer, filament or process beside its own parameters, so a
-  preset swap and a one-off tweak are one search apart.
+- **Search everything (`E`)** — one palette searches settings, profiles,
+  parameters and library models with thumbnails; type a scope (`sett` + `Tab`)
+  to narrow it, or edit a parameter right inside the result row.
+- **Workbench scope in search** — type `workbench` (or `plate`) in the palette
+  to switch the open plate's printer, filament or process alongside its own
+  settings.
+- **Search from the title bar** — a magnifier next to Help opens the palette on
+  touch screens without a keyboard.
 
 ### Changed
 
-- **Organic tree supports** — branches grow from small tips under the overhang,
-  merge into trunks, steer around your model and thicken toward the plate,
-  standing on the model only where the plate is out of reach. Shape them with
-  the new branch angle and diameter settings under Support.
+- **Organic tree supports** — tuned with new branch angle and diameter settings
+  under Support, resting on the part only where the build plate is out of reach.
 
 ### Fixed
 
+- **Painting and the camera no longer fight over a drag** — orbiting, panning or
+  pinching in paint mode moves the view without leaving a trail of paint across
+  the model.
+- **Painted support enforcers and blockers do what they say** — enforcers hold
+  up gentle slopes even when automatic detection is off, and blockers clear the
+  entire ledge or slope they cover.
+- **No more stray support specks** — support stops cleanly where it meets the
+  model instead of reappearing in pockets below it, and unprintable slivers are
+  pruned.
 - **Safer 3MF loading** — malformed archives with invalid entry names or
-  conflicting ZIP headers are rejected instead of partially loaded.
-- **The search palette now closes when you press Escape** — it used to stay on
-  screen once opened, because the palette's mount never reacted to being
-  dismissed; Escape (from wherever focus sits) and a click on the darkened
-  surround both put it away now, without pressing what is behind it.
-- **The search palette fits the screen** — on tall windows it no longer ran
-  past the bottom edge; it now fills the space it is given and scrolls inside.
-- **Library models in search show their thumbnails** — the same previews the
-  library draws, made for the row you are pointed at.
-- **Painting and the camera no longer fight over a drag** — starting to orbit,
-  pan or pinch in paint mode moves the view instead of dragging paint across
-  the model, and a stroke under way is dropped the moment a camera gesture
-  takes over.
-- **Painted support enforcers work on any slope** — paint one under a gentle
-  overhang and it gets support, whether automatic detection is on or off.
-- **Painted support blockers clear everything they cover** — no column left
-  under a blocked ledge, no strip of support along a blocked slope.
-- **No more stray support specks** — support stops where it lands on the model
-  instead of resurfacing in recesses below it, and slivers too thin to print are
-  gone.
+  mismatched ZIP headers are rejected up front instead of partially loading.
+
+### Contributors
+
+Thanks to @max-scopp, who shipped this release end to end — the search palette,
+organic tree supports, support-painting fixes and archive hardening all landed
+in this cycle.
 
 ## [0.6.0] - 2026-10-01
 
