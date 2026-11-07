@@ -48,6 +48,8 @@ See the tone rules in .claude/skills/release/SKILL.md for the full voice.
 
 ### Fixed
 
+- **Safer 3MF loading** — malformed archives with invalid entry names or
+  conflicting ZIP headers are rejected instead of partially loaded.
 - **The search palette now closes when you press Escape** — it used to stay on
   screen once opened, because the palette's mount never reacted to being
   dismissed; Escape (from wherever focus sits) and a click on the darkened

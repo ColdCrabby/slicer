@@ -21,6 +21,10 @@ Seven ways, all equivalent:
 
 Adding never clears what's already there. Only **Empty Workplate** does that.
 
+Malformed 3MF archives with invalid entry names or conflicting ZIP headers are
+rejected rather than partially loaded. Re-export the model from its source app
+if this happens.
+
 Each new model is placed clear of the ones already on the bed, using the same
 spacing rules as **Place objects**, so a plate never opens with parts sitting
 inside each other. It arrives selected, ready to drag or turn.

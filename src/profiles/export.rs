@@ -418,7 +418,7 @@ mod tests {
         let mut files = Vec::new();
         for i in 0..archive.len() {
             let mut file = archive.by_index(i).expect("entry");
-            let name = file.name().to_string();
+            let name = file.name().expect("entry name").into_owned();
             let mut contents = String::new();
             file.read_to_string(&mut contents).expect("read entry");
             files.push((name, contents));
@@ -609,6 +609,33 @@ mod tests {
             a.bytes, b.bytes,
             "same library must export byte-identically"
         );
+    }
+
+    #[test]
+    fn bundle_entries_are_deflated_with_fixed_timestamps_and_round_trip() {
+        let mut library = sample_library();
+        library.printers[0].meta.name = "試作 / Prüfung".into();
+        let artifact = export_library(&library, ProfileExportFormat::Bundle).expect("export");
+        let mut archive = zip::ZipArchive::new(Cursor::new(&artifact.bytes)).expect("archive");
+        let mut document = String::new();
+        let mut names = Vec::new();
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i).expect("entry");
+            assert_eq!(file.compression(), CompressionMethod::Deflated);
+            assert_eq!(file.last_modified(), Some(zip::DateTime::default()));
+            let name = file.name().expect("entry name").into_owned();
+            let mut contents = String::new();
+            file.read_to_string(&mut contents).expect("read entry");
+            assert_eq!(file.size(), contents.len() as u64);
+            if name.ends_with(".toml") && name != "manifest.toml" {
+                document.push_str(&contents);
+                document.push('\n');
+            }
+            names.push(name);
+        }
+        assert!(names.windows(2).all(|pair| pair[0] < pair[1]));
+        let restored = crate::profiles::toml_bridge::parse_library_toml(&document).expect("parse");
+        assert_eq!(restored, library);
     }
 
     #[test]
