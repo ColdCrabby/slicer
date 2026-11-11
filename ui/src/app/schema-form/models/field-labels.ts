@@ -281,7 +281,7 @@ export const ENUM_LABELS: Record<string, string> = {
   // GcodeFlavor
   marlin: 'Marlin',
   klipper: 'Klipper',
-  reprap: 'RepRap',
+  reprapfirmware: 'RepRapFirmware',
   // AdhesionType
   none: 'None',
   skirt: 'Skirt',

@@ -136,7 +136,7 @@ pub struct FanConfig {
     /// e.g. `"rscs"`, `"side_blast"`, or any `[fan]`/`[fan_generic]` name
     /// defined in your `printer.cfg`.
     ///
-    /// Ignored by Marlin/RepRap firmware — those use `fan_index` exclusively.
+    /// Ignored by Marlin and RepRapFirmware — those use `fan_index` exclusively.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Optional Klipper fan object name override (e.g. 'rscs', 'side_blast'). Overrides the default name derived from fan_index."
@@ -493,9 +493,10 @@ impl PrintSequence {
 /// hands the mesh step to the slicer instead, so it survives across different
 /// custom start scripts without being hand-copied into each one.
 ///
-/// `LoadProfile` emits Klipper `BED_MESH_PROFILE LOAD=<name>` or Marlin/RepRap
-/// `M420 S1`; `Calibrate` emits `BED_MESH_CALIBRATE` / `G29` and then loads the
-/// result.
+/// `LoadProfile` emits Klipper `BED_MESH_PROFILE LOAD=<name>`, Marlin `M420 S1`
+/// or RepRapFirmware `G29 S1`; `Calibrate` emits `BED_MESH_CALIBRATE`, Marlin
+/// `G29` + `M420 S1` or RepRapFirmware `G29 S0`, each of which probes and then
+/// uses the result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BedMeshMode {
@@ -1735,7 +1736,8 @@ shows, so it skips the cycle.
 
 Compensates for filament that oozed away during the travel by depositing a
 little extra material on restart. In firmware retraction mode this is forwarded
-to the firmware (`M208`/`SET_RETRACTION`).
+to the firmware (`M208` on Marlin, `M207 R` on RepRapFirmware, `SET_RETRACTION`
+on Klipper).
 **Typical:** 0.0–0.2 mm. Set to `0` to disable.", extend("x-group" = "Retraction", "x-unit" = "mm", "x-step" = 0.01, "x-tier" = "expert"))]
     #[serde(default = "SlicingParams::default_retract_restart_extra_mm")]
     pub retract_restart_extra_mm: f64,
@@ -1756,7 +1758,8 @@ lifting and travelling to the first path of the next layer.
 
 Delegates retraction to the printer firmware. The slicer emits `G10`/`G11` and
 syncs the firmware's retraction length, speed and restart-extra from the
-retraction settings (`M207`/`M208` on Marlin, `SET_RETRACTION` on Klipper).
+retraction settings (`M207`/`M208` on Marlin, `M207` on RepRapFirmware,
+`SET_RETRACTION` on Klipper).
 Requires firmware retraction support (`[firmware_retraction]` on Klipper).
 **Recommended:** off unless your firmware is configured for it.",
         extend("x-group" = "Retraction", "x-tier" = "advanced")
@@ -1879,7 +1882,7 @@ Larger values print curves as visible flat facets.
     pub path_tolerance: f64,
 
     #[schemars(
-        description = "G-code firmware flavor for the target printer.\n\nSupported values:\n- `marlin` — Marlin firmware (widely compatible)\n- `klipper` — Klipper firmware (macro-based)",
+        description = "The firmware the printer runs, which decides the commands the G-code speaks.\n\nPausing, mesh leveling, pressure advance, fan speeds and motion limits are each spelled differently by Marlin, Klipper and RepRapFirmware (Duet, RRF), and some of one firmware's commands do something else entirely on another — so match this to the printer.",
         extend("x-group" = "Output")
     )]
     #[serde(default = "SlicingParams::default_gcode_flavor")]
@@ -1891,7 +1894,8 @@ Larger values print curves as visible flat facets.
 Each trigger fires once, immediately after the layer-change block for the
 layer it targets (see `at_layer`/`at_z`), before that layer's geometry is
 emitted. The firmware command emitted for `pause`/`color_change` depends on
-`gcode_flavor` (Marlin: `M0`/`M600`; Klipper: `PAUSE`/macro; RepRap: `M226`).",
+`gcode_flavor` (Marlin: `M0`/`M600`; Klipper: `PAUSE`/macro; RepRapFirmware:
+`M226`/`M600`).",
         extend("x-group" = "Output", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_triggers")]
@@ -2082,7 +2086,7 @@ time so printer front-ends can render a swatch for the file. Empty = omit the li
     pub filament_color: String,
 
     #[schemars(
-        description = "Linear/pressure advance factor (Klipper `SET_PRESSURE_ADVANCE`, Marlin `M900 K`).
+        description = "Linear/pressure advance factor (Klipper `SET_PRESSURE_ADVANCE`, Marlin `M900 K`, RepRapFirmware `M572`).
 
 `0` disables. Compensates for pressure lag at corners.
 **Typical:** 0.02–0.08.",
@@ -2228,7 +2232,7 @@ A hard travel stop leaves the toolhead ringing, and the outer wall that starts r
     #[schemars(
         description = "Square-corner velocity in mm/s — the speed the head keeps through a 90° corner (junction-deviation cornering). `0` = use the estimator/firmware default (5 mm/s).
 
-Higher values corner faster (shorter prints, more ringing); lower values slow into corners for cleaner edges. When set, the slicer emits the firmware limit (Klipper `SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=…`, Marlin `M205 J…` junction deviation) and the print-time estimate uses the same value, so the ETA tracks reality.
+Higher values corner faster (shorter prints, more ringing); lower values slow into corners for cleaner edges. When set, the slicer emits the firmware limit (Klipper `SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=…`, Marlin `M205 J…` junction deviation, RepRapFirmware `M205 X… Y…` jerk) and the print-time estimate uses the same value, so the ETA tracks reality.
 **Typical:** 5–10.",
         extend("x-group" = "Speed", "x-unit" = "mm_s", "x-step" = 1, "x-tier" = "expert")
     )]
@@ -2238,7 +2242,7 @@ Higher values corner faster (shorter prints, more ringing); lower values slow in
     #[schemars(
         description = "Maximum travel/print velocity cap in mm/s. `0` = unlimited (no cap).
 
-The machine's top speed: any role feedrate above this is clamped by the firmware, so the estimate honors it too. When set, the slicer emits the firmware limit (Klipper `SET_VELOCITY_LIMIT VELOCITY=…`, Marlin `M203 X… Y…`).
+The machine's top speed: any role feedrate above this is clamped by the firmware, so the estimate honors it too. When set, the slicer emits the firmware limit (Klipper `SET_VELOCITY_LIMIT VELOCITY=…`, Marlin `M203 X… Y…`, RepRapFirmware `M203` in mm/min).
 **Typical:** 150–500.",
         extend("x-group" = "Speed", "x-unit" = "mm_s", "x-tier" = "expert")
     )]
@@ -2819,7 +2823,8 @@ duplicate the work or race it.",
 
     #[schemars(
         description = "Named mesh profile to load, e.g. Klipper's `SAVE_CONFIG`-persisted profile \
-                       name. `null` = the printer's default/active profile.",
+                       name, or a RepRapFirmware height-map file (`.csv` is added when the name \
+                       has no extension). `null` = the printer's default/active profile.",
         extend("x-group" = "Hardware", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "bed_mesh_mode", "equals": "load_profile"}))
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2828,7 +2833,9 @@ duplicate the work or race it.",
     #[schemars(
         description = "Bound the recalibration area to the print's XY footprint instead of the \
                        full bed, where the firmware supports it (Klipper `BED_MESH_CALIBRATE \
-                       AREA_MIN=.. AREA_MAX=..`). Skips probing points the print never covers.",
+                       AREA_MIN=.. AREA_MAX=..`, RepRapFirmware `M557`). Skips probing points the \
+                       print never covers. RepRapFirmware keeps that grid until it restarts, so a \
+                       later full-bed calibration probes the last footprint instead.",
         extend("x-group" = "Hardware", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "bed_mesh_mode", "equals": "calibrate"}))
     )]
     #[serde(default)]

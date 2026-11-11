@@ -45,7 +45,7 @@ estimated time and material, and gate a pipeline on it.
 | Flag | Does |
 | --- | --- |
 | `--layer-height` | Override layer height for this run |
-| `--gcode-flavor` | `marlin` or `klipper` |
+| `--gcode-flavor` | `marlin`, `klipper` or `reprapfirmware` |
 | `--start-print-gcode` / `--end-print-gcode` | A string, or a path to a file |
 | `--config` | Use an explicit project config instead of auto-discovery |
 | `--arrange` | Pack every input onto the bed |

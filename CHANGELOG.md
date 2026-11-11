@@ -39,6 +39,13 @@ on top of it.
 - **Search from the title bar** — a magnifier next to Help opens the palette on
   touch screens without a keyboard.
 
+### Added
+
+- **RepRapFirmware printers** — pick RepRapFirmware as a printer's firmware and
+  Duet machines get G-code in their own dialect: pauses that pause instead of
+  ending the print, height-map leveling, pressure advance, and fan and speed
+  limits in RRF's own units — plus a ready-made start and end preset.
+
 ### Changed
 
 - **Organic tree supports** — tuned with new branch angle and diameter settings

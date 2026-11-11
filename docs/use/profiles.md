@@ -70,6 +70,12 @@ slicer doesn't recognise leave the vendor and model blank for you to name.
 **Enter it manually.** Bed shape and size, nozzle, kinematics, firmware
 flavour, origin offset, and optionally a connection.
 
+The firmware flavour is **Marlin**, **Klipper** or **RepRapFirmware** (Duet
+boards). Pick the one your printer runs rather than the closest-sounding one:
+the three spell pauses, bed leveling, pressure advance and speed limits
+differently, and some commands mean something else entirely on another firmware
+— a Marlin pause, for instance, *ends* the print on RepRapFirmware.
+
 Some settings are on the printer rather than a print profile because they
 describe the *machine*, not the print:
 

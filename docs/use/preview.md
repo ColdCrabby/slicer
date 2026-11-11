@@ -87,8 +87,8 @@ pause happens at the start of that layer, before anything is printed on it, so
 set it to the first layer that would cover what you need to reach.
 
 The command sent depends on your printer's firmware (Marlin `M0` / `M600`,
-Klipper `PAUSE`, RepRap `M226`), and adding or removing a trigger means the model
-is re-sliced.
+Klipper `PAUSE`, RepRapFirmware `M226` / `M600`), and adding or removing a
+trigger means the model is re-sliced.
 
 ## Folding it away
 

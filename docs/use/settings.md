@@ -212,7 +212,7 @@ still reaches everything, and nothing is hidden from you at any level.
 | --- | --- |
 | **Hardware** | Nozzle diameter, bed size and shape, kinematics, gantry clearances, whether the firmware can cancel a single object |
 | **Retraction** | How far and how fast filament is pulled back on travel; Z-hop |
-| **Output** | G-code flavour (Marlin or Klipper), start and end scripts, lifecycle markers |
+| **Output** | G-code flavour (Marlin, Klipper or RepRapFirmware), start and end scripts, lifecycle markers |
 
 ### Filament
 

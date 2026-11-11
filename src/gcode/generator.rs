@@ -4,7 +4,7 @@ use std::borrow::Cow;
 
 use crate::core::SliceLayer;
 use crate::gcode::dialect::{GcodeDialect, WarnFn};
-use crate::gcode::dialects::{KlipperDialect, MarlinDialect, RepRapDialect};
+use crate::gcode::dialects::{KlipperDialect, MarlinDialect, RepRapFirmwareDialect};
 use crate::gcode::flavor::GcodeFlavor;
 use crate::gcode::stats::SliceStatistics;
 use crate::settings::params::{
@@ -585,7 +585,7 @@ pub(crate) fn render_script_placeholders(line: &str, params: &SlicingParams) -> 
 /// fan`) or mention the chamber in a comment, and matching those would silently
 /// disable chamber heating altogether — the exact failure the feature prevents.
 const CUSTOM_CHAMBER_TOKENS: &[&str] = &[
-    // RepRap / Marlin set + wait
+    // Marlin / RepRapFirmware set + wait
     "M141",
     "M191",
     // Macro argument: `START_PRINT … CHAMBER=50`
@@ -617,7 +617,15 @@ fn start_script_handles_chamber(script: &[String]) -> bool {
 /// A `START_PRINT` macro (or hand-written Marlin start script) that already
 /// probes/loads a mesh owns the whole job; emitting our own directive on top
 /// would probe twice or fight over which mesh ends up active.
-const CUSTOM_BED_MESH_TOKENS: &[&str] = &["BED_MESH_CALIBRATE", "BED_MESH_PROFILE", "G29", "M420"];
+///
+/// `M375` is RepRapFirmware's other spelling of `G29 S1` (load a height map).
+const CUSTOM_BED_MESH_TOKENS: &[&str] = &[
+    "BED_MESH_CALIBRATE",
+    "BED_MESH_PROFILE",
+    "G29",
+    "M420",
+    "M375",
+];
 
 /// Whether a custom start script already takes care of bed mesh leveling.
 fn start_script_handles_bed_mesh(script: &[String]) -> bool {
@@ -723,7 +731,7 @@ impl GcodeGenerator {
         let dialect: Box<dyn GcodeDialect> = match flavor {
             GcodeFlavor::Marlin => Box::new(MarlinDialect),
             GcodeFlavor::Klipper => Box::new(KlipperDialect),
-            GcodeFlavor::RepRap => Box::new(RepRapDialect),
+            GcodeFlavor::RepRapFirmware => Box::new(RepRapFirmwareDialect),
         };
         Self {
             dialect,
@@ -4561,11 +4569,11 @@ mod tests {
             "Klipper color change must call the M600 macro:\n{klipper}"
         );
 
-        params.gcode_flavor = GcodeFlavor::RepRap;
-        let reprap = generate_gcode_from_params(&three_layers(), &params);
+        params.gcode_flavor = GcodeFlavor::RepRapFirmware;
+        let rrf = generate_gcode_from_params(&three_layers(), &params);
         assert!(
-            reprap.contains("M226"),
-            "RepRap color change missing M226:\n{reprap}"
+            rrf.contains("M600 ; color change"),
+            "RepRapFirmware color change missing M600:\n{rrf}"
         );
     }
 
@@ -4580,11 +4588,56 @@ mod tests {
         params.gcode_flavor = GcodeFlavor::Marlin;
         assert!(generate_gcode_from_params(&three_layers(), &params).contains("M0"));
 
-        params.gcode_flavor = GcodeFlavor::RepRap;
-        assert!(generate_gcode_from_params(&three_layers(), &params).contains("M0"));
+        // `M0` inside a job ends it on RepRapFirmware, so its pause is `M226`.
+        params.gcode_flavor = GcodeFlavor::RepRapFirmware;
+        let rrf = generate_gcode_from_params(&three_layers(), &params);
+        assert!(rrf.contains("M226 ; pause"), "{rrf}");
+        assert!(!rrf.lines().any(|l| l.starts_with("M0")), "{rrf}");
 
         params.gcode_flavor = GcodeFlavor::Klipper;
         assert!(generate_gcode_from_params(&three_layers(), &params).contains("PAUSE"));
+    }
+
+    /// The whole program, not just the dialect methods: with every feature that
+    /// has a Marlin-only form switched on, none of those forms reaches a
+    /// RepRapFirmware file — each one is accepted there and does something else.
+    #[test]
+    fn reprapfirmware_program_carries_no_marlin_only_commands() {
+        let params = SlicingParams {
+            gcode_flavor: GcodeFlavor::RepRapFirmware,
+            pressure_advance: 0.04,
+            max_velocity: 250.0,
+            square_corner_velocity: 6.0,
+            use_firmware_retraction: true,
+            bed_mesh_mode: BedMeshMode::LoadProfile,
+            triggers: vec![trigger(
+                TriggerPosition::AtLayer { layer: 1 },
+                TriggerAction::Pause,
+            )],
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode_from_params(&three_layers(), &params);
+
+        for line in gcode.lines() {
+            let command = line.split([' ', ';']).next().unwrap_or_default();
+            assert!(
+                !["M0", "M84", "M107", "M208", "M420", "M900"].contains(&command),
+                "Marlin-only `{command}` in RepRapFirmware output: {line}"
+            );
+            assert!(!line.starts_with("M205 J"), "junction deviation: {line}");
+        }
+        for expected in [
+            "T0 ",
+            "M116 ",
+            "M572 D0 S0.0400",
+            "M203 X15000 Y15000",
+            "M205 X6.00 Y6.00",
+            "M207 S",
+            "G29 S1 ",
+            "M226 ; pause",
+        ] {
+            assert!(gcode.contains(expected), "missing `{expected}`:\n{gcode}");
+        }
     }
 
     #[test]
@@ -4696,12 +4749,13 @@ mod tests {
             GcodeFlavor::Klipper
         );
         assert_eq!(
-            "reprap".parse::<GcodeFlavor>().unwrap(),
-            GcodeFlavor::RepRap
+            "reprapfirmware".parse::<GcodeFlavor>().unwrap(),
+            GcodeFlavor::RepRapFirmware
         );
+        // The token before it was spelled out keeps working.
         assert_eq!(
             "RepRap".parse::<GcodeFlavor>().unwrap(),
-            GcodeFlavor::RepRap
+            GcodeFlavor::RepRapFirmware
         );
     }
 
@@ -4710,7 +4764,7 @@ mod tests {
         let err = "bogus".parse::<GcodeFlavor>().unwrap_err();
         assert!(err.contains("bogus"), "error should mention the bad value");
         assert!(
-            err.contains("marlin") && err.contains("klipper") && err.contains("reprap"),
+            err.contains("marlin") && err.contains("klipper") && err.contains("reprapfirmware"),
             "error should list supported flavors"
         );
     }
@@ -4719,7 +4773,7 @@ mod tests {
     fn test_gcode_flavor_display() {
         assert_eq!(GcodeFlavor::Marlin.to_string(), "marlin");
         assert_eq!(GcodeFlavor::Klipper.to_string(), "klipper");
-        assert_eq!(GcodeFlavor::RepRap.to_string(), "reprap");
+        assert_eq!(GcodeFlavor::RepRapFirmware.to_string(), "reprapfirmware");
     }
 
     #[test]

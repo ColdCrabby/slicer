@@ -315,6 +315,16 @@ fn execute_set(args: &SetArgs) -> Result<(), Box<dyn std::error::Error>> {
     let parsed_value: Value =
         serde_json::from_str(&args.value).unwrap_or_else(|_| Value::String(args.value.clone()));
 
+    // A flavor we only approximate is refused with the nearest one named, rather
+    // than dropped by the TOML write below without a word.
+    if args.key.strip_prefix("params.").unwrap_or(&args.key) == "gcode_flavor" {
+        if let Some(flavor) = parsed_value.as_str() {
+            flavor
+                .parse::<crate::gcode::GcodeFlavor>()
+                .map_err(|e| format!("Invalid gcode_flavor: {}", e))?;
+        }
+    }
+
     // Persist the change to TOML
     persist_setting_to_toml(&args.key, &parsed_value)?;
 

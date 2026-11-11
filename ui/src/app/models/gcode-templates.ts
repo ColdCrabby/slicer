@@ -31,8 +31,9 @@ export interface GcodeTemplate {
  * The generated presets, narrowed once here.
  *
  * A JSON import widens every string literal, so `flavor` arrives as `string`
- * rather than the union. The closed set is guaranteed on the engine side by the
- * `TemplateFlavor` enum, so this is the one place that has to say so.
+ * rather than the union. The closed set is guaranteed on the engine side, where
+ * a template's flavor is a `GcodeFlavor`, so this is the one place that has to
+ * say so.
  */
 const presets = presetsJson as {
   readonly defaultTemplateId: string;

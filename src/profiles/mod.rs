@@ -62,7 +62,7 @@ pub mod wasm;
 
 pub use export::{export_library, ProfileExportArtifact, ProfileExportFormat};
 pub use filament::{material_density, FilamentMaterial, FilamentProfile};
-pub use gcode_templates::{GcodeTemplate, TemplateFlavor, GCODE_TEMPLATES};
+pub use gcode_templates::{GcodeTemplate, GCODE_TEMPLATES};
 pub use library::{Label, LabelTone, ProfileKind, ProfileLibrary};
 pub use meta::{ProfileMeta, ProfileSource};
 pub use printer::{BedShape, PrinterConnection, PrinterConnectionKind, PrinterProfile};
