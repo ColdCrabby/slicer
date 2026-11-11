@@ -52,7 +52,12 @@ function so the order is impossible to misread.
    re-ordering is a behaviour change, not a refactor.
 4. **`SliceLayer` is the sole carrier between phases.** Each phase reads from
    and writes back into the same `Vec<SliceLayer>`; nothing escapes to
-   global state.
+   global state. Geometry that genuinely has to pass *between* stages —
+   `interior_regions`, `slice_outlines`, `pre_strip_infill_regions`,
+   `overhang_support` — lives on
+   `SliceContext::artifacts` rather than in a local, which is what makes an
+   inserted stage able to read it. Several are only populated when their feature
+   is on, so a reader must cope with absence.
 5. **Object identity is added around the pipeline, never inside it.** A part
    knows nothing of its neighbours: [`objects.rs`](objects.rs) slices each one
    with the untouched pipeline and only then tags and interleaves the results.

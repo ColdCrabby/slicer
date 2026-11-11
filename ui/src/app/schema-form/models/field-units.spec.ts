@@ -170,7 +170,13 @@ describe('the engine schema', () => {
    * build-time defect, caught by whoever added the field.
    */
   it('has a curated label for every parameter', () => {
-    const unnamed = fields.filter((f) => !(f.key in FIELD_LABELS)).map((f) => f.key);
+    // A plugin names its own settings: its schema fragment carries a `title`
+    // for each, which the parser reads before this table. Holding plugin
+    // fields to that instead keeps the engine's table free of entries for
+    // features it does not own.
+    const unnamed = fields
+      .filter((f) => (f.key.startsWith('plugins.') ? f.title === f.key : !(f.key in FIELD_LABELS)))
+      .map((f) => f.key);
     expect(unnamed, `parameters with no entry in FIELD_LABELS: ${unnamed.join(', ')}`).toEqual([]);
   });
 
