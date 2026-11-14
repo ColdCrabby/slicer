@@ -11,7 +11,22 @@ verbatim as the body of each GitHub Release. See [RELEASING.md](RELEASING.md) fo
 the workflow that keeps those in sync.
 
 <!--
-Maintainers: keep an `## [Unreleased]
+Maintainers: keep an `## [Unreleased]` section at the top and add a short entry
+there for every user-visible change. Before a release it is always freshened up
+— rewritten short, enticing and useful to someone printing, not a list of how
+things were done — then renamed to `## [x.y.z] - YYYY-MM-DD` with a fresh empty
+`## [Unreleased]` above it. A release candidate (`x.y.z-rc.N`) shows that
+section; it never gets one of its own. The `release` skill (say "prepare a
+release") runs the whole flow, and RELEASING.md describes it.
+
+Style: one or two tight lines per entry with a bold **Feature name** lead,
+biggest change first, `#### Theme` groups when a category runs long, and never
+issue/PR numbers or repo links. Each GitHub Release links every commit
+automatically — never list them here; this file ships inside the app.
+See the tone rules in .claude/skills/release/SKILL.md for the full voice.
+-->
+
+## [Unreleased]
 
 ## [0.7.0] - 2026-11-07
 
