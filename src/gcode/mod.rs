@@ -35,6 +35,7 @@ pub mod dialect;
 pub mod dialects;
 pub mod flavor;
 pub mod generator;
+pub mod ir;
 pub mod simplify;
 pub mod source;
 pub mod stats;
@@ -47,5 +48,6 @@ pub use flavor::GcodeFlavor;
 pub use generator::{
     generate_gcode, generate_gcode_for_plate, generate_gcode_from_params, GcodeGenerator,
 };
+pub use ir::{Move, MoveFilter, MoveProgram};
 pub use source::resolve_gcode_source;
 pub use stats::SliceStatistics;
