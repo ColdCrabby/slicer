@@ -11,7 +11,7 @@
     "devDependencies": {
         "@types/node": "^26.6.6",
         "mermaid": "^12.3.0",
-        "sass": "^1.108.1",
+        "sass": "^1.108.2",
         "vitepress": "^1.6.3",
         "vitepress-plugin-mermaid": "^2.0.17"
     }
